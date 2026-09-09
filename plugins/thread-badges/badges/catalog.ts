@@ -27,6 +27,11 @@ export function enabledKey(id: string): string {
   return `show_${id}`;
 }
 
+/** The number that decides which enabled badges get the visible slots. */
+export function priorityKey(id: string): string {
+  return `${id}_priority`;
+}
+
 export const BADGE_TYPES: readonly BadgeType[] = [
   {
     id: "pullRequest",
@@ -88,6 +93,54 @@ export const BADGE_TYPES: readonly BadgeType[] = [
 ];
 
 export type BadgeSettings = Readonly<Record<string, string | number | boolean>>;
+
+/**
+ * How many badges a row draws before the rest are dropped.
+ *
+ * A sidebar row is ~260px wide and already holds a title, a preview line and
+ * the sidebar's own trailing controls; at ~14px a badge, three is busy and
+ * four starts truncating titles. So the cap ships at two and the priorities
+ * below decide which two, rather than the row quietly getting narrower as
+ * badge types are added.
+ */
+export const MAX_BADGES_KEY = "max_badges";
+export const DEFAULT_MAX_BADGES = 2;
+/** Above this the cap stops meaning anything: every type could show at once. */
+export const MAX_BADGES_LIMIT = BADGE_TYPES.length;
+
+/** Its catalog position, so untouched settings keep the order written here. */
+export function defaultPriority(id: string): number {
+  const index = BADGE_TYPES.findIndex((type) => type.id === id);
+  return (index === -1 ? BADGE_TYPES.length : index) + 1;
+}
+
+export function maxBadges(values: BadgeSettings | undefined): number {
+  const value = values?.[MAX_BADGES_KEY];
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_MAX_BADGES;
+  // Clamped rather than rejected: a stored 0 or 99 should still draw a
+  // sensible row, and settings can be written from outside this plugin.
+  return Math.min(Math.max(Math.round(value), 1), MAX_BADGES_LIMIT);
+}
+
+function priorityOf(values: BadgeSettings | undefined, id: string): number {
+  const value = values?.[priorityKey(id)];
+  return typeof value === "number" && Number.isFinite(value) ? value : defaultPriority(id);
+}
+
+/**
+ * The enabled badge types, most wanted first.
+ *
+ * This is the whole of "which badge wins": a row renders them in this order
+ * and the cap hides whatever falls past it, so the badge dropped from a busy
+ * row is the last one here. Ties keep catalog order, which is what makes a
+ * half-configured set of priorities stable rather than arbitrary.
+ */
+export function orderedBadgeTypes(values: BadgeSettings | undefined): readonly BadgeType[] {
+  return BADGE_TYPES.filter((type) => isEnabled(values, type.id))
+    .map((type, index) => ({ index, priority: priorityOf(values, type.id), type }))
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)
+    .map((entry) => entry.type);
+}
 
 export function isEnabled(values: BadgeSettings | undefined, id: string): boolean {
   const value = values?.[enabledKey(id)];

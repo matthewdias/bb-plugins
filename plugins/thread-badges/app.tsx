@@ -11,10 +11,15 @@
 //
 // Nothing in this file knows what a badge means. It owns mount points and
 // ordering; ./badges owns what is drawn.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { definePluginApp, useSettings } from "@get-bb/plugin-sdk/app";
-import { BADGE_TYPES, isEnabled, type BadgeSettings } from "./badges/catalog";
+import {
+  maxBadges,
+  orderedBadgeTypes,
+  type BadgeSettings,
+  type BadgeType,
+} from "./badges/catalog";
 import { BADGE_COMPONENTS } from "./badges/components";
 
 /**
@@ -37,6 +42,35 @@ function insertionPoint(row: HTMLElement, own: HTMLElement): Element | null {
 
 const ROW_SELECTOR = "a[data-sidebar-thread-id]";
 const SLOT_ATTRIBUTE = "data-thread-badges-for";
+const CAP_STYLE_ID = "thread-badges-cap";
+
+/**
+ * Enforce the per-row cap in CSS rather than by rendering fewer badges.
+ *
+ * A badge decides for itself whether it has anything to say — it returns null
+ * when it does not — and only it can know that. Nothing upstream can count the
+ * badges that *would* draw without rendering them first, so the row renders
+ * them all, in priority order, and this hides everything past the cap. Because
+ * a silent badge contributes no element, `nth-child` counts exactly the ones
+ * that had something to show, which is the count the cap is about.
+ *
+ * `!important` is not decoration: every badge sets `display` inline, and an
+ * inline style beats a stylesheet rule without it.
+ */
+function useBadgeCap(max: number): void {
+  useEffect(() => {
+    let style = document.getElementById(CAP_STYLE_ID) as HTMLStyleElement | null;
+    if (style === null) {
+      style = document.createElement("style");
+      style.id = CAP_STYLE_ID;
+      document.head.append(style);
+    }
+    style.textContent = `[${SLOT_ATTRIBUTE}] > *:nth-child(n + ${max + 1}) { display: none !important; }`;
+    return () => {
+      style?.remove();
+    };
+  }, [max]);
+}
 
 /**
  * Pulls a badge back over the empty part of the trailing column, which is a
@@ -76,18 +110,20 @@ function useFocusRevision(): number {
 }
 
 function RowBadges({
+  badges,
   threadId,
   values,
   revision,
 }: {
+  /** Enabled types, already in priority order; the cap hides the tail. */
+  badges: readonly BadgeType[];
   threadId: string;
   values: BadgeSettings;
   revision: number;
 }) {
   return (
     <>
-      {BADGE_TYPES.map((badge) => {
-        if (!isEnabled(values, badge.id)) return null;
+      {badges.map((badge) => {
         const Badge = BADGE_COMPONENTS[badge.id];
         if (Badge === undefined) return null;
         return (
@@ -186,11 +222,20 @@ function SidebarBadges() {
 
   const values: BadgeSettings = settings.values ?? {};
   const revision = useFocusRevision();
+  // Sorted once per settings change rather than once per row: this list is the
+  // same for every row and there is one row per visible thread.
+  const badges = useMemo(() => orderedBadgeTypes(values), [values]);
+  useBadgeCap(maxBadges(values));
   return (
     <>
       {slots.map(({ threadId, node }) =>
         createPortal(
-          <RowBadges revision={revision} threadId={threadId} values={values} />,
+          <RowBadges
+            badges={badges}
+            revision={revision}
+            threadId={threadId}
+            values={values}
+          />,
           node,
           threadId,
         ),

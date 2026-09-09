@@ -99,18 +99,41 @@ options.
 
 | | Default |
 | --- | --- |
+| Badges per row | 2 |
 | Pull requests | on |
+| … priority | 1 |
 | … show the number beside the glyph | off |
 | … hide merged and closed pull requests | off |
 | Pull request checks | on |
+| … priority | 2 |
 | … keep the tick on ready-to-merge pull requests | off |
 | … narrow to problems only | off |
 | Follow-ups | on |
+| … priority | 3 |
 | … show how many are still open beside the ring | off |
 | … hide the ring once everything is done | off |
 
 "Problems only" drops *checks running* and *review requested*, so the badge
 speaks only when someone has to fix something.
+
+### How many badges a row shows
+
+A sidebar row is around 260px wide and already carries a title, a preview line
+and the sidebar's own trailing controls. At roughly 14px a badge, three is busy
+and four starts truncating titles — so a row draws at most **two** badges by
+default, however many types are switched on. Raise *Badges per row* to 3 if you
+want every enabled type on every row.
+
+The cap only bites on rows where more badges than that have something to say; a
+thread with one open pull request and no follow-ups still shows one badge. When
+it does bite, the lowest *priority* numbers win the slots and the rest are
+dropped for that row. Priorities default to the order the types are listed
+above, so out of the box a row with all three in play shows the pull request and
+its checks, and drops the follow-up ring. Give follow-ups priority 1 to flip
+that.
+
+Two types may share a priority number; ties fall back to catalog order, so a
+half-configured set of priorities still draws a stable row.
 
 ## Adding a badge type
 
@@ -127,8 +150,17 @@ Two edits, no changes to the host:
    on it if your source cannot push, and ignore it if bb already owns the
    staleness.
 
-Badges render in catalog order, left to right. A component runs once per visible
-row, so keep it cheap, and do not assume it is the only badge there.
+Badges render in priority order, left to right, and each type's priority
+defaults to its catalog position — so a new type lands last and, with the
+default cap of two, will not displace an existing badge until someone gives it a
+lower number.
+
+A component runs once per visible row, so keep it cheap, and do not assume it is
+the only badge there — or that it is visible, since the per-row cap hides
+anything past the limit. That cap is CSS (`nth-child` on the row's slot), which
+works because a badge with nothing to say renders no element at all; render
+exactly one element when you do have something, or you will spend two of the
+row's slots.
 
 Style it inline. A plugin's compiled stylesheet is scoped to that plugin's own
 subtree, and a badge is portaled into a row outside it, so Tailwind classes on a
