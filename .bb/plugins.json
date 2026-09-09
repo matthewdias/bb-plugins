@@ -1,0 +1,10 @@
+{
+  "$schema": "https://getbb.app/schemas/plugins.schema.json",
+  "schemaVersion": 1,
+  "name": "matthewdias-bb-plugins",
+  "plugins": [
+    { "name": "follow-up", "source": "./plugins/follow-up" },
+    { "name": "thread-badges", "source": "./plugins/thread-badges" },
+    { "name": "workflow-stages", "source": "./plugins/workflow-stages" }
+  ]
+}

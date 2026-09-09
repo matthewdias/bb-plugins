@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # `bb plugin build` is deliberately absent: it needs the bb CLI, which is
+      # not installable on a GitHub runner. Builds are verified locally with
+      # `npm run check`.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Subdirectory install
+        # bb installs one plugin directory at a time and runs `npm install
+        # --omit=dev` inside it. A dependency that only resolves through the
+        # workspace root would pass every check above and still be missing for
+        # a real user, so prove each plugin installs standalone.
+        run: |
+          for slug in follow-up thread-badges workflow-stages; do
+            work="$(mktemp -d)"
+            cp -R "plugins/$slug" "$work/$slug"
+            rm -rf "$work/$slug/node_modules" "$work/$slug/dist"
+            ( cd "$work/$slug" && npm install --omit=dev --no-audit --no-fund )
+          done

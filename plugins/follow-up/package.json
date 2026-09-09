@@ -1,0 +1,68 @@
+{
+  "name": "bb-plugin-follow-up",
+  "version": "0.3.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "bb-plugin",
+    "follow-ups",
+    "agent-tools",
+    "triage",
+    "threads",
+    "composer",
+    "tasks"
+  ],
+  "homepage": "https://github.com/matthewdias/bb-plugins/tree/main/plugins/follow-up#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matthewdias/bb-plugins.git",
+    "directory": "plugins/follow-up"
+  },
+  "bugs": {
+    "url": "https://github.com/matthewdias/bb-plugins/issues"
+  },
+  "engines": {
+    "bb": ">=0.36",
+    "bbPluginSdk": ">=0.4.47"
+  },
+  "bb": {
+    "name": "Follow Up",
+    "description": "Keeps the work an agent noticed but skipped, so nothing is lost when a turn ends. Triage what a thread accumulated above the composer.",
+    "branding": {
+      "icon": "TextWrap"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": []
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/modifiers": "^9.0.0",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@hugeicons/core-free-icons": "^4.1.3",
+    "@hugeicons/react": "^1.1.6",
+    "@radix-ui/react-slot": "^1.3.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.4.47",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "better-sqlite3": "^12.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "hono": "^4.11.9",
+    "tailwind-merge": "^3.4.0",
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/followups.test.ts",
+    "build": "bb plugin build",
+    "dev": "bb plugin dev ."
+  }
+}
