@@ -1,5 +1,7 @@
 # bb-plugins
 
+[![CI](https://github.com/matthewdias/bb-plugins/actions/workflows/ci.yml/badge.svg)](https://github.com/matthewdias/bb-plugins/actions/workflows/ci.yml)
+
 Three plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
 
 | Plugin | |
