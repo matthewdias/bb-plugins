@@ -39,6 +39,14 @@ const ROW_SELECTOR = "a[data-sidebar-thread-id]";
 const SLOT_ATTRIBUTE = "data-thread-badges-for";
 
 /**
+ * Pulls a badge back over the empty part of the trailing column, which is a
+ * 28px hit target around a 16px indicator: six of its pixels always sit
+ * between the two, on top of the row's own 8px gap. Cancelling them leaves one
+ * row gap between the badge and the glyph it is read beside.
+ */
+const TRAILING_SLACK = "-6px";
+
+/**
  * Bumped when the window comes back, at most once every ten seconds. A plugin
  * cannot hear another plugin's realtime signals, so a badge reading someone
  * else's state has no push to listen to; coming back to the window is the
@@ -133,7 +141,7 @@ function SidebarBadges() {
           // Inline, not a class: this node is built outside JSX, so the CSS
           // build never sees it and would not emit the utilities.
           node.style.cssText =
-            "position:relative;z-index:20;display:inline-flex;flex:none;align-items:center;gap:4px;margin-right:4px";
+            "position:relative;z-index:20;display:inline-flex;flex:none;align-items:center;gap:4px";
           nodes.set(threadId, node);
           changed = true;
         }
@@ -143,6 +151,7 @@ function SidebarBadges() {
         if (node.parentElement !== row || node.nextElementSibling !== before) {
           row.insertBefore(node, before);
         }
+        node.style.marginRight = before === null ? "4px" : TRAILING_SLACK;
       }
       for (const [threadId, node] of nodes) {
         if (seen.has(threadId)) continue;
