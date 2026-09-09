@@ -19,6 +19,10 @@
     "typecheck": "npm run --workspaces --if-present typecheck",
     "test": "npm run --workspaces --if-present test",
     "build": "npm run --workspaces --if-present build",
-    "check": "npm run typecheck && npm run test && npm run build"
+    "check": "npm run typecheck && npm run test && npm run build",
+    "bb": "node scripts/bb-dev.mjs",
+    "plugins": "node scripts/bb-dev.mjs status",
+    "link": "node scripts/bb-dev.mjs link",
+    "release": "node scripts/bb-dev.mjs release"
   }
 }
