@@ -23,21 +23,58 @@ import {
 import { BADGE_COMPONENTS } from "./badges/components";
 
 /**
- * Where a badge goes: before the row's trailing controls — the column holding
- * the activity indicator and, on hover, the actions menu — so badges never sit
- * outside them. Rows without that column take badges at the end, which is what
- * a null return means to `insertBefore`.
+ * The column a sidebar pads on hover to clear room for the row's actions.
+ *
+ * bb's own CSS owns this: a row is `.bb-sidebar-hover-actions-row`, its actions
+ * fade in over the trailing end, and the column marked
+ * `.bb-sidebar-hover-actions-inset` takes `padding-right: 1.5rem` for as long
+ * as the row is hovered or its menu is open. That padding is the sidebar
+ * stating, in its own units, how much of the row's right edge it is about to
+ * need — so a badge that lives inside that column is moved out of the way by
+ * the sidebar itself, in whatever amount it decides, rather than by a number
+ * measured here that goes stale the moment it adds a button.
+ *
+ * bb's native rows carry it. Ribbon's do not: its actions button replaces the
+ * indicator inside the same 28px box, so it clears nothing and needs nothing.
  */
-function insertionPoint(row: HTMLElement, own: HTMLElement): Element | null {
+const INSET_SELECTOR = ":scope > .bb-sidebar-hover-actions-inset";
+
+/** The trailing controls: the activity indicator, and the actions on hover. */
+function trailingColumn(row: HTMLElement, own: HTMLElement): Element | null {
   const siblings = Array.from(row.children).filter((child) => child !== own);
   const last = siblings[siblings.length - 1];
   if (last === undefined) return null;
-  // The title column grows; anything after it is trailing chrome. Never insert
-  // ahead of the title itself.
+  // The title column grows; anything after it is trailing chrome. Never treat
+  // the title itself — or the row-covering link — as trailing.
   if (last.classList.contains("flex-1") || last.hasAttribute("data-sidebar-thread-id")) {
     return null;
   }
   return last;
+}
+
+interface Placement {
+  parent: Element;
+  /** `null` appends, which is what `insertBefore` does with it. */
+  before: Element | null;
+  /** Right-align within a column that is wider than its contents. */
+  push: boolean;
+}
+
+/**
+ * Where a badge goes.
+ *
+ * Inside the hover-inset column when the sidebar publishes one, pushed to its
+ * right end so it still reads as trailing the row; otherwise immediately
+ * before the trailing controls, where it sat before any sidebar told us
+ * different. Both land the badge in the same place at rest — the difference is
+ * only that the first one moves aside on hover and the second has nothing to
+ * move aside for.
+ */
+function placement(row: HTMLElement, own: HTMLElement): Placement {
+  // `:scope >` keeps this to the row's own column, never a nested row's.
+  const inset = row.querySelector(INSET_SELECTOR);
+  if (inset !== null) return { before: null, parent: inset, push: true };
+  return { before: trailingColumn(row, own), parent: row, push: false };
 }
 
 const ROW_SELECTOR = "a[data-sidebar-thread-id]";
@@ -183,11 +220,16 @@ function SidebarBadges() {
         }
         // Re-place rather than re-create when a row re-renders around it: the
         // portal keeps working as long as this is the same node.
-        const before = insertionPoint(row, node);
-        if (node.parentElement !== row || node.nextElementSibling !== before) {
-          row.insertBefore(node, before);
+        const { parent, before, push } = placement(row, node);
+        if (node.parentElement !== parent || node.nextElementSibling !== before) {
+          parent.insertBefore(node, before);
         }
-        node.style.marginRight = before === null ? "4px" : TRAILING_SLACK;
+        node.style.marginLeft = push ? "auto" : "";
+        // The slack is about the gap to the indicator, which is there whenever
+        // a trailing column is — including from inside the inset column, where
+        // the badge is the last thing before it.
+        const trailing = push ? trailingColumn(row, node) : before;
+        node.style.marginRight = trailing === null ? "4px" : TRAILING_SLACK;
       }
       for (const [threadId, node] of nodes) {
         if (seen.has(threadId)) continue;
