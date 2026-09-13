@@ -70,12 +70,26 @@ Configured in the same editor:
 | Trigger | Default |
 | --- | --- |
 | A thread with no placement | Inbox |
+| A message asks for a plan | Planning |
 | A turn starts | off |
 | Work stops | off |
 | A question, an approval, or a failed turn | off |
 
 "Work stops" only undoes the move "a turn starts" made, so a thread you filed by
 hand while it was running stays filed. Every automatic move skips sticky stages.
+
+"A message asks for a plan" is the one that ships **on**, because it is the one
+trigger the agent cannot answer for itself. Filing is otherwise the agent's job:
+it reads the stage table below and runs `bb stages set`. In plan mode it may not
+— that is a mutating shell call, and plan mode is the one moment an agent is not
+allowed to make those — so a thread you started with `/plan` would sit in Inbox
+through the whole planning session and only get filed once the plan was
+approved, by which point the honest stage is Building.
+
+Detection is the composer's, not a string match: bb's plan action is a
+provider-declared slash command, and the send carries it as a structured mention
+rather than as text. So a message that merely *talks* about `/plan` is not one,
+and a provider that calls its plan action something else is still recognised.
 
 The last one ships off on purpose. A stage says where the work is; whether it
 needs you is a different axis, and Ribbon already draws that on the row itself.

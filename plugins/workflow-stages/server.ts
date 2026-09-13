@@ -9,7 +9,11 @@
 // plugin — `getGroupingCatalogV1` — plus the placement calls in ribbon.ts.
 // Nothing has to be registered with Ribbon, and nothing here replaces bb's
 // sidebar.
-import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
+import {
+  defineRpcContract,
+  type BbPluginApi,
+  type PluginDispatchInput,
+} from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { GLYPHS, GLYPH_NAMES, GROUPING_GLYPH } from "./icons";
 import {
@@ -179,6 +183,15 @@ export default async function plugin(bb: BbPluginApi) {
       const suffix = marks.length === 0 ? "" : ` (${marks.join(", ")})`;
       lines.push(`- ${stage.id} — ${stage.label}${suffix}: ${stage.description || "No rule set."}`);
     }
+    const planStage = config.planStageId === null ? null : store.get(config.planStageId);
+    if (planStage !== null) {
+      lines.push(
+        "",
+        `A message that asks for a plan files the thread under ${planStage.label} on its own,`,
+        "before you read this. Rule 1 is already satisfied there — leave it, and move it on",
+        "when the plan is agreed and you start building.",
+      );
+    }
     lines.push(
       "",
       "A stage marked user-only is the user's call: never file into or out of one —",
@@ -268,6 +281,90 @@ export default async function plugin(bb: BbPluginApi) {
       );
     }
   }
+
+  // ------------------------------------------------------------- plan mode
+
+  // Nothing on a thread says "this one is planning": no event carries it, and
+  // `ThreadResponse` has no field for it. The message does. bb's plan composer
+  // action is a provider-declared slash command, so a plan-mode send arrives
+  // as a text block whose leading mention is that command — which is why this
+  // hangs off the dispatch hook rather than off `bb.events`.
+  //
+  // The agent cannot file itself here even though the instructions ask it to:
+  // `bb stages set` is a mutating shell call, and plan mode is the one moment
+  // an agent is not allowed to make those. So the plugin does it instead.
+  const FALLBACK_PLAN_COMMANDS: ReadonlySet<string> = new Set(["plan"]);
+  let planCommands: ReadonlySet<string> = FALLBACK_PLAN_COMMANDS;
+  let planCommandsReadAt = 0;
+  /** Long enough that installing a provider mid-session is picked up. */
+  const PLAN_COMMAND_TTL_MS = 5 * 60 * 1000;
+
+  /**
+   * Ask each provider what it calls its plan action, so this recognises a
+   * provider that named it something other than "plan". Never awaited from the
+   * hook: the dispatch pass holds a server-wide lock, so it reads whatever the
+   * last refresh left and the first send of a session runs on the fallback.
+   */
+  async function refreshPlanCommands(): Promise<void> {
+    planCommandsReadAt = Date.now();
+    try {
+      const names = new Set(FALLBACK_PLAN_COMMANDS);
+      for (const provider of await bb.sdk.providers.list()) {
+        for (const action of provider.composerActions) {
+          if (action.kind === "plan") names.add(action.command.name);
+        }
+      }
+      planCommands = names;
+    } catch (cause) {
+      // Bind-gated before the server is listening, and a provider list is not
+      // worth failing a send over. The fallback still names Claude Code's.
+      bb.log.debug(
+        `plan command refresh skipped: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
+  }
+
+  /**
+   * A plan send, told from an ordinary one. The mention must open the message —
+   * the composer prepends the command — and be a command rather than a skill,
+   * so a skill that happens to be called "plan" does not file the thread.
+   */
+  function isPlanDispatch(input: PluginDispatchInput): boolean {
+    return input.blocks.some(
+      (block) =>
+        block.type === "text" &&
+        block.mentions.some(
+          (mention) =>
+            mention.start === 0 &&
+            mention.resource.kind === "command" &&
+            mention.resource.source === "command" &&
+            planCommands.has(mention.resource.name),
+        ),
+    );
+  }
+
+  bb.experimental_hooks.on("message.dispatch", (context) => {
+    // Fail-closed, time-boxed, and holding a lock every other send queues
+    // behind: decide synchronously, never throw, and let the move happen off
+    // the pass. The answer is always the same one — this hook watches, it does
+    // not gate. Re-running on a drain or a retry is harmless because moving a
+    // thread to the stage it is already in is a no-op.
+    try {
+      if (isPlanDispatch(context.input)) {
+        void automaticMove(context.thread.id, store.config().planStageId);
+      }
+      if (Date.now() - planCommandsReadAt > PLAN_COMMAND_TTL_MS) {
+        void refreshPlanCommands();
+      }
+    } catch (cause) {
+      bb.log.debug(
+        `plan filing skipped: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
+    return { action: "proceed" };
+  });
+
+  // ------------------------------------------------------------ transitions
 
   bb.events.on("thread.active", ({ thread }) => {
     void automaticMove(thread.id, store.config().activeStageId);

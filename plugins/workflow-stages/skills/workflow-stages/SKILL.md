@@ -38,6 +38,12 @@ yet, so the evidence rule below would say "wait" — and a whole planning sessio
 would pass with the thread sitting where nobody can see it was picked up. Decide
 from what you are about to do, not from what has happened.
 
+The exception is plan mode, which files itself. A message sent with the plan
+command moves its thread to the planning stage before you read anything, because
+you could not do it yourself there — `bb stages set` mutates, and plan mode
+forbids that. So in a plan-mode turn the first move is already made: leave it,
+and move the thread on when the plan is agreed and you start building.
+
 If no stage describes what you are about to do — a question, a code read, a
 chore that fits none of them — leave the thread in the default stage. That
 escape is for no stage fitting. It is not for being unsure which of two fits:
