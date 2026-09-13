@@ -38,6 +38,8 @@ export const configSchema = z
     idleStageId: z.string().nullable(),
     /** Entered when the agent asks a question or a turn fails. */
     attentionStageId: z.string().nullable(),
+    /** Entered when a message asks the provider for a plan. */
+    planStageId: z.string().nullable(),
   })
   .strict();
 export type WorkflowConfig = z.output<typeof configSchema>;
@@ -122,11 +124,18 @@ const SEED: ReadonlyArray<SeedStage> = [
 // already draws per row. Filing a question-asking thread back to the default
 // stage would undo the first move on every clarification, so the attention
 // bounce ships off and stays a setting for anyone who wants that queue.
+//
+// Plan mode is the exception that ships on. The other three read a thread's
+// runtime — busy, idle, waiting — and guess a workflow position from it, which
+// is why they are off by default. Asking for a plan is not a guess: the user
+// said what the next stretch of work is, and Planning is the stage that says
+// it back.
 const DEFAULT_CONFIG: WorkflowConfig = {
   defaultStageId: "inbox",
   activeStageId: null,
   idleStageId: null,
   attentionStageId: null,
+  planStageId: "planning",
 };
 
 /** A stored icon is only as trustworthy as whatever wrote it. */
@@ -218,6 +227,7 @@ export function createStageStore(database: BetterSqlite3.Database): StageStore {
       activeStageId: resolve("activeStageId", DEFAULT_CONFIG.activeStageId),
       idleStageId: resolve("idleStageId", DEFAULT_CONFIG.idleStageId),
       attentionStageId: resolve("attentionStageId", DEFAULT_CONFIG.attentionStageId),
+      planStageId: resolve("planStageId", DEFAULT_CONFIG.planStageId),
     };
   }
   function writeConfig(patch: Partial<WorkflowConfig>): WorkflowConfig {

@@ -25,6 +25,13 @@ turn needs you. Every automatic move skips sticky stages, and "work stops" only
 undoes the move "a turn starts" made, so a thread you filed by hand while it was
 running stays filed.
 
+One automatic move ships on: a message that asks for a plan files its thread
+under Planning. Filing is otherwise the agent's job, and plan mode is the one
+moment an agent may not do it — `bb stages set` is a mutating call, and plan
+mode forbids those — so without this a `/plan` thread sits unfiled for the whole
+planning session. It reads the composer's own command mention rather than the
+message text, so a thread that merely discusses `/plan` is not filed.
+
 ## How it works
 
 Ribbon owns the sidebar — rendering, drag-and-drop, manual order, and the stored

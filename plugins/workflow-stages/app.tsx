@@ -447,6 +447,15 @@ function WorkflowSettings() {
             {options(false)}
           </select>
         </Row>
+        <Row label="When a plan is asked for">
+          <select
+            className={cn(FIELD, "max-w-64")}
+            value={state.config.planStageId ?? ""}
+            onChange={(event) => configure({ planStageId: event.target.value || null })}
+          >
+            {options(true)}
+          </select>
+        </Row>
         <Row label="When a turn starts">
           <select
             className={cn(FIELD, "max-w-64")}
@@ -475,9 +484,11 @@ function WorkflowSettings() {
           </select>
         </Row>
         <p className="text-sm text-subtle-foreground">
-          A question, an approval, or a failed turn counts as needing you. Automatic moves skip
-          any stage marked <em>only the user files here</em>, and "when work stops" only undoes
-          the move "when a turn starts" made.
+          A plan is asked for when a message opens with your provider's plan command, which is
+          the one trigger the agent cannot answer itself. A question, an approval, or a failed
+          turn counts as needing you. Automatic moves skip any stage marked{" "}
+          <em>only the user files here</em>, and "when work stops" only undoes the move "when a
+          turn starts" made.
         </p>
       </div>
     </div>
