@@ -935,21 +935,30 @@ export function needsReview(row: FollowUp): boolean {
 /**
  * Is this thread cleared — worth offering something new, or archiving?
  *
- * Two terms, and the second is the one doing work. "No open rows" alone is also
- * true of every thread in bb that has never touched this plugin, and a card
- * above the composer of all of them is not an empty state, it is a nag. A
- * thread that never recorded a follow-up has genuinely nothing for this plugin
- * to say about what is left.
+ * "No open rows" alone is also true of every thread in bb that has never
+ * touched this plugin, and a card above the composer of all of them is not an
+ * empty state, it is a nag. So by default a second term has to agree: a thread
+ * that never recorded a follow-up has genuinely nothing for this plugin to say
+ * about what is left.
  *
  * `everRecorded` is the caller's to supply because it outlives the rows: see
  * `readEverRecorded` in server.ts, which keeps saying yes after Clear Done has
  * dropped the evidence.
+ *
+ * `offerOnEveryThread` is the "Offer the empty state on every thread" setting,
+ * off by default, and it lifts that second term rather than replacing it. The
+ * nag argument above is why it is a choice and not the default — but it is a
+ * defensible one to make, and the card is the only route to *Suggest what's
+ * next* on a thread that never tracked anything. What it cannot do is widen the
+ * first term: a thread with open rows has a list to show and is not cleared,
+ * whatever the setting says.
  */
 export function isCleared(
   rows: readonly FollowUp[],
   everRecorded: boolean,
+  offerOnEveryThread: boolean,
 ): boolean {
-  return everRecorded && rows.length === 0;
+  return rows.length === 0 && (everRecorded || offerOnEveryThread);
 }
 
 /**

@@ -735,19 +735,34 @@ test("every reason other than the hidden one still counts", () => {
 });
 
 test("a thread with no open rows is cleared once it has recorded something", () => {
-  assert.equal(isCleared([], true), true);
+  assert.equal(isCleared([], true, false), true);
 });
 
-// The term the whole gate exists for. Drop `everRecorded` from isCleared and
-// this goes red: every thread in bb that never touched the plugin has no open
-// rows, and would get the card.
+// The term the whole gate exists for, and this is its default. Drop
+// `everRecorded` from isCleared and this goes red: every thread in bb that
+// never touched the plugin has no open rows, and would get the card unasked.
 test("a thread that never recorded a follow-up is not cleared, however empty", () => {
-  assert.equal(isCleared([], false), false);
+  assert.equal(isCleared([], false, false), false);
+});
+
+// The setting that lifts it, and the only test that proves it does anything.
+// Drop `offerOnEveryThread` from the disjunction and this goes red while every
+// other test here stays green.
+test("the every-thread setting clears a thread that never recorded one", () => {
+  assert.equal(isCleared([], false, true), true);
 });
 
 test("open rows are not cleared, whatever the flag says", () => {
-  assert.equal(isCleared([row("a")], true), false);
-  assert.equal(isCleared([row("a")], false), false);
+  assert.equal(isCleared([row("a")], true, false), false);
+  assert.equal(isCleared([row("a")], false, false), false);
+});
+
+// What the setting is not allowed to do. It widens which threads may show the
+// card, never what being cleared means — drop `rows.length === 0` and this goes
+// red, because a thread with a list to show is not an empty one.
+test("the every-thread setting does not clear a thread that has open rows", () => {
+  assert.equal(isCleared([row("a")], false, true), false);
+  assert.equal(isCleared([row("a")], true, true), false);
 });
 
 test("a running handoff is what blocks a quiet archive", () => {

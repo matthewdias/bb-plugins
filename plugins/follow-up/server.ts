@@ -771,6 +771,17 @@ export default async function plugin(bb: BbPluginApi) {
       experimental_multiline: true,
       default: "",
     },
+    offerOnEveryThread: {
+      type: "boolean",
+      label: "Offer the empty state on every thread",
+      description:
+        "The card shown once a thread's follow-ups are all closed normally waits " +
+        "until that thread has recorded one, so the plugin stays silent on threads " +
+        "it has nothing to say about. Turn this on to offer it above the composer " +
+        "of any thread with nothing outstanding. It stays out of the way while a " +
+        "turn is running either way.",
+      default: false,
+    },
     offerSuggest: {
       type: "boolean",
       label: 'Offer "Suggest what\'s next"',

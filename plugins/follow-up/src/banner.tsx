@@ -651,12 +651,21 @@ export function FollowUpBanner() {
   //
   // `isCleared` carries the first: a thread that never recorded a follow-up has
   // nothing for this plugin to say about what is left, so it stays silent
-  // rather than putting a card above the composer of every thread in bb. The
-  // second is here because it is about the composer rather than the rows —
-  // "nothing outstanding, archive this?" is wrong advice while the agent is
-  // still working, and it would arrive mid-turn as often as not.
+  // rather than putting a card above the composer of every thread in bb. That
+  // one is a default and the setting below lifts it — putting the card on every
+  // thread is a defensible thing to want, and asking for it is not the same as
+  // having it happen unasked. The second is not a default and has no setting: it
+  // is about the composer rather than the rows, and "nothing outstanding,
+  // archive this?" is wrong advice while the agent is still working, whoever is
+  // asking.
   const running = view.run.isRunning;
-  const cleared = isCleared(rows, everRecorded) && !running;
+  // `=== true`, not truthiness: `settings.values` is undefined while settings
+  // load and this one is off by default, so the wrong direction here flashes
+  // the card above every composer in bb for a beat on every reload. The mirror
+  // of the `!== undefined` guard in empty-state.tsx, which defends a setting
+  // that defaults on and so has to lean the other way.
+  const offerOnEveryThread = settings.values?.offerOnEveryThread === true;
+  const cleared = isCleared(rows, everRecorded, offerOnEveryThread) && !running;
   // What the card's own entrance keys off. `hasContent` alone stopped being the
   // answer the moment the card could also be showing nothing: a fully cleared
   // thread has neither list, and the card would have sat at opacity zero.

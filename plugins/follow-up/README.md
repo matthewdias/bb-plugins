@@ -40,7 +40,10 @@ work to justify itself.
 The banner only does this on a thread that has actually tracked something. A
 thread that never recorded a follow-up has nothing for this plugin to say about
 what is left, so it stays silent. The panel is ungated, because you opened it to
-ask.
+ask. *Offer the empty state on every thread* lifts that gate for the banner too,
+if you would rather have the card — and *suggest what's next* with it — waiting
+on any thread with nothing outstanding. It stays out of the way mid-turn either
+way.
 
 **The `@` menu.** Follow-ups appear as mentions, so a row can be pulled into a
 prompt by name. Mentioning one can claim it, marking it in progress as you send,
@@ -61,6 +64,7 @@ and can ask the agent to fill in a missing file anchor or detail.
 | Describe: word limit | 240 |
 | Describe: turns of context | 12 |
 | Describe: your own guidance | none |
+| Offer the empty state on every thread | off |
 | Offer *Suggest what's next* | on |
 | Suggest: your own guidance | none |
 
