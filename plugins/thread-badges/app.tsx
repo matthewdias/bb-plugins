@@ -52,61 +52,42 @@ function trailingColumn(row: HTMLElement, own: HTMLElement): Element | null {
   return last;
 }
 
-interface Placement {
-  parent: Element;
-  /** `null` appends, which is what `insertBefore` does with it. */
-  before: Element | null;
-  /** Right-align within a column that is wider than its contents. */
-  push: boolean;
-}
+/**
+ * Ribbon's title-over-preview stack, and the adornments it places itself.
+ *
+ * A row used to be one flex line — title, then trailing chrome — so a slot
+ * inserted before that chrome landed beside the title. Ribbon's row is now a
+ * grid whose only in-flow child is this stack, which makes the slot a grid
+ * item in its own right: the badges drew on a line of their own underneath the
+ * preview. The row is no longer the line, so the line has to be found.
+ *
+ * `data-ribbon-sidebar-icon-layout` marks the stack and is on every row,
+ * `data-ribbon-sidebar-icon-slot` its leading icon, and
+ * `data-ribbon-sidebar-icon-indicator-space` the track it holds open for the
+ * trailing indicator. Those are Ribbon's published contract with the Icons
+ * plugin — the same standing as the `data-sidebar-thread-id` this plugin
+ * already hangs everything off.
+ */
+const STACK_SELECTOR = ":scope > [data-ribbon-sidebar-icon-layout]";
+const STACK_ADORNMENT_SELECTOR =
+  "[data-ribbon-sidebar-icon-slot],[data-ribbon-sidebar-icon-indicator-space]";
 
 /**
- * Where a badge goes.
+ * The title's own line inside such a stack, or `null` on a row that is not one.
  *
- * Inside the hover-inset column when the sidebar publishes one, pushed to its
- * right end so it still reads as trailing the row; otherwise immediately
- * before the trailing controls, where it sat before any sidebar told us
- * different. Both land the badge in the same place at rest — the difference is
- * only that the first one moves aside on hover and the second has nothing to
- * move aside for.
+ * Between the icon and the indicator's reserved track sit the title's line and
+ * the preview, in that order. The preview is text in a box; the title's line
+ * wraps the title in one — so the first candidate holding an element is the
+ * title's, and a stack that ever put the preview first still would not match.
  */
-function placement(row: HTMLElement, own: HTMLElement): Placement {
-  // `:scope >` keeps this to the row's own column, never a nested row's.
-  const inset = row.querySelector(INSET_SELECTOR);
-  if (inset !== null) return { before: null, parent: inset, push: true };
-  return { before: trailingColumn(row, own), parent: row, push: false };
-}
-
-const ROW_SELECTOR = "a[data-sidebar-thread-id]";
-const SLOT_ATTRIBUTE = "data-thread-badges-for";
-const CAP_STYLE_ID = "thread-badges-cap";
-
-/**
- * Enforce the per-row cap in CSS rather than by rendering fewer badges.
- *
- * A badge decides for itself whether it has anything to say — it returns null
- * when it does not — and only it can know that. Nothing upstream can count the
- * badges that *would* draw without rendering them first, so the row renders
- * them all, in priority order, and this hides everything past the cap. Because
- * a silent badge contributes no element, `nth-child` counts exactly the ones
- * that had something to show, which is the count the cap is about.
- *
- * `!important` is not decoration: every badge sets `display` inline, and an
- * inline style beats a stylesheet rule without it.
- */
-function useBadgeCap(max: number): void {
-  useEffect(() => {
-    let style = document.getElementById(CAP_STYLE_ID) as HTMLStyleElement | null;
-    if (style === null) {
-      style = document.createElement("style");
-      style.id = CAP_STYLE_ID;
-      document.head.append(style);
-    }
-    style.textContent = `[${SLOT_ATTRIBUTE}] > *:nth-child(n + ${max + 1}) { display: none !important; }`;
-    return () => {
-      style?.remove();
-    };
-  }, [max]);
+function stackedTitleLine(row: HTMLElement): Element | null {
+  const stack = row.querySelector(STACK_SELECTOR);
+  if (stack === null) return null;
+  for (const child of Array.from(stack.children)) {
+    if (child.matches(STACK_ADORNMENT_SELECTOR)) continue;
+    if (child.firstElementChild !== null) return child;
+  }
+  return null;
 }
 
 /**
@@ -116,6 +97,113 @@ function useBadgeCap(max: number): void {
  * row gap between the badge and the glyph it is read beside.
  */
 const TRAILING_SLACK = "-6px";
+
+/** The gap to a trailing column, or to the row's edge when there is none. */
+function gapToTrailing(trailing: Element | null): string {
+  return trailing === null ? "4px" : TRAILING_SLACK;
+}
+
+interface Placement {
+  parent: Element;
+  /** `null` appends, which is what `insertBefore` does with it. */
+  before: Element | null;
+  /** Inline spacing the slot takes on where it lands, rewritten every sync. */
+  marginLeft: string;
+  marginRight: string;
+  paddingLeft: string;
+}
+
+/**
+ * Where a badge goes.
+ *
+ * Inside the hover-inset column when the sidebar publishes one, pushed to its
+ * right end so it still reads as trailing the row; on the title's own line
+ * when the row is a stack; otherwise immediately before the trailing controls,
+ * where it sat before any sidebar told us different. All three land the badge
+ * at the trailing end of the title at rest — what differs is what moves it
+ * aside on hover, and each of them has its own answer.
+ */
+function placement(row: HTMLElement, own: HTMLElement): Placement {
+  // `:scope >` keeps this to the row's own column, never a nested row's.
+  const inset = row.querySelector(INSET_SELECTOR);
+  if (inset !== null) {
+    return {
+      before: null,
+      marginLeft: "auto",
+      marginRight: gapToTrailing(trailingColumn(row, own)),
+      paddingLeft: "",
+      parent: inset,
+    };
+  }
+  const line = stackedTitleLine(row);
+  if (line !== null) {
+    return {
+      // A row with collapsed children keeps its expander at the end of the
+      // line; every other row has nothing there and appends.
+      before: line.querySelector(":scope > button"),
+      marginLeft: "auto",
+      // The stack reserves the indicator its own track, and the line stops
+      // before it — so unlike a flex row there is no gap here to lean back
+      // over, and the padding the line takes on hover clears the actions.
+      marginRight: "",
+      // Padding rather than a margin: `auto` has claimed that side already,
+      // and a title long enough to fill the line leaves a margin nothing to
+      // collapse out of. This is the gap the stack sets between its own parts.
+      paddingLeft: "8px",
+      parent: line,
+    };
+  }
+  const trailing = trailingColumn(row, own);
+  return {
+    before: trailing,
+    marginLeft: "",
+    marginRight: gapToTrailing(trailing),
+    paddingLeft: "",
+    parent: row,
+  };
+}
+
+const ROW_SELECTOR = "a[data-sidebar-thread-id]";
+const SLOT_ATTRIBUTE = "data-thread-badges-for";
+const STYLE_ID = "thread-badges-cap";
+
+/**
+ * The two rules a slot cannot state for itself, because both are about what it
+ * turned out to contain.
+ *
+ * The cap is enforced here rather than by rendering fewer badges. A badge
+ * decides for itself whether it has anything to say — it returns null when it
+ * does not — and only it can know that. Nothing upstream can count the badges
+ * that *would* draw without rendering them first, so the row renders them all,
+ * in priority order, and this hides everything past the cap. Because a silent
+ * badge contributes no element, `nth-child` counts exactly the ones that had
+ * something to show, which is the count the cap is about.
+ *
+ * The second rule takes back the gap a slot holds in front of itself when
+ * every badge on that row stayed silent. Most rows are that row, and the space
+ * comes out of the title.
+ *
+ * `!important` is not decoration: a badge sets `display` inline and the slot
+ * sets its padding inline, and an inline style beats a stylesheet rule without
+ * it.
+ */
+function useBadgeStyles(max: number): void {
+  useEffect(() => {
+    let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+    if (style === null) {
+      style = document.createElement("style");
+      style.id = STYLE_ID;
+      document.head.append(style);
+    }
+    style.textContent = [
+      `[${SLOT_ATTRIBUTE}] > *:nth-child(n + ${max + 1}) { display: none !important; }`,
+      `[${SLOT_ATTRIBUTE}]:empty { padding: 0 !important; }`,
+    ].join("\n");
+    return () => {
+      style?.remove();
+    };
+  }, [max]);
+}
 
 /**
  * Bumped when the window comes back, at most once every ten seconds. A plugin
@@ -220,16 +308,16 @@ function SidebarBadges() {
         }
         // Re-place rather than re-create when a row re-renders around it: the
         // portal keeps working as long as this is the same node.
-        const { parent, before, push } = placement(row, node);
-        if (node.parentElement !== parent || node.nextElementSibling !== before) {
-          parent.insertBefore(node, before);
+        const spot = placement(row, node);
+        if (
+          node.parentElement !== spot.parent ||
+          node.nextElementSibling !== spot.before
+        ) {
+          spot.parent.insertBefore(node, spot.before);
         }
-        node.style.marginLeft = push ? "auto" : "";
-        // The slack is about the gap to the indicator, which is there whenever
-        // a trailing column is — including from inside the inset column, where
-        // the badge is the last thing before it.
-        const trailing = push ? trailingColumn(row, node) : before;
-        node.style.marginRight = trailing === null ? "4px" : TRAILING_SLACK;
+        node.style.marginLeft = spot.marginLeft;
+        node.style.marginRight = spot.marginRight;
+        node.style.paddingLeft = spot.paddingLeft;
       }
       for (const [threadId, node] of nodes) {
         if (seen.has(threadId)) continue;
@@ -267,7 +355,7 @@ function SidebarBadges() {
   // Sorted once per settings change rather than once per row: this list is the
   // same for every row and there is one row per visible thread.
   const badges = useMemo(() => orderedBadgeTypes(values), [values]);
-  useBadgeCap(maxBadges(values));
+  useBadgeStyles(maxBadges(values));
   return (
     <>
       {slots.map(({ threadId, node }) =>

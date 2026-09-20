@@ -160,7 +160,8 @@ the only badge there — or that it is visible, since the per-row cap hides
 anything past the limit. That cap is CSS (`nth-child` on the row's slot), which
 works because a badge with nothing to say renders no element at all; render
 exactly one element when you do have something, or you will spend two of the
-row's slots.
+row's slots. The same contract collapses the slot itself on a row where every
+badge stayed silent, so a quiet row spends none of its title on them.
 
 Style it inline. A plugin's compiled stylesheet is scoped to that plugin's own
 subtree, and a badge is portaled into a row outside it, so Tailwind classes on a
@@ -178,8 +179,16 @@ for keyboard shortcuts. An `experimental_appOverlay` hangs one span off each
 row's anchor and portals React into it, which is what lets a badge keep its
 hooks and context while the rows stay entirely the sidebar's business.
 
-Badges sit immediately left of the row's trailing controls, so the activity
-indicator and the actions menu keep their place.
+Badges sit at the trailing end of the title, so the activity indicator and the
+actions menu keep their place. Where that is depends on how the row is built.
+bb's own rows are a single flex line and publish
+`.bb-sidebar-hover-actions-inset`, the column they pad on hover to clear the
+actions: a badge goes inside it, and the sidebar moves it aside in its own
+units. Ribbon's rows are a grid stacking a title over a preview, so the row is
+not a line to trail — a badge goes on the title's own line, found through the
+`data-ribbon-sidebar-icon-*` attributes Ribbon publishes for its Icons plugin.
+Any other sidebar is taken to be a flex line, and the badge goes immediately
+before its trailing chrome.
 
 Consequences worth knowing:
 
@@ -189,8 +198,10 @@ Consequences worth knowing:
   moved rather than rebuilt. The scheduler is a timer, not
   `requestAnimationFrame`: rAF does not run in a hidden window, which would
   strand the sidebar unscanned until you looked at it again.
-- Layout is not guaranteed. Badges are inserted into a flex row this plugin does
-  not own, so a sidebar redesign can move them.
+- Layout is not guaranteed. Badges are inserted into a row this plugin does not
+  own, so a sidebar redesign can move them. Ribbon's move to a stacked row did
+  exactly that — the badges drew on a line of their own under the preview until
+  this plugin learned the new shape.
 
 ## Requirements
 
