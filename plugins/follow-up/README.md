@@ -12,9 +12,12 @@ nothing to run — no model to choose, no cooldown, no polling, no inflight lock
 ## Install
 
 ```sh
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@^0.3.0" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
   --subdirectory plugins/follow-up --tag-prefix follow-up/
 ```
+
+`semver:*` resolves to the newest `follow-up/vX.Y.Z` tag, so this line stays
+correct as the plugin releases and `bb plugin update` follows it.
 
 ## What it does
 
