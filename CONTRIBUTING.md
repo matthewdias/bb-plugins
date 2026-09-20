@@ -84,3 +84,9 @@ retagging.
 Bump the version in the plugin's `package.json` in the same commit, and update
 its `PLUGIN_OVERVIEW.md` whenever `bb.description` or a surface changes — the
 store shows the two together and they must not disagree.
+
+A README's install snippet needs no attention: it names `@semver:*`, which
+resolves to the newest tag under that plugin's prefix. Do not put a version in
+one. Every snippet that named a range went stale, and a caret range on a `0.x`
+version goes stale on the very next release — `^0.1.0` cannot reach `0.2.0` at
+all, so readers were installing a plugin two minor versions behind.
