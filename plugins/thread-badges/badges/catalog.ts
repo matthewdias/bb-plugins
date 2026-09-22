@@ -90,6 +90,34 @@ export const BADGE_TYPES: readonly BadgeType[] = [
       },
     ],
   },
+  {
+    id: "ports",
+    name: "ports",
+    description:
+      "A plug on threads whose worktree is serving something. Needs the Worktree " +
+      "Ports plugin. Off by default: the cap below is two badges and this one " +
+      "sorts last, so turning it on means raising the cap or lowering its priority.",
+    // The only badge that ships off. Not because it is less useful than the
+    // others, but because switching it on cannot be the whole gesture: at the
+    // shipped cap of two it would sort past the last slot and draw nothing, so
+    // an on-by-default switch would be a switch that does nothing. Off, it asks
+    // the one question — "is this worth a slot?" — that it actually needs
+    // answered, and the store makes that literal: a badge switched off never
+    // subscribes, so an untouched install never polls for ports at all.
+    defaultEnabled: false,
+    settings: [
+      {
+        key: "ports_appsOnly",
+        label: "Ports: ignore backing services and internal listeners",
+        default: true,
+      },
+      {
+        key: "ports_showNumber",
+        label: "Ports: show the port number beside the glyph",
+        default: false,
+      },
+    ],
+  },
 ];
 
 export type BadgeSettings = Readonly<Record<string, string | number | boolean>>;

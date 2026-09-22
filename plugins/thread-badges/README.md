@@ -1,11 +1,11 @@
 # Thread Badges
 
 A sidebar row tells you a thread exists. It does not tell you that its pull
-request has failing checks, that someone requested changes, or that three
-follow-ups on it are still open. These badges do, on whichever sidebar you use,
-without opening anything.
+request has failing checks, that someone requested changes, that three
+follow-ups on it are still open, or that its worktree is serving a dev server on
+:5173. These badges do, on whichever sidebar you use, without opening anything.
 
-Three badge types ship today. The plugin is built around the idea that there
+Four badge types ship today. The plugin is built around the idea that there
 will be more: the host owns mount points and ordering, and knows nothing about
 what any badge means.
 
@@ -95,6 +95,54 @@ follow-up did not move the ring until the page reloaded. Until bb widens that,
 this badge refreshes on mount and when the window regains focus (throttled to
 once every ten seconds), which the host supplies to every badge as `revision`.
 
+### Ports
+
+A plug on threads whose worktree is serving something, hovering to name it —
+"vite :5173 · 2 others". Green when a port belongs to the app you are
+developing; muted grey on a worktree running only backing services or loopback
+listeners. Optionally the port number sits beside the glyph.
+
+**This is the one badge that ships off.** Not because it is less useful than the
+others, but because switching it on cannot be the whole gesture: it sorts last,
+the cap is two, so an on-by-default switch would be a switch that draws nothing.
+Turning it on means also raising *Badges per row* to 3 or giving it a lower
+priority number than a badge you care about less. Off, it asks the one question
+it actually needs answered — is this worth a slot?
+
+By default it counts only **app** ports. This matters more than it sounds: a bb
+worktree's only listener is very often the agent process's own ephemeral
+loopback port, which is classified `internal`. A badge counting those would
+light up on every thread in the sidebar and tell you nothing. Switch
+*ignore backing services and internal listeners* off if you want the full count.
+
+The badge reads [Worktree Ports](https://github.com/to-infinity-labs/bb-plugin-worktree-ports),
+which already does everything hard here — `lsof`, Docker compose attribution,
+role classification, per-machine scanning — and whose snapshot already carries
+the environment-to-threads mapping a badge needs. Nothing in this plugin scans
+for a port.
+
+It reads that plugin's plain `GET /http/snapshot` route rather than its
+`ports_snapshot` RPC, and the difference is not cosmetic. Both return the same
+document, but the RPC forces a fresh scan when the cached one is stale and
+resets the scanner's idle counter — it is built for someone who just opened the
+ports card and wants an answer now. A badge is the opposite: passive, on screen
+whenever the sidebar is, and calling that RPC on a timer would pin Worktree
+Ports to its fast cadence forever, running `lsof` for a sidebar nobody is
+reading. One snapshot answers for every row, so the whole sidebar costs one
+request every ten seconds.
+
+Unlike Follow Up's counts, that snapshot carries no version stamp, so there is
+nothing here to check one against. Every failure is therefore treated as
+transient and retried, because an absent Worktree Ports and a changed payload
+look identical from outside and only one of them is worth giving up over. Both
+end the same way: no plug, nothing else affected.
+
+If you run Worktree Ports' own row glyph as well, you will get two marks on the
+same row by two different mechanisms — it paints through the host's thread-row
+status API, this one portals into the row. Turn its *thread row icon* setting
+off and let the badge carry it, so ports participate in the same cap and
+priority ordering as everything else on the row.
+
 ## Settings
 
 Each badge type can be switched off independently, and each owns a couple of
@@ -115,6 +163,10 @@ options.
 | … priority | 3 |
 | … show how many are still open beside the ring | off |
 | … hide the ring once everything is done | off |
+| Ports | **off** |
+| … priority | 4 |
+| … ignore backing services and internal listeners | on |
+| … show the port number beside the glyph | off |
 
 "Problems only" drops *checks running* and *review requested*, so the badge
 speaks only when someone has to fix something.
@@ -124,16 +176,21 @@ speaks only when someone has to fix something.
 A sidebar row is around 260px wide and already carries a title, a preview line
 and the sidebar's own trailing controls. At roughly 14px a badge, three is busy
 and four starts truncating titles — so a row draws at most **two** badges by
-default, however many types are switched on. Raise *Badges per row* to 3 if you
-want every enabled type on every row.
+default, however many types are switched on. Raise *Badges per row* if you want
+more; the ceiling is the number of types that exist, currently four.
 
 The cap only bites on rows where more badges than that have something to say; a
 thread with one open pull request and no follow-ups still shows one badge. When
 it does bite, the lowest *priority* numbers win the slots and the rest are
 dropped for that row. Priorities default to the order the types are listed
-above, so out of the box a row with all three in play shows the pull request and
-its checks, and drops the follow-up ring. Give follow-ups priority 1 to flip
+above, so out of the box a row with all of them in play shows the pull request
+and its checks, and drops the follow-up ring. Give follow-ups priority 1 to flip
 that.
+
+This is also why the ports badge ships off rather than on. At the default cap it
+would sort past the last slot and draw nothing, so it is switched off instead of
+switched on and silent — and because a badge that is off never subscribes, an
+untouched install never polls for ports at all.
 
 Two types may share a priority number; ties fall back to catalog order, so a
 half-configured set of priorities still draws a stable row.
@@ -210,8 +267,9 @@ Consequences worth knowing:
 
 The pull-request badges need a thread whose environment has a branch with a pull
 request on a git host bb can reach. The follow-ups ring needs
-[Follow Up](../follow-up) installed; without it the ring does not draw and the
-other badges are unaffected.
+[Follow Up](../follow-up) installed, and the ports plug needs
+[Worktree Ports](https://github.com/to-infinity-labs/bb-plugin-worktree-ports);
+without either one, that badge does not draw and the others are unaffected.
 
 ## Development
 
