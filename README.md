@@ -19,19 +19,22 @@ is, and Workflow Stages needs
 One at a time, by subdirectory:
 
 ```sh
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@^0.3.0" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
   --subdirectory plugins/follow-up --tag-prefix follow-up/
 
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@^0.1.0" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
   --subdirectory plugins/thread-badges --tag-prefix thread-badges/
 
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@^0.1.0" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
   --subdirectory plugins/workflow-stages --tag-prefix workflow-stages/
 ```
 
-Each plugin is released under its own tag prefix, so a range tracks that plugin
-alone. `--plugin <name>` works instead of `--subdirectory` — the repository
-carries a `.bb/plugins.json` index naming all three.
+Each plugin is released under its own tag prefix, so `semver:*` resolves to the
+newest release of that plugin alone and these lines never go stale. A caret
+range would: on a `0.x` version `^0.1.0` cannot reach `0.2.0` at all, which is
+how this page came to offer a plugin two minor versions behind.
+`--plugin <name>` works instead of `--subdirectory` — the repository carries a
+`.bb/plugins.json` index naming all three.
 
 See each plugin's README for what it does, its settings, and its agent surface.
 
