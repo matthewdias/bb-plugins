@@ -7,7 +7,7 @@ npm ci
 npm run check
 ```
 
-That typechecks, tests, and builds all three plugins.
+That typechecks, tests, and builds all four plugins.
 
 ## Testing a change locally
 
@@ -36,7 +36,7 @@ What removal does *not* touch is the plugin's data directory under
 switch untouched. Settings are the only casualty, and the script rescues those.
 
 One thing it cannot carry: `bb plugin remove` also drops a plugin's secrets and
-schedules, and there is no read API to save those first. None of these three
+schedules, and there is no read API to save those first. None of these four
 declares either. Background services are safe — they are declared in code, so
 they re-register on install.
 

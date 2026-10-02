@@ -4,6 +4,7 @@
   "name": "matthewdias-bb-plugins",
   "plugins": [
     { "name": "follow-up", "source": "./plugins/follow-up" },
+    { "name": "glance", "source": "./plugins/glance" },
     { "name": "thread-badges", "source": "./plugins/thread-badges" },
     { "name": "workflow-stages", "source": "./plugins/workflow-stages" }
   ]

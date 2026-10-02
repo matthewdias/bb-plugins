@@ -1,10 +1,11 @@
 # bb-plugins
 
-Three plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
+Four plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
 
 | Plugin | |
 | --- | --- |
 | **[Follow Up](plugins/follow-up)** | Keeps the work an agent noticed but skipped, so nothing is lost when a turn ends. Triage what a thread accumulated above the composer. |
+| **[Glance](plugins/glance)** | Serves the threads that need you to the Glance Mac app's widget, menu bar and Shortcuts, over a token that opens nothing else. |
 | **[Thread Badges](plugins/thread-badges)** | Shows pull-request state, CI attention, follow-up progress and listening ports on sidebar rows, so you see what needs you without opening a thread. |
 | **[Workflow Stages](plugins/workflow-stages)** | Files every thread under a workflow stage you define, and moves it as the work progresses. Requires the Ribbon sidebar. |
 
@@ -23,6 +24,9 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
   --subdirectory plugins/follow-up --tag-prefix follow-up/
 
 bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+  --subdirectory plugins/glance --tag-prefix glance/
+
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
   --subdirectory plugins/thread-badges --tag-prefix thread-badges/
 
 bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
@@ -34,7 +38,7 @@ newest release of that plugin alone and these lines never go stale. A caret
 range would: on a `0.x` version `^0.1.0` cannot reach `0.2.0` at all, which is
 how this page came to offer a plugin two minor versions behind.
 `--plugin <name>` works instead of `--subdirectory` — the repository carries a
-`.bb/plugins.json` index naming all three.
+`.bb/plugins.json` index naming all four.
 
 See each plugin's README for what it does, its settings, and its agent surface.
 
