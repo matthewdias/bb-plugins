@@ -32,7 +32,8 @@
       "icon": "Eye"
     },
     "server": "./server.ts",
-    "skills": []
+    "skills": [],
+    "app": "./app.tsx"
   },
   "dependencies": {
     "zod": "^4.3.6"
@@ -40,12 +41,14 @@
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.4.47",
     "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "hono": "^4.11.9",
     "typescript": "^5.7.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types tests/snapshot.test.ts",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
     "build": "bb plugin build",
     "dev": "bb plugin dev ."
   }

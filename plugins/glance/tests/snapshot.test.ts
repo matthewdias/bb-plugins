@@ -118,9 +118,10 @@ test("pairing accepts any http(s) base URL and drops a trailing slash", () => {
   assert.equal(normalizeServer("not a url"), null);
 });
 
-test("the pairing link round-trips server and token", () => {
-  const link = new URL(pairingLink("https://me.getbb.app", "t+k/=n"));
+test("the pairing link carries a code and never a token", () => {
+  const link = new URL(pairingLink("http://127.0.0.1:38886", "c0de-_x"));
   assert.equal(link.protocol, "glance:");
-  assert.equal(link.searchParams.get("server"), "https://me.getbb.app");
-  assert.equal(link.searchParams.get("token"), "t+k/=n");
+  assert.equal(link.searchParams.get("server"), "http://127.0.0.1:38886");
+  assert.equal(link.searchParams.get("code"), "c0de-_x");
+  assert.equal(link.searchParams.has("token"), false);
 });

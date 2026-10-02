@@ -19,10 +19,11 @@ and nothing else. It is not your bb session and cannot open a terminal. Rotate
 the token and every paired app is cut off.
 
 **Starting threads, off by default.** Turn it on and Siri or a Shortcut can
-start a thread with a prompt in a project you pick. The thread uses that
-project's defaults, and a remote caller can never raise its permission mode.
+start a thread with a prompt in a project you pick. The thread runs in a
+permission mode you choose here (by default one that asks before running
+commands), whatever the project's own default is.
 
 ## How to pair
 
-`bb glance pair --server <url>` prints a link. Open it on the Mac running
-Glance. The URL is whatever address that Mac reaches bb through.
+Click **Pair Glance** below, or **Pair with bb on this Mac** in Glance. Links
+carry a one-time code that expires in two minutes, never the token itself.

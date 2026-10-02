@@ -6,11 +6,18 @@
 // owner session, not a machine grant that could open terminals. Rotating the
 // token (`bb plugin token glance --rotate`) unpairs every client at once.
 //
-// The one write is starting a thread, behind a setting that ships off.
-import type { BbPluginApi, ExperimentalPluginWebSocket } from "@get-bb/plugin-sdk";
+// The one write is starting a thread, behind a setting that ships off, in a
+// permission mode the setting caps rather than whatever the project defaults to.
+//
+// Pairing hands a client that token without it ever entering a URL: a link
+// carries a one-time code (lib/pairing-codes.ts), and a Glance on this same Mac
+// can ask over loopback instead.
+import { execFile } from "node:child_process";
+import { defineRpcContract, type BbPluginApi, type ExperimentalPluginWebSocket } from "@get-bb/plugin-sdk";
 import type { Context } from "hono";
 import { z } from "zod";
 import { normalizeServer, pairingLink } from "./lib/pair.ts";
+import { isDirectLoopback, PairingCodes } from "./lib/pairing-codes.ts";
 import {
   buildFeed,
   isListed,
@@ -58,17 +65,39 @@ const startThreadBody = z
 
 const openThreadBody = z.object({ threadId: z.string().min(1).max(200) }).strict();
 
+const redeemBody = z.object({ code: z.string().min(1).max(200) }).strict();
+
+/** Weakest first; a Glance-started thread never runs above the chosen one. */
+export const PERMISSION_MODES = ["accept-edits", "auto", "full"] as const;
+type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+export const rpcContract = defineRpcContract({
+  /** The settings page's "Pair Glance" button. */
+  glance_pair: {
+    input: z.object({}).strict(),
+    output: z
+      .object({
+        link: z.string(),
+        server: z.string(),
+        expiresAt: z.number(),
+        /** Whether this Mac opened the link itself. */
+        opened: z.boolean(),
+      })
+      .strict(),
+  },
+});
+
 /** Coalesce bursts of thread changes; a streaming turn emits many. */
 const DEBOUNCE_MS = 750;
 
 const usage = [
   "bb glance — pair the Glance Mac app with this bb",
   "",
-  "  bb glance pair [--server <url>] [--json]   Print the pairing link",
+  "  bb glance pair [--server <url>] [--json]   Print a one-time pairing link (two minutes)",
   "  bb glance status [--json]                  Show settings and the current feed counts",
   "",
-  "--server is the base URL the Mac reaches bb through (getbb.app, Tailscale, …).",
-  "Without it, the publicBaseUrl setting is used. `bb connect status` shows the getbb.app one.",
+  "--server is the base URL the Mac reaches bb through. Without it, the publicBaseUrl",
+  "setting is used, and without that, this Mac's own bb address.",
 ].join("\n");
 
 export default async function plugin(bb: BbPluginApi) {
@@ -77,17 +106,25 @@ export default async function plugin(bb: BbPluginApi) {
       type: "boolean",
       label: "Let paired apps start threads",
       description:
-        "Lets Glance, Siri and Shortcuts start a thread with a prompt in a project you pick. " +
-        "Threads start with the project's defaults and never a raised permission mode. " +
-        "Off, paired apps can only read.",
+        "Lets Glance, Siri and Shortcuts start a thread with a prompt in a project you pick, " +
+        "using that project's provider and model. Off, paired apps can only read.",
       default: false,
+    },
+    startPermissionMode: {
+      type: "select",
+      label: "Permission mode for threads paired apps start",
+      description:
+        "Always applied, whatever the project's default is: anyone holding the pairing token " +
+        "can start these threads. accept-edits asks before running commands; auto and full do not.",
+      options: [...PERMISSION_MODES],
+      default: "accept-edits",
     },
     publicBaseUrl: {
       type: "string",
       label: "Address paired apps use",
       description:
-        "The base URL `bb glance pair` puts in the pairing link when you don't pass --server, " +
-        "such as https://you.getbb.app or a Tailscale address. Leave empty to always pass --server.",
+        "The base URL a pairing link carries, such as a Tailscale address. " +
+        "Empty means this Mac's own bb address, which is right when Glance runs on this Mac.",
       default: "",
     },
   });
@@ -210,8 +247,98 @@ export default async function plugin(bb: BbPluginApi) {
     sockets.clear();
   });
 
+  /** The setting, read defensively: an unknown stored value means the weakest mode. */
+  async function startMode(): Promise<PermissionMode> {
+    const chosen = (await settings.get()).startPermissionMode;
+    return (PERMISSION_MODES as readonly string[]).includes(chosen) ? (chosen as PermissionMode) : "accept-edits";
+  }
+
+  // ---- Pairing ----------------------------------------------------------
+  const codes = new PairingCodes();
+
+  /** Where a pairing link points: the configured address, else this Mac's bb. */
+  async function pairingServer(override?: string): Promise<string | null> {
+    const configured = override ?? (await settings.get()).publicBaseUrl;
+    return normalizeServer(configured.trim() === "" ? bb.server.loopbackBaseUrl : configured);
+  }
+
+  async function mintLink(server: string): Promise<{ link: string; expiresAt: number }> {
+    const { code, expiresAt } = codes.mint(Date.now());
+    return { link: pairingLink(server, code), expiresAt };
+  }
+
+  async function pluginToken(): Promise<string> {
+    return (await bb.sdk.plugins.token({ pluginId: bb.pluginId })).token;
+  }
+
+  bb.rpc.register(rpcContract, {
+    glance_pair: async () => {
+      const server = await pairingServer();
+      if (server === null) throw new Error("The Glance plugin's pairing address is not an http(s) URL.");
+      const { link, expiresAt } = await mintLink(server);
+      // The button is pressed in bb's UI, which may be a browser that won't
+      // follow a custom scheme. Glance runs on the Mac bb runs on, so open the
+      // link here; the UI shows it too in case this Mac has no Glance.
+      const opened =
+        process.platform === "darwin" &&
+        (await new Promise<boolean>((resolve) => execFile("/usr/bin/open", [link], (error) => resolve(error === null))));
+      return { link, server, expiresAt, opened };
+    },
+  });
+
   // ---- Routes -----------------------------------------------------------
   const token = { auth: "token" } as const;
+
+  // Exchanges a code from a pairing link for the token. Open by necessity —
+  // the caller has no token yet — so the code is the credential: 128 random
+  // bits, single use, two minutes, and redemption locks after repeated misses.
+  bb.http.route(
+    "POST",
+    "/pair",
+    async (c: Context) => {
+      const parsed = redeemBody.safeParse(await c.req.json().catch(() => null));
+      if (!parsed.success) {
+        return c.json({ error: { code: "invalid_body", message: "Expected { code }." } }, 400);
+      }
+      const outcome = codes.redeem(parsed.data.code, Date.now());
+      if (outcome === "throttled") {
+        return c.json({ error: { code: "throttled", message: "Too many wrong codes. Try again in a minute." } }, 429);
+      }
+      if (outcome === "invalid") {
+        return c.json(
+          { error: { code: "invalid_code", message: "That pairing link was already used or has expired. Make a new one." } },
+          401,
+        );
+      }
+      return c.json({ token: await pluginToken() });
+    },
+    { auth: "none" },
+  );
+
+  // A Glance on this Mac pairing without a link. "local" admits only requests
+  // whose Origin and Host are this bb's own loopback address, with a CORS
+  // preflight on every POST: this Mac's processes and bb's UI, never a website
+  // or a remote path. That is the reach the bb CLI already has, and the token
+  // leaves in a response body, never a URL.
+  //
+  // One more check than "local" makes: a reverse proxy on this Mac (Tailscale
+  // Serve, a tunnel) also looks local, and would hand the token to anyone who
+  // can reach the proxy. Proxies announce themselves, so refuse anything that
+  // was forwarded or that addressed a name other than loopback.
+  bb.http.route(
+    "POST",
+    "/pair/local",
+    async (c: Context) => {
+      if (!isDirectLoopback(c.req.header())) {
+        return c.json(
+          { error: { code: "not_local", message: "Pair through a pairing link when Glance is on another Mac." } },
+          403,
+        );
+      }
+      return c.json({ token: await pluginToken() });
+    },
+    { auth: "local" },
+  );
 
   bb.http.route(
     "GET",
@@ -262,13 +389,18 @@ export default async function plugin(bb: BbPluginApi) {
       if (!parsed.success) {
         return c.json({ error: { code: "invalid_body", message: "Expected { projectId, prompt }." } }, 400);
       }
-      // No provider, model or permission mode: omitting them is how the
-      // project's defaults are asked for, and a remote caller never gets to
-      // raise what a thread may do.
+      // Provider and model are the project's: omitting them is how its
+      // defaults are asked for. The permission mode is not: the project's
+      // default may be one that runs commands unattended, and the caller holds
+      // nothing stronger than this token. The mode is the setting's, marked
+      // explicit, because bb drops an execution field that arrives without
+      // its provenance.
       const thread = await bb.sdk.threads.spawn({
         projectId: parsed.data.projectId,
         environment: { type: "project-default" },
         prompt: parsed.data.prompt,
+        permissionMode: await startMode(),
+        executionInputSources: { permissionMode: "explicit" },
         origin: "plugin",
         originPluginId: bb.pluginId,
       } as Parameters<typeof bb.sdk.threads.spawn>[0]);
@@ -322,7 +454,7 @@ export default async function plugin(bb: BbPluginApi) {
     name: "glance",
     summary: "Pair the Glance Mac app with this bb",
     commands: [
-      { name: "pair", summary: "Print the pairing link", usage: "bb glance pair [--server <url>] [--json]" },
+      { name: "pair", summary: "Print a one-time pairing link", usage: "bb glance pair [--server <url>] [--json]" },
       { name: "status", summary: "Show settings and feed counts", usage: "bb glance status [--json]" },
     ],
     async run(argv) {
@@ -333,30 +465,18 @@ export default async function plugin(bb: BbPluginApi) {
 
       if (command === "pair") {
         const flag = args.indexOf("--server");
-        const raw = flag === -1 ? current.publicBaseUrl : (args[flag + 1] ?? "");
-        if (raw.trim() === "") {
-          return {
-            exitCode: 1,
-            stderr:
-              "No server address. Pass --server <url> (the address the Mac reaches bb through), " +
-              "or set it once: bb plugin config glance set publicBaseUrl <url>.\n" +
-              "For getbb.app, `bb connect status` shows yours.",
-          };
-        }
-        const server = normalizeServer(raw);
+        const raw = flag === -1 ? undefined : (args[flag + 1] ?? "");
+        const server = await pairingServer(raw);
         if (server === null) {
-          return { exitCode: 1, stderr: `Not an http(s) base URL: ${raw}` };
+          return { exitCode: 1, stderr: `Not an http(s) base URL: ${raw ?? current.publicBaseUrl}` };
         }
-        const { token: secret } = await bb.sdk.plugins.token({ pluginId: bb.pluginId });
-        const link = pairingLink(server, secret);
+        const { link, expiresAt } = await mintLink(server);
         return {
           exitCode: 0,
           stdout: json
-            ? JSON.stringify({ server, link })
-            : `${link}\n\nOpen it on the Mac running Glance, or paste the server and token into Glance's settings.\n` +
-              "Anyone with this link can read your thread titles" +
-              (current.allowActions ? " and start threads" : "") +
-              ". Rotate with `bb plugin token glance --rotate`.",
+            ? JSON.stringify({ server, link, expiresAt })
+            : `${link}\n\nOpen it on the Mac running Glance within two minutes. It works once.\n` +
+              "Glance's own “Pair with bb on this Mac” button needs no link at all.",
         };
       }
 
@@ -364,7 +484,8 @@ export default async function plugin(bb: BbPluginApi) {
         const snapshot = await feed();
         const status = {
           allowActions: current.allowActions,
-          publicBaseUrl: current.publicBaseUrl || null,
+          startPermissionMode: await startMode(),
+          pairingAddress: await pairingServer(),
           version: snapshot.version,
           needsMe: snapshot.needsMe.total,
           running: snapshot.running.total,
@@ -376,8 +497,8 @@ export default async function plugin(bb: BbPluginApi) {
             ? JSON.stringify(status)
             : [
                 `Needs you: ${status.needsMe}   Running: ${status.running}   Live clients: ${status.streams}`,
-                `Starting threads: ${status.allowActions ? "allowed" : "off"}`,
-                `Pairing address: ${status.publicBaseUrl ?? "(none — pass --server to pair)"}`,
+                `Starting threads: ${status.allowActions ? `allowed, in ${status.startPermissionMode} mode` : "off"}`,
+                `Pairing address: ${status.pairingAddress ?? "(not an http(s) URL — fix publicBaseUrl)"}`,
               ].join("\n"),
         };
       }

@@ -18,19 +18,22 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
 
 ## Pairing
 
-```sh
-bb glance pair --server http://127.0.0.1:38886
-```
+Three ways, and the token itself never appears in any of them:
 
-This prints a `glance://pair?…` link. Open it on the Mac running Glance, or
-paste the server and token into Glance's settings. `--server` is the base URL
-that Mac reaches bb through. Set it once with
-`bb plugin config glance set publicBaseUrl <url>` and `pair` needs no flag.
+- **In Glance:** "Pair with bb on this Mac" asks this bb directly over loopback.
+- **In bb:** Settings → Plugins → Glance → **Pair Glance** opens a pairing link
+  on this Mac.
+- **From a terminal:** `bb glance pair [--server <url>]` prints the same link.
+
+A link carries a one-time code, not the token. The code works once, for two
+minutes, and Glance exchanges it for the token. A link left in scrollback, an
+agent transcript or another app's URL handler is dead by the time anyone reads
+it. The link points at `publicBaseUrl` if you set one, otherwise at this Mac's
+own bb.
 
 getbb.app does not work as that address today. Its edge asks for a browser
-sign-in before any request reaches bb, including port shares, so a widget can't
-get through. Use bb on the same Mac (`http://127.0.0.1:<port>`) or an address
-you control.
+sign-in before any request reaches bb, including port shares. Glance runs on the
+Mac that runs bb.
 
 `bb plugin token glance --rotate` unpairs every client at once.
 
@@ -49,26 +52,32 @@ never leave the server. Each item carries a path such as
 ## Settings
 
 **Let paired apps start threads** (`allowActions`, off). Lets Glance, Siri and
-Shortcuts start a thread with a prompt in a project you pick. The thread uses
-the project's defaults. A remote caller can never choose a provider, a model or
-a permission mode.
+Shortcuts start a thread with a prompt in a project you pick, using that
+project's provider and model.
 
-**Address paired apps use** (`publicBaseUrl`). The default `--server` for
-`bb glance pair`.
+**Permission mode for threads paired apps start** (`startPermissionMode`,
+`accept-edits`). Always applied, whatever the project's default. Anyone holding
+the token can start these threads, so the default asks before running commands.
+`auto` and `full` do not ask.
+
+**Address paired apps use** (`publicBaseUrl`). Where pairing links point. Empty
+means this Mac's own bb.
 
 ## Routes
 
-Every route is under `/api/v1/plugins/glance/http/` and needs the token as the
-`x-bb-plugin-token` header or `?token=`.
+Every route is under `/api/v1/plugins/glance/http/`. All but the two pairing
+routes need the token, as the `x-bb-plugin-token` header or `?token=`.
 
 | Route | |
 | --- | --- |
 | `GET /feed` | The feed. Sends an `ETag` and answers `If-None-Match` with 304. |
 | `GET /stream` | WebSocket. Sends `{type: "hello", version}`, then `{type: "changed", version}` whenever the feed changes. |
 | `GET /projects` | `{projects: [{id, name}]}`, for picking where a thread starts |
-| `POST /threads` | `{projectId, prompt}` → `{threadId, path}`. Returns 403 unless starting threads is allowed. |
+| `POST /threads` | `{projectId, prompt}` → `{threadId, path}`. Returns 403 unless starting threads is allowed. Runs in the configured permission mode. |
 | `POST /open` | `{threadId}` → `{delivered}`. Opens the thread in every open bb window. Zero means none is open. |
 | `GET /ping` | Pairing check |
+| `POST /pair` | `{code}` → `{token}`. Open, because the caller has no token yet: the code is the credential. Returns 401 for a used or expired code, and 429 after ten misses in a minute. |
+| `POST /pair/local` | → `{token}`. bb's `local` auth (this bb's own origin, JSON only), plus a refusal of anything a proxy forwarded or that addressed a non-loopback host. |
 
 ## CLI
 
