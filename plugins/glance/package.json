@@ -1,0 +1,55 @@
+{
+  "name": "bb-plugin-glance",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "bb-plugin",
+    "widget",
+    "macos",
+    "threads",
+    "attention",
+    "shortcuts"
+  ],
+  "homepage": "https://github.com/matthewdias/bb-plugins/tree/main/plugins/glance#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matthewdias/bb-plugins.git",
+    "directory": "plugins/glance"
+  },
+  "bugs": {
+    "url": "https://github.com/matthewdias/bb-plugins/issues"
+  },
+  "engines": {
+    "bb": ">=0.36",
+    "bbPluginSdk": ">=0.4.47"
+  },
+  "bb": {
+    "name": "Glance",
+    "description": "Serves a small token-protected feed of the threads that need you, so the Glance Mac app, its widgets and Shortcuts can show them from anywhere bb is reachable.",
+    "branding": {
+      "icon": "Eye"
+    },
+    "server": "./server.ts",
+    "skills": [],
+    "app": "./app.tsx"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.4.47",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "hono": "^4.11.9",
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "build": "bb plugin build",
+    "dev": "bb plugin dev ."
+  }
+}
