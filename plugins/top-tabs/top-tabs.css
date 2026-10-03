@@ -1,0 +1,743 @@
+/*
+ * Top Tabs.
+ *
+ * Two kinds of rule live here. The strip's own (.bb-top-tabs-*) are ordinary
+ * styling in bb's theme tokens. The block directly below is the other kind:
+ * it moves bb's shell down to make room, because no plugin slot reserves space
+ * above the app. Every selector in it is keyed on `html.bb-top-tabs-on`, a
+ * class the strip sets only while it is on screen — on a phone, or with the
+ * plugin disabled, bb lays out exactly as it always does. (A class rather
+ * than `body:has(#bb-top-tabs)`: with `:has()`, every change inside the strip
+ * — a tab lighting up — made the browser restyle the whole page.) The
+ * selectors name what bb's sidebar primitive and app layout publish; if one
+ * stops matching, the cost is an element drawn under the strip, not a broken
+ * app.
+ */
+
+html.bb-top-tabs-on {
+  --bb-top-tabs-height: 40px;
+}
+
+/* bb's desktop app on macOS draws traffic lights over the top-left corner,
+   aligned to its 48px chrome row. The strip takes that row's height and
+   leaves the corner to them. */
+html.bb-top-tabs-traffic-lights {
+  --bb-top-tabs-height: var(--bb-app-chrome-row-height, 48px);
+}
+
+html.bb-top-tabs-on #root {
+  box-sizing: border-box;
+  padding-top: var(--bb-top-tabs-height);
+}
+
+/* The sidebar panel is fixed to the viewport, so #root's padding misses it. */
+html.bb-top-tabs-on [data-sidebar="panel"] {
+  top: var(--bb-top-tabs-height);
+  height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-height));
+}
+
+/* So is the sidebar toggle bb floats over the corner. */
+html.bb-top-tabs-on [data-testid="app-sidebar-trigger-overlay"] {
+  top: var(--bb-top-tabs-height);
+}
+
+/* The desktop app has its own toggle, pinned to the window's top edge and
+   pushed right of the traffic lights. The lights now sit in the strip, so
+   below it the toggle takes the position bb gives it when there are no
+   lights to clear (`left-0 pl-[12px]`). */
+html.bb-top-tabs-on [data-testid="app-desktop-sidebar-trigger"] {
+  top: var(--bb-top-tabs-height);
+  left: 0;
+  padding-left: 12px;
+}
+
+/* Likewise the page header, which clears lights and toggle (104px) while the
+   sidebar is collapsed; with the lights gone it needs only the toggle's room,
+   as on the web. */
+html.bb-top-tabs-on [data-testid="app-page-header-content-row"].pl-\[104px\] {
+  padding-left: 32px;
+}
+
+/* The sidebar header slot, while it holds Top Tabs' bridge (components/
+   NavBridge), which draws nothing. bb gives a header plugin the whole row
+   between the toggle and back/forward; this one needs none of it, so the
+   row is laid out as if no header were chosen: the slot shrinks to nothing
+   just before the arrows. That matters to plugins that measure the row and
+   expect its first element to be the arrows, such as compact-nav's "beside
+   sidebar toggle" placement, which otherwise finds no room. */
+[data-sidebar-header-slot]:has(> [data-bb-plugin="top-tabs"]) {
+  flex: none;
+  width: 0;
+  min-width: 0;
+  margin-left: auto;
+  padding: 0;
+}
+
+/* Set for a moment while the strip opens or closes the sidebar as part
+   of a tab switch (lib/shell.ts): the sidebar, the space it holds, and the
+   page header that makes room for its toggle all jump straight to their new
+   size instead of sliding. */
+html.bb-top-tabs-instant-sidebar [data-sidebar="gap"],
+html.bb-top-tabs-instant-sidebar [data-sidebar="panel"],
+html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
+  transition: none !important;
+}
+
+/* ---------------------------------------------------------------- strip */
+
+.bb-top-tabs {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 30;
+  box-sizing: border-box;
+  /* One measure for every gap in the strip: between tabs, pins and Threads,
+     either side of the divider, before the + button, and at the edges. */
+  --bb-top-tabs-spacing: 6px;
+  /* The strip's start sits further in than the gaps between tabs, so the
+     first tab is not crowded against the window edge. */
+  --bb-top-tabs-start: 12px;
+  display: flex;
+  align-items: center;
+  /* The list pads itself by 1px (below), so the strip's own gap and edges
+     give up that pixel and every gap still measures the same. */
+  gap: calc(var(--bb-top-tabs-spacing) - 1px);
+  height: var(--bb-top-tabs-height, 40px);
+  padding: 0 calc(var(--bb-top-tabs-spacing) - 1px) 0 calc(var(--bb-top-tabs-start) - 1px);
+  border-bottom: 1px solid var(--border-seam, var(--border));
+  background: var(--sidebar);
+  color: var(--sidebar-foreground, var(--foreground));
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 84px is where bb puts its own first control beside the traffic lights, and
+   2px is how far it lowers chrome controls to sit level with them. */
+.bb-top-tabs[data-traffic-lights] {
+  padding-left: 84px;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.bb-top-tabs[data-traffic-lights] > * {
+  translate: 0 2px;
+}
+
+.bb-top-tabs button {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.bb-top-tabs-list {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--bb-top-tabs-spacing);
+  min-width: 0;
+  height: 100%;
+  /* Room for the selected tab's 1px ring, which the scroll box would clip. */
+  padding-inline: 1px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.bb-top-tabs-list::-webkit-scrollbar {
+  display: none;
+}
+
+.bb-top-tabs-divider {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+
+/* ------------------------------------------------------------------ tab */
+
+.bb-top-tab {
+  position: relative;
+  display: flex;
+  /* Tabs take the width their content asks for and give it back only when
+     the strip runs out of room; past their minimum, the strip scrolls. */
+  flex: 0 1 auto;
+  align-items: center;
+  min-width: 76px;
+  max-width: 220px;
+  height: 28px;
+  border-radius: var(--bui-radius-control, 8px);
+  color: var(--muted-foreground);
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.bb-top-tab:hover {
+  background: var(--state-hover, var(--sidebar-accent));
+  color: var(--foreground);
+}
+
+.bb-top-tab[data-active] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow:
+    0 0 0 1px var(--border-hairline, var(--border)),
+    0 1px 2px color-mix(in oklch, black 14%, transparent);
+}
+
+/* On screen in a split pane that does not have focus: outlined, not filled,
+   so the eye reads "visible" before "selected". */
+.bb-top-tab[data-visible] {
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px var(--border-hairline, var(--border));
+}
+
+.bb-top-tab-panes {
+  flex: none;
+  width: 16px;
+  height: 11px;
+  color: var(--muted-foreground);
+  opacity: 0.85;
+}
+
+.bb-top-tab[data-active] .bb-top-tab-panes {
+  color: var(--foreground);
+}
+
+.bb-top-tab[data-dragging] {
+  z-index: 1;
+  transition: none;
+  box-shadow:
+    0 0 0 1px var(--border-hairline, var(--border)),
+    0 4px 12px color-mix(in oklch, black 22%, transparent);
+}
+
+.bb-top-tabs[data-dragging] .bb-top-tab-main {
+  cursor: grabbing;
+}
+
+/* Threads is pinned: it never shrinks, and is exactly as wide as what it
+   shows — no room is held for a status that is not there. */
+.bb-top-tab-threads {
+  flex: none;
+  min-width: 0;
+  max-width: none;
+}
+
+.bb-top-tab-threads-label {
+  display: flex;
+  min-width: 0;
+}
+
+.bb-top-tab-name {
+  flex: none;
+}
+
+.bb-top-tab-main {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px 0 9px;
+  border-radius: inherit;
+  cursor: default;
+}
+
+.bb-top-tab-main:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.bb-top-tab-main:disabled {
+  opacity: 0.6;
+}
+
+.bb-top-tab-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.bb-top-tab-icon svg,
+svg.bb-top-tab-icon,
+.bb-top-tab-icon [data-icon-root] {
+  width: 16px;
+  height: 16px;
+}
+
+.bb-top-tab-label {
+  flex: 0 1 auto;
+  min-width: 2.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bb-top-tab-sublabel {
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  color: var(--subtle-foreground, var(--muted-foreground));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bb-top-tab-sublabel::before {
+  content: "·";
+  margin: 0 6px;
+}
+
+.bb-top-tab-accessory {
+  display: inline-flex;
+  /* Gives up its room long before the label does. */
+  flex: 0 100 auto;
+  min-width: 0;
+  align-items: center;
+  max-width: 4rem;
+  height: 1.25rem;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.bb-top-tab-shortcut {
+  flex: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--state-hover, var(--muted));
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 11px;
+}
+
+/* The close button takes the icon's place on hover, as Safari's tabs do: no
+   width is set aside for it, so nothing moves when it appears. */
+.bb-top-tab-close {
+  all: unset;
+  position: absolute;
+  top: 50%;
+  left: 7px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  opacity: 0;
+  translate: 0 -50%;
+  transition: opacity 120ms ease;
+}
+
+.bb-top-tab .bb-top-tab-icon {
+  transition: opacity 120ms ease;
+}
+
+.bb-top-tab:hover .bb-top-tab-close,
+.bb-top-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.bb-top-tab:has(.bb-top-tab-close):hover .bb-top-tab-icon,
+.bb-top-tab:has(.bb-top-tab-close:focus-visible) .bb-top-tab-icon {
+  opacity: 0;
+}
+
+.bb-top-tabs[data-dragging] .bb-top-tab-close {
+  opacity: 0;
+}
+
+.bb-top-tab-close:hover {
+  background: var(--state-active, var(--accent));
+  color: var(--foreground);
+}
+
+.bb-top-tab-close:focus-visible {
+  outline: 2px solid var(--ring);
+}
+
+.bb-top-tab-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Icon-only tabs: every pinned tab, and the rest when the Tab labels setting
+   says so. Square, never shrinking, the close button over the icon as on a
+   labelled tab. */
+.bb-top-tab[data-icon-only] {
+  flex: none;
+  min-width: 0;
+}
+
+.bb-top-tab[data-icon-only] .bb-top-tab-main {
+  padding: 0 6px;
+}
+
+.bb-top-tab[data-icon-only] .bb-top-tab-close {
+  left: 4px;
+}
+
+/* Threads keeps its status beside the icon. */
+.bb-top-tab-threads[data-icon-only] .bb-top-tab-main {
+  gap: 4px;
+}
+
+/* Threads' status: how many threads are waiting on you, the loudest mark. */
+.bb-top-tab-attention {
+  flex: none;
+  box-sizing: border-box;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--attention, var(--warning, var(--primary)));
+  color: var(--background);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+}
+
+/* The three counts: waiting (the pill), running, finished. */
+.bb-top-tab-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.bb-top-tab-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-top-tab,
+  .bb-top-tab-close,
+  .bb-top-tab .bb-top-tab-icon {
+    transition: none;
+  }
+}
+
+.bb-top-tabs-add {
+  all: unset;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--bui-radius-control, 8px);
+  color: var(--muted-foreground);
+}
+
+.bb-top-tabs-add:hover,
+.bb-top-tabs-add[data-state="open"] {
+  background: var(--state-hover, var(--sidebar-accent));
+  color: var(--foreground);
+}
+
+.bb-top-tabs-add:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.bb-top-tabs-add svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------------------------------------------------------------- menus */
+
+.bb-top-tabs-menu {
+  z-index: 50;
+  box-sizing: border-box;
+  min-width: 200px;
+  max-height: min(70vh, var(--radix-dropdown-menu-content-available-height, 70vh));
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--bui-radius-card, 10px);
+  background: var(--popover, var(--background));
+  color: var(--popover-foreground, var(--foreground));
+  box-shadow: 0 8px 24px color-mix(in oklch, black 24%, transparent);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.bb-top-tabs-picker {
+  min-width: 240px;
+}
+
+.bb-top-tabs-menu-label {
+  padding: 6px 8px 4px;
+  color: var(--subtle-foreground, var(--muted-foreground));
+  font-size: 12px;
+}
+
+.bb-top-tabs-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  outline: none;
+  cursor: default;
+}
+
+.bb-top-tabs-menu-item[data-highlighted] {
+  background: var(--state-hover, var(--accent));
+}
+
+.bb-top-tabs-menu-item[data-disabled] {
+  opacity: 0.5;
+}
+
+.bb-top-tabs-menu-item[data-current] {
+  font-weight: 500;
+}
+
+.bb-top-tabs-menu-icon {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.bb-top-tabs-menu-icon svg,
+.bb-top-tabs-menu-icon [data-icon-root] {
+  width: 16px;
+  height: 16px;
+}
+
+.bb-top-tabs-menu-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bb-top-tabs-menu-open {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+}
+
+/* The picker row's pin and split buttons: shown on the highlighted row, where
+   they do not compete with the label. A pinned row keeps its pin, filled, so
+   the menu doubles as the list of what is pinned. */
+.bb-top-tabs-menu-pin,
+.bb-top-tabs-menu-split {
+  all: unset;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.bb-top-tabs-menu-item[data-highlighted] .bb-top-tabs-menu-pin,
+.bb-top-tabs-menu-item[data-highlighted] .bb-top-tabs-menu-split,
+.bb-top-tabs-menu-pin[data-pinned] {
+  opacity: 1;
+}
+
+.bb-top-tabs-menu-pin[data-pinned] {
+  color: var(--foreground);
+}
+
+.bb-top-tabs-menu-pin:hover,
+.bb-top-tabs-menu-split:hover {
+  background: var(--state-active, var(--accent));
+  color: var(--foreground);
+}
+
+.bb-top-tabs-menu-pin svg,
+.bb-top-tabs-menu-split svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* The pin is always the row's last control, so nothing trails it. */
+.bb-top-tabs-menu-pin {
+  margin-right: -4px;
+}
+
+/* A row's name, with its "open" dot right after it rather than in a column
+   of its own: rows differ in which buttons they have, so a column would
+   wander. */
+.bb-top-tabs-menu-name {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bb-top-tabs-menu-name .bb-top-tabs-menu-text {
+  flex: 0 1 auto;
+}
+
+.bb-top-tabs-menu-hint {
+  flex: none;
+  margin-left: auto;
+  color: var(--subtle-foreground, var(--muted-foreground));
+  font-size: 12px;
+}
+
+.bb-top-tabs-menu-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}
+
+/* ------------------------------------------------- thread switcher */
+
+.bb-top-tabs-switcher {
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  max-height: min(70vh, 540px);
+}
+
+.bb-top-tabs-switcher-section + .bb-top-tabs-switcher-section {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.bb-top-tabs-switcher-count {
+  margin-left: 6px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.bb-top-tabs-switcher-row {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: default;
+}
+
+.bb-top-tabs-switcher-row:hover,
+.bb-top-tabs-switcher-row:focus-visible {
+  background: var(--state-hover, var(--accent));
+}
+
+.bb-top-tabs-switcher-row[data-current] .bb-top-tabs-switcher-title {
+  font-weight: 600;
+}
+
+.bb-top-tabs-mark {
+  box-sizing: border-box;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.bb-top-tabs-mark[data-kind="waiting"] {
+  background: var(--attention, var(--warning, var(--primary)));
+}
+
+.bb-top-tabs-mark[data-kind="running"] {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--muted-foreground);
+  border-top-color: transparent;
+  animation: bb-top-tabs-spin 0.9s linear infinite;
+}
+
+.bb-top-tabs-mark[data-kind="done"] {
+  background: var(--success, var(--muted-foreground));
+}
+
+.bb-top-tabs-mark[data-kind="error"] {
+  background: var(--destructive, var(--muted-foreground));
+}
+
+.bb-top-tabs-mark[data-kind="none"] {
+  border: 1px solid var(--border);
+}
+
+.bb-top-tabs-switcher-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bb-top-tabs-switcher-meta {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--subtle-foreground, var(--muted-foreground));
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes bb-top-tabs-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-top-tabs-mark[data-kind="running"] {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------- split preview */
+
+/* Drawn while the tab in view is dragged down: where its partner will open.
+   It copies bb's own split drop indicator, so the two gestures read as one. */
+.bb-top-tabs-split-preview {
+  position: fixed;
+  z-index: 90;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid color-mix(in oklab, var(--primary) 55%, transparent);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  color: var(--primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
