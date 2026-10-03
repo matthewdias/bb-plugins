@@ -47,16 +47,14 @@ export function FollowUpPicker() {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
 
-  const choices = useMemo(
+  const available = useMemo(
     () =>
       threadId === null
         ? []
-        : matchingRows(
-            rows.filter((row) => !isFollowUpInDraft(mentions, threadId, row.id)),
-            query,
-          ),
-    [rows, mentions, query, threadId],
+        : rows.filter((row) => !isFollowUpInDraft(mentions, threadId, row.id)),
+    [rows, mentions, threadId],
   );
+  const choices = useMemo(() => matchingRows(available, query), [available, query]);
   const current = Math.min(active, Math.max(choices.length - 1, 0));
 
   const pick = (row: FollowUp) => {
@@ -103,7 +101,11 @@ export function FollowUpPicker() {
       />
       {choices.length === 0 ? (
         <p className="px-2 py-1.5 text-sm text-muted-foreground">
-          {rows.length === 0 ? "No open follow-ups on this thread." : "No follow-up matches."}
+          {rows.length === 0
+            ? "No open follow-ups on this thread."
+            : available.length === 0
+              ? "Every open follow-up is already in the composer."
+              : "No follow-up matches."}
         </p>
       ) : (
         <ul

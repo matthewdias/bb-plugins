@@ -151,6 +151,27 @@ describe("the picker", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  it("says so when every open row is already in the draft", () => {
+    const threadId = freshThread([auth]);
+    const { slot, options } = renderPicker(
+      threadId,
+      [
+        {
+          kind: "plugin",
+          pluginId: "follow-up",
+          provider: "follow-up",
+          id: `${threadId}.${auth.id}`,
+          label: auth.text,
+          from: 0,
+          to: auth.text.length,
+        },
+      ],
+      auth.text,
+    );
+    expect(options()).toEqual([]);
+    expect(slot.getByText("Every open follow-up is already in the composer.")).toBeDefined();
+  });
+
   it("says so when the thread has nothing to pick", () => {
     const { slot } = renderPicker(freshThread([]));
     expect(slot.getByText("No open follow-ups on this thread.")).toBeDefined();

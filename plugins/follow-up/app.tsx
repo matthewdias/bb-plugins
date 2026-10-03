@@ -18,7 +18,7 @@ import {
 } from "./src/record-draft.ts";
 import { ExpansionModelSettings } from "./src/settings-section.tsx";
 import { threadIdFromScope } from "./src/scope.ts";
-import { hasFollowUps, peekFollowUpState, setCollapsed } from "./src/store.ts";
+import { hasFollowUps, setCollapsed } from "./src/store.ts";
 import { commands } from "./src/commands.ts";
 import { FOLLOWUPS_PANEL_ACTION } from "./src/panel-ids.ts";
 import { getRpc } from "./src/rpc.ts";
@@ -48,11 +48,9 @@ export default definePluginApp((app) => {
         label: "Follow-ups",
         icon: "TextWrap",
         description: "Pick one of this thread's follow-ups to put in the composer.",
-        // Greyed rather than a no-op: nothing to show, or already showing.
-        disabled: (composer) => {
-          const threadId = threadIdFromScope(composer.scope);
-          return !hasFollowUps(threadId) || !peekFollowUpState(threadId).collapsed;
-        },
+        // Greyed only when there is nothing to pick. The picker is worth
+        // opening whether or not the banner is expanded.
+        disabled: (composer) => !hasFollowUps(threadIdFromScope(composer.scope)),
         run({ composer }) {
           if (composer.experimental_openPopup?.(PICKER_POPUP_ID)) return;
           const threadId = threadIdFromScope(composer.scope);
