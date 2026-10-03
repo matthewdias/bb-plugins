@@ -16,7 +16,8 @@ close the rows they finish, including rows you wrote yourself.
 
 A `bb follow-up` command covering the same ground from a terminal: `add`,
 `show`, `move`, `amend`, `done`, `reopen`, `clear-done`, `describe`, `dismiss`,
-`handoff`, `clear`, and `forget`.
+`handoff`, `clear`, and `forget`. Each one prints its own options with
+`--help`.
 
 Follow-ups in the `@` menu, so a row can be pulled into a prompt by name.
 Mentioning one can claim it, marking it in progress as you send.

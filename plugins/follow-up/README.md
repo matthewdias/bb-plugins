@@ -121,6 +121,12 @@ bb follow-up forget                  # let dismissed follow-ups be recorded agai
 `--model`, `--reasoning-level`, `--permission-mode`, and `--service-tier`, which
 takes any tier id the provider lists for the model (see `bb provider models`).
 
+Every subcommand takes `--help` and prints its own arguments and options. An
+option a subcommand does not declare is refused, with the nearest name it does
+declare as a hint. With `--json`, a failure also prints
+`{"ok": false, "error": {"code", "message", "hint"}}` on stdout, while stderr
+keeps the readable message.
+
 `dismiss` is the same action as the banner's x, exposed so the tombstone path is
 testable without a browser. `clear` empties the list without dismissing
 anything. `forget` drops the *dismissal* record — use it when you deleted

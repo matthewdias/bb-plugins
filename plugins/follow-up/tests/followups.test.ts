@@ -27,7 +27,6 @@ import {
   needsReview,
   type FollowUp,
 } from "../lib/followups.ts";
-import { takeValueFlags } from "../lib/argv.ts";
 import { expansionExecutionSchema } from "../lib/expansion-execution.ts";
 import type { ComposerMention } from "@get-bb/plugin-sdk/app";
 import { backfillRequest, expansionPrompt, fileMentionOf, isExpanding, expansionGaveUp, contextAround, rowsEqual, houseStyleBlock, EXPANSION_TURNS, EXPANSION_WORD_CAP, CAP_CEILING } from "../lib/followups.ts";
@@ -867,40 +866,6 @@ test("carrying the same child row twice adds it once", () => {
   const two = addFollowUp(one.list, second, []);
   assert.equal(two.outcome, "duplicate");
   assert.equal(two.list.length, 1);
-});
-
-test("a value flag takes the token after it, and both leave the positionals", () => {
-  const { values, rest, missing } = takeValueFlags(
-    ["handoff", "abc123", "file-issue", "--model", "claude-opus-5"],
-    ["model", "thread"],
-  );
-  assert.deepEqual(values, { model: "claude-opus-5" });
-  // The regression this file exists for: the skill must still be the skill.
-  assert.deepEqual(rest, ["handoff", "abc123", "file-issue"]);
-  assert.equal(missing, null);
-});
-
-test("a flag with nothing after it is reported, not silently dropped", () => {
-  const { values, missing } = takeValueFlags(["handoff", "abc", "--model"], ["model"]);
-  assert.deepEqual(values, {});
-  assert.equal(missing, "model");
-});
-
-test("the token after a flag is its value even when it looks like a flag", () => {
-  const { values, rest } = takeValueFlags(["--model", "--json"], ["model"]);
-  assert.deepEqual(values, { model: "--json" });
-  assert.deepEqual(rest, []);
-});
-
-test("a repeated flag keeps the last value", () => {
-  const { values } = takeValueFlags(["--model", "a", "--model", "b"], ["model"]);
-  assert.deepEqual(values, { model: "b" });
-});
-
-test("unknown flags are left alone for whoever does know them", () => {
-  const { values, rest } = takeValueFlags(["amend", "id", "--text", "hi"], ["model"]);
-  assert.deepEqual(values, {});
-  assert.deepEqual(rest, ["amend", "id", "--text", "hi"]);
 });
 
 // Typed as SDK 0.6's `composer.draft.mentions`, so this also checks that the
