@@ -7,7 +7,7 @@
 // this logic sat somewhere else, is gone.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  useComposerView,
+  useComposer,
   useRealtime,
   useRealtimeConnectionState,
   useRpc,
@@ -35,7 +35,7 @@ export function useFollowUps(threadId: string | null): {
   everRecorded: boolean;
   reload: () => void;
 } {
-  const view = useComposerView();
+  const composer = useComposer();
   const rpc = useRpc<typeof rpcContract>();
   const connection = useRealtimeConnectionState();
   const state = useFollowUpState(threadId);
@@ -88,7 +88,7 @@ export function useFollowUps(threadId: string | null): {
   });
 
   // A turn ending is when new follow-ups appear, and realtime can be down.
-  const running = view.run.isRunning;
+  const running = composer.isRunning;
   const wasRunning = useRef(running);
   useEffect(() => {
     if (wasRunning.current && !running) void load();

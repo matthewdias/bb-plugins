@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import {
   useBbNavigate,
   useComposer,
-  useComposerView,
   useRpc,
   useSettings,
 } from "@get-bb/plugin-sdk/app";
@@ -28,6 +27,7 @@ import {
 import { dismissKeyboard } from "./keyboard.ts";
 import { FollowUpSortable, useSortableRow } from "./sortable.tsx";
 import { threadIdFromScope } from "./scope.ts";
+import { insertPill } from "./insert-pill.ts";
 import { useFollowUps } from "./use-follow-ups.ts";
 import { HandoffAction } from "./handoff.tsx";
 import { EmptyState } from "./empty-state.tsx";
@@ -593,21 +593,20 @@ function DoneSection({
 }
 
 export function FollowUpBanner() {
-  const view = useComposerView();
   const composer = useComposer();
   const rpc = useRpc<typeof rpcContract>();
-  const threadId = threadIdFromScope(view.scope);
+  const threadId = threadIdFromScope(composer.scope);
   // This banner is the plugin's only composer surface, so it owns fetching. It
   // shrinks to a summary line rather than unmounting, which is what makes that
   // possible — see use-follow-ups.ts.
   const { rows, done, collapsed, showDone, everRecorded, reload } =
     useFollowUps(threadId);
   // Reactive: a pill removed from the draft clears the row's inserted state.
-  // This is a text match against the pill label rather than a structural read —
-  // the SDK exposes the draft as plain text, so there is no mention list to
-  // consult. Editing the pill's text breaks the match, which is the known
-  // sharp edge of doing it this way.
-  const draftText = view.draft.text;
+  // This is a text match against the pill label rather than a structural read;
+  // it predates SDK 0.6's `draft.mentions`, which could replace it. Editing the
+  // pill's text breaks the match, which is the known sharp edge of doing it
+  // this way.
+  const draftText = composer.text;
   const isCompact = useIsCompactViewport();
   const navigate = useBbNavigate();
   // The collapse threshold is a setting, but the store that applies it is
@@ -658,7 +657,7 @@ export function FollowUpBanner() {
   // is about the composer rather than the rows, and "nothing outstanding,
   // archive this?" is wrong advice while the agent is still working, whoever is
   // asking.
-  const running = view.run.isRunning;
+  const running = composer.isRunning;
   // `=== true`, not truthiness: `settings.values` is undefined while settings
   // load and this one is off by default, so the wrong direction here flashes
   // the card above every composer in bb for a beat on every reload. The mirror
@@ -798,12 +797,12 @@ export function FollowUpBanner() {
   const ids = rows.map((entry) => entry.id);
 
   // A mention pill, not plain text: it survives editing, never clobbers a draft
-  // the way setText did, and resolves the whole record — including `detail` —
-  // into agent context at send time. Sending is also what marks the row sent,
-  // so inserting and then deleting the pill costs nothing.
+  // the way replacing its text would, and resolves the whole record —
+  // including `detail` — into agent context at send time. Sending is also what
+  // marks the row sent, so inserting and then deleting the pill costs nothing.
   const insert = useCallback(
     (row: FollowUp) => {
-      composer.insertMention({
+      insertPill(composer, {
         provider: "follow-up",
         id: `${threadIdRef.current}.${row.id}`,
         label: pillLabel(row.text),

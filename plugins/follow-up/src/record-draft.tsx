@@ -8,17 +8,16 @@
 // One: it must lock the composer while it runs. `setInputLock` releases when
 // the calling slot unmounts, and a menu row is not a slot — it has no lifetime
 // to hang a lock on. Without the lock there is a real race: you click, keep
-// typing, and `clear()` takes the new keystrokes with it.
+// typing, and clearing the draft takes the new keystrokes with it.
 //
 // Two: it can be refused — as a duplicate, as a wording dismissed earlier, or
 // by the cap — and a menu row has no pixels to say so in. As a + item this
 // failure was silent: the draft simply stayed put and nothing explained why.
 import { useCallback, useEffect, useState } from "react";
-import { useComposer, useComposerView, useRpc } from "@get-bb/plugin-sdk/app";
+import { useComposer, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../server";
 import { fileMentionOf, selectionToFollowUp } from "../lib/followups.ts";
 import { threadIdFromScope } from "./scope.ts";
-import { forgetDraftMentions, peekDraftMentions } from "./draft-mentions.ts";
 import { rememberRpc } from "./rpc.ts";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -50,13 +49,12 @@ const REFUSAL_DETAIL: Record<string, string> = {
  * delete it. That is the whole distinction.
  */
 export function RecordDraftAction() {
-  const view = useComposerView();
   const composer = useComposer();
   const rpc = useRpc<typeof rpcContract>();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const threadId = threadIdFromScope(view.scope);
-  const draft = view.draft.text;
+  const threadId = threadIdFromScope(composer.scope);
+  const draft = composer.text;
 
   useEffect(() => {
     rememberRpc(rpc);
@@ -77,10 +75,9 @@ export function RecordDraftAction() {
     }
     setBusy(true);
     // A file you @-mentioned while writing the note is the anchor the note is
-    // about — visible on screen, and until now invisible to the row it became.
-    // Read here rather than watched in state: the observation is debounced, so
-    // the freshest reading is the one taken at the click.
-    const anchor = fileMentionOf(peekDraftMentions(threadId));
+    // about — visible on screen, so the row it becomes should know it too.
+    // Read from the handle at the click, which always reflects the live draft.
+    const anchor = fileMentionOf(composer.draft.mentions);
     // Held across the whole call: the draft is about to be cleared, and
     // anything typed in between would be cleared with it.
     composer.setInputLock(true);
@@ -99,14 +96,11 @@ export function RecordDraftAction() {
       composer.setInputLock(false);
       setBusy(false);
     }
-    // Clear after the lock is released, so `clear` is never asked to write to
-    // an input this plugin has locked. Nothing can have been typed into the
-    // gap: it closes in the same tick.
+    // Clear after the lock is released, so the write never lands on an input
+    // this plugin has locked. Nothing can have been typed into the gap: it
+    // closes in the same tick. Omitting `attachments` keeps them.
     if (outcome === "added") {
-      composer.clear();
-      // The draft these belonged to no longer exists. Left behind, they would
-      // anchor the *next* note typed in this thread to a file it never named.
-      forgetDraftMentions(threadId);
+      composer.replace({ text: "", mentions: [] });
       return;
     }
     setProblem(outcome);
@@ -115,7 +109,7 @@ export function RecordDraftAction() {
   // Nothing to file, so no button — an affordance that appears when it applies
   // beats a permanently visible row greyed out by `disabled`, which is all the
   // + menu could offer.
-  if (threadId === null || view.draft.isEmpty) return null;
+  if (threadId === null || composer.isEmpty) return null;
 
   const refusal = problem === null ? null : (REFUSAL[problem] ?? REFUSAL.failed);
   const detail = problem === null ? null : (REFUSAL_DETAIL[problem] ?? REFUSAL_DETAIL.failed);
