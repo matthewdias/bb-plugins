@@ -175,7 +175,10 @@ export function isDestinationAction(kind: string): boolean {
   return kind !== "new-thread" && kind !== "search-threads";
 }
 
-const PLUGIN_PANEL_PATH = /^\/plugins\/([^/]+)(?:\/([^/]+))?/;
+/** bb's own page for one plugin, which its marketplace listings also use. */
+const PLUGIN_PAGE_PATH = /^\/plugins\/[^/]+\/?$/;
+/** A plugin panel: `/plugins/<plugin>/<panel path>`, always two segments. */
+const PLUGIN_PANEL_PATH = /^\/plugins\/([^/]+)\/([^/]+)/;
 
 function isPluginsPath(pathname: string): boolean {
   return pathname === "/plugins" || pathname.startsWith("/plugins/");
@@ -193,7 +196,7 @@ function isSettingsPath(pathname: string): boolean {
 const HOST_KINDS = new Set(["open-extensions", "open-skills", "open-settings"]);
 
 function isHostRoute(kind: string, pathname: string): boolean {
-  if (kind === "open-extensions") return pathname === "/plugins";
+  if (kind === "open-extensions") return pathname === "/plugins" || PLUGIN_PAGE_PATH.test(pathname);
   if (kind === "open-skills") return pathname === "/skills" || pathname.startsWith("/skills/");
   if (kind === "open-settings") return isSettingsPath(pathname);
   return false;
@@ -357,6 +360,34 @@ export function successorAfterClose(
   const index = open.indexOf(id);
   if (index === -1) return active;
   return open[index + 1] ?? open[index - 1] ?? THREADS;
+}
+
+/**
+ * Whether the strip answers bb's Close on a page shown on its own (bb 0.45+).
+ *
+ * bb opens New Thread there. For a destination tab that would leave the tab
+ * open behind Threads, so the strip closes it instead, as the tab's own ×
+ * does. Threads keeps bb's behaviour, and so does a pinned tab, which never
+ * closes: bb leaves the page and the tab stays.
+ */
+export function stripTakesPageClose(active: TabId | null, pinned: readonly string[]): boolean {
+  return active !== null && active !== THREADS && !pinned.includes(active);
+}
+
+/**
+ * What the close-tab command does: close the destination tab in view, or, on
+ * Threads, which cannot close, press bb's Close on the lone thread page so it
+ * opens New Thread. Null when there is nothing to close: a pinned tab, or
+ * Threads with no Close on screen (a split, or the compose screen itself).
+ */
+export function closeCommandAction(
+  active: TabId | null,
+  pinned: readonly string[],
+  hasPageClose: boolean,
+): "tab" | "page" | null {
+  if (active === null) return null;
+  if (active === THREADS) return hasPageClose ? "page" : null;
+  return pinned.includes(active) ? null : "tab";
 }
 
 /** Close tabs. Pinned tabs are skipped: unpin a tab to close it. */

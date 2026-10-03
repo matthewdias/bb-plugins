@@ -13,7 +13,8 @@
 //   - palette commands switch, close and reopen tabs from the keyboard.
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { getController } from "./lib/controller.ts";
-import { THREADS } from "./lib/tabs-model.ts";
+import { pageClose } from "./lib/shell.ts";
+import { THREADS, closeCommandAction } from "./lib/tabs-model.ts";
 import { NavBridge } from "./components/NavBridge.tsx";
 import { TopTabs } from "./components/TopTabs.tsx";
 import "./top-tabs.css";
@@ -78,17 +79,22 @@ export default definePluginApp((app) => {
       if (active !== null) getController()?.togglePin(active);
     },
   });
+  // On Threads, which cannot close, this presses bb's Close on the thread page,
+  // which opens New Thread.
+  const closeAction = () => {
+    const controller = getController();
+    const active = controller?.active() ?? null;
+    const pinned = active !== null && controller?.isPinned(active) === true ? [active] : [];
+    return { controller, active, action: closeCommandAction(active, pinned, pageClose() !== null) };
+  };
   app.commands.register({
     id: "close-tab",
     title: "Top Tabs: Close tab",
-    isAvailable: () => {
-      const active = activeDestination();
-      return active !== null && getController()?.isPinned(active) === false;
-    },
+    isAvailable: () => closeAction().action !== null,
     run: () => {
-      const controller = getController();
-      const active = controller?.active();
-      if (controller && active) controller.close(active);
+      const { controller, active, action } = closeAction();
+      if (action === "page") pageClose()?.click();
+      else if (action === "tab" && controller && active) controller.close(active);
     },
   });
   app.commands.register({

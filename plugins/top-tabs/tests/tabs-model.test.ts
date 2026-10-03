@@ -9,6 +9,7 @@ import {
   ago,
   adopt,
   close,
+  closeCommandAction,
   closeOthers,
   closeToRight,
   cycle,
@@ -32,6 +33,7 @@ import {
   seed,
   sidebarStep,
   splitPartner,
+  stripTakesPageClose,
   successorAfterClose,
   threadGroup,
   threadIdFromPath,
@@ -90,6 +92,29 @@ test("bb's own pages are recognised by route", () => {
   assert.equal(activeTabFor({ activeItemId: null, pathname: "/plugins" }, targets), "__bb__/extensions");
   assert.equal(activeTabFor({ activeItemId: null, pathname: "/skills" }, targets), "__bb__/skills");
   assert.equal(activeTabFor({ activeItemId: null, pathname: "/skills/x" }, targets), "__bb__/skills");
+});
+
+test("a plugin's page in the marketplace belongs to the Plugins tab", () => {
+  // bb routes `/plugins/<id>` to the plugin's page and `/plugins/<id>/<panel>`
+  // to its panels; a marketplace listing adds only a query.
+  for (const pathname of ["/plugins/some-plugin", "/plugins/some-plugin/"]) {
+    assert.equal(activeTabFor({ activeItemId: null, pathname }, targets), "__bb__/extensions");
+  }
+  // bb may still report Plugins as the active item there.
+  assert.equal(
+    activeTabFor({ activeItemId: "__bb__/extensions", pathname: "/plugins/some-plugin" }, targets),
+    "__bb__/extensions",
+  );
+  assert.equal(pathFits("__bb__/extensions", target("__bb__/extensions"), "/plugins/some-plugin"), true);
+  assert.equal(pathFits("__bb__/extensions", target("__bb__/extensions"), "/plugins/gh/gh"), false);
+});
+
+test("an installed plugin's page is not its panel", () => {
+  assert.equal(activeTabFor({ activeItemId: null, pathname: "/plugins/gh" }, targets), "__bb__/extensions");
+  // With Plugins hidden from the nav, the page belongs to no tab rather than
+  // to the plugin's only panel.
+  const withoutPlugins = targets.filter((t) => t.kind !== "open-extensions");
+  assert.equal(activeTabFor({ activeItemId: null, pathname: "/plugins/gh" }, withoutPlugins), null);
 });
 
 test("a panel route without an active item finds its panel", () => {
@@ -203,6 +228,34 @@ test("closing the tab in view moves right, then left, then to Threads", () => {
 test("closing a background tab keeps the tab in view", () => {
   assert.equal(successorAfterClose(["a", "b"], "a", "b"), "b");
   assert.equal(successorAfterClose(["a", "b"], "a", THREADS), THREADS);
+});
+
+test("bb's Close on a lone page closes the tab in view", () => {
+  assert.equal(stripTakesPageClose("gh/gh", []), true);
+  assert.equal(stripTakesPageClose(SETTINGS, []), true);
+});
+
+test("bb keeps its own Close on Threads, pinned tabs and pages no tab holds", () => {
+  // bb opens New Thread, which is where Threads should go anyway.
+  assert.equal(stripTakesPageClose(THREADS, []), false);
+  // A pinned tab never closes; bb leaves the page and the tab stays.
+  assert.equal(stripTakesPageClose("gh/gh", ["gh/gh"]), false);
+  assert.equal(stripTakesPageClose(null, []), false);
+});
+
+test("the close-tab command closes a destination tab", () => {
+  assert.equal(closeCommandAction("gh/gh", [], false), "tab");
+  assert.equal(closeCommandAction("gh/gh", [], true), "tab");
+  assert.equal(closeCommandAction("gh/gh", ["gh/gh"], true), null);
+});
+
+test("on Threads, the close-tab command closes the thread page instead", () => {
+  // Threads cannot close, so the command presses bb's Close, which opens
+  // New Thread. With no Close to press (a split, or the compose screen
+  // itself) there is nothing to do.
+  assert.equal(closeCommandAction(THREADS, [], true), "page");
+  assert.equal(closeCommandAction(THREADS, [], false), null);
+  assert.equal(closeCommandAction(null, [], true), null);
 });
 
 test("closing forgets the location and remembers it for reopening", () => {
