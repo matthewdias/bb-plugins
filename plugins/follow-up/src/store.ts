@@ -134,6 +134,14 @@ export function useFollowUpState(threadId: string | null): PublicState {
 }
 
 /**
+ * Whether this thread has open follow-ups to show. The + menu row and the
+ * show-or-hide command both need one before they can do anything.
+ */
+export function hasFollowUps(threadId: string | null): boolean {
+  return threadId !== null && stateFor(threadId).rows.length > 0;
+}
+
+/**
  * The same view, read once, for callbacks that cannot use hooks — the + menu
  * item's `disabled` predicate and `run`. Safe because the banner slot stays
  * mounted and fetching even on a thread with nothing to show: it returns null

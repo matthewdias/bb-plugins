@@ -13,7 +13,9 @@ import { HANDOFF_PANEL_ACTION } from "./src/handoff.tsx";
 import { RecordDraftAction } from "./src/record-draft.tsx";
 import { ExpansionModelSettings } from "./src/settings-section.tsx";
 import { threadIdFromScope } from "./src/scope.ts";
-import { peekFollowUpState, setCollapsed } from "./src/store.ts";
+import { hasFollowUps, peekFollowUpState, setCollapsed } from "./src/store.ts";
+import { commands } from "./src/commands.ts";
+import { FOLLOWUPS_PANEL_ACTION } from "./src/panel-ids.ts";
 import { getRpc } from "./src/rpc.ts";
 
 export default definePluginApp((app) => {
@@ -51,9 +53,7 @@ export default definePluginApp((app) => {
         // Greyed rather than a no-op: nothing to show, or already showing.
         disabled: (composer) => {
           const threadId = threadIdFromScope(composer.scope);
-          if (threadId === null) return true;
-          const { rows, collapsed } = peekFollowUpState(threadId);
-          return rows.length === 0 || !collapsed;
+          return !hasFollowUps(threadId) || !peekFollowUpState(threadId).collapsed;
         },
         run({ composer }) {
           const threadId = threadIdFromScope(composer.scope);
@@ -105,6 +105,10 @@ export default definePluginApp((app) => {
     },
   });
 
+  // Show or hide the banner, open the panel, start a handoff: see
+  // src/commands.ts for why none of them has a default shortcut.
+  for (const command of commands) app.commands.register(command);
+
   // The one setting that cannot be declarative: a live provider and model
   // catalog. Everything else this plugin exposes is a `settings.define` field
   // and renders itself above this section. See src/settings-section.tsx.
@@ -132,7 +136,7 @@ export default definePluginApp((app) => {
   // The read-properly surface, and the only path to detail on mobile: hover
   // cannot work on touch, so the banner shows no detail on a compact viewport.
   app.slots.threadPanelAction({
-    id: "followups",
+    id: FOLLOWUPS_PANEL_ACTION,
     title: "Follow-ups",
     icon: "TextWrap",
     component: ({ threadId, params }) => (
