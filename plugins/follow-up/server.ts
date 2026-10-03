@@ -6,9 +6,15 @@
 // Deliberately absent: any background model call. Capture happens inside a
 // turn the agent is already running, which is the whole point of the design.
 import { randomUUID } from "node:crypto";
-import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
+import {
+  cliCommand,
+  defineCli,
+  defineRpcContract,
+  PluginCliError,
+  type BbPluginApi,
+  type PluginCliContext,
+} from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { takeValueFlags } from "./lib/argv.ts";
 import {
   addFollowUp,
   type AddOutcome,
@@ -1956,47 +1962,13 @@ export default async function plugin(bb: BbPluginApi) {
    * worse answer than having no flags at all.
    */
   const EXECUTION_FLAGS = [
-    { name: "provider", field: "providerId", allowed: null },
-    { name: "model", field: "model", allowed: null },
-    {
-      name: "reasoning-level",
-      field: "reasoningLevel",
-      allowed: ["low", "medium", "high", "xhigh", "max"],
-    },
-    // Not a list: since SDK 0.6 each provider declares its own tiers, and
-    // `bb thread spawn` takes any id the provider lists for the model.
-    { name: "service-tier", field: "serviceTier", allowed: null },
-    {
-      name: "permission-mode",
-      field: "permissionMode",
-      allowed: ["accept-edits", "auto", "full"],
-    },
+    { name: "provider", field: "providerId" },
+    { name: "model", field: "model" },
+    { name: "reasoning-level", field: "reasoningLevel" },
+    { name: "service-tier", field: "serviceTier" },
+    { name: "permission-mode", field: "permissionMode" },
   ] as const;
 
-  const usage = [
-    "Usage:",
-    "  bb follow-up add <text> [--reason <r>]       Record one yourself",
-    "                   [--detail <s>] [--file <s>]",
-    "  bb follow-up show [--thread <id>] [-v] [--include-done] [--json]",
-    "                                               Open follow-ups, in-progress ones last;",
-    "                                               -v adds detail, --include-done also",
-    "                                               lists finished ones",
-    "  bb follow-up show --all [--json]             Every thread that recorded any",
-    "  bb follow-up move <id> top|bottom            Place one at the front or the back",
-    "  bb follow-up amend <id> [--text <s>]         Change one in place, keeping its id",
-    "                         [--detail <s>] [--file <s>] [--reason <r>]",
-    "  bb follow-up done <id> [--thread <id>]       Mark one finished",
-    "  bb follow-up reopen <id> [--thread <id>]     Move one back out of Done",
-    "  bb follow-up clear-done [--thread <id>]      Empty Done, releasing those texts",
-    "  bb follow-up describe <id> [--thread <id>]   Have a helper write its detail",
-    "  bb follow-up dismiss <id> [--thread <id>]    Drop one, and never record it again",
-    "  bb follow-up clear [--thread <id>]           Drop this thread's follow-ups",
-    "  bb follow-up handoff <id> [skill] [--new]    Send one to a new thread;",
-    "                       [--provider <id>] [--model <m>]         --new makes it independent",
-    "                       [--reasoning-level <l>] [--service-tier <tier>]",
-    "                       [--permission-mode <m>]",
-    "  bb follow-up forget [--thread <id>]          Let dismissed follow-ups return",
-  ].join("\n");
 
   /**
    * Remove a row and tombstone its text. Dismissal has to outlive the row
@@ -2221,469 +2193,414 @@ export default async function plugin(bb: BbPluginApi) {
     captureRuleEnabled ? CAPTURE_RULE : null,
   );
 
-  bb.cli.register({
-    name: "follow-up",
-    summary: "Read and reset the follow-ups agents recorded on a thread",
-    commands: [
-      {
-        name: "add",
-        summary: "Record a follow-up yourself, the same row the composer records",
-        usage:
-          "bb follow-up add <text> [--reason <r>] [--detail <s>] [--file <s>] [--thread <id>] [--json]",
-      },
-      {
-        name: "show",
-        summary:
-          "Show open follow-ups (-v for detail, --include-done to list finished ones too)",
-        usage: "bb follow-up show [--thread <id>] [--all] [-v] [--include-done] [--json]",
-      },
-      {
-        name: "move",
-        summary: "Place a follow-up at the front or the back of the list",
-        usage: "bb follow-up move <id> <top|bottom> [--thread <id>]",
-      },
-      {
-        name: "amend",
-        summary: "Change a follow-up in place, keeping its id, age and position",
-        usage:
-          "bb follow-up amend <id> [--text <s>] [--detail <s>] [--file <s>] [--reason <r>] [--thread <id>]",
-      },
-      {
-        name: "done",
-        summary: "Mark a follow-up finished; it moves to Done",
-        usage: "bb follow-up done <id> [--thread <id>]",
-      },
-      {
-        name: "reopen",
-        summary: "Move a finished follow-up back to the open list",
-        usage: "bb follow-up reopen <id> [--thread <id>]",
-      },
-      {
-        name: "clear-done",
-        summary: "Empty Done, so those follow-ups can be recorded again if they recur",
-        usage: "bb follow-up clear-done [--thread <id>]",
-      },
-      {
-        name: "describe",
-        summary:
-          "Have a short-lived helper read the thread and write a follow-up's detail",
-        usage: "bb follow-up describe <id> [--thread <id>] [--json]",
-      },
-      {
-        name: "dismiss",
-        summary: "Dismiss one follow-up so it is never recorded on this thread again",
-        usage: "bb follow-up dismiss <id> [--thread <id>] [--json]",
-      },
-      {
-        name: "handoff",
-        summary:
-          "Send a follow-up to a new thread, optionally invoking a skill on it (a child of this one unless --new)",
-        usage: "bb follow-up handoff <id> [skill] [--new] [--thread <id>] [--json]",
-      },
-      {
-        name: "clear",
-        summary: "Drop the follow-ups recorded on a thread",
-        usage: "bb follow-up clear [--thread <id>]",
-      },
-      {
-        name: "forget",
-        summary: "Drop the dismissal record, so dismissed follow-ups can be recorded again",
-        usage: "bb follow-up forget [--thread <id>]",
-      },
-    ],
-    async run(argv, ctx) {
-      const json = argv.includes("--json");
-      const all = argv.includes("--all");
-      const verbose = argv.includes("--verbose") || argv.includes("-v");
-      // What this adds is done rows: `show` already lists in-progress ones,
-      // sorted last. `--sent` still works — it named this flag back when a
-      // sent row vanished from the open list, and it is in older notes.
-      const includeDone = argv.includes("--include-done") || argv.includes("--sent");
-      const wantDone = argv.includes("--done");
-      // Every flag has to be stripped here, not just the ones `show` reads:
-      // what is left is positional, so a flag left in becomes an argument. It
-      // did — `handoff <id> --new` took "--new" as the skill name and sent a
-      // prompt beginning "/--new".
-      const rest = argv.filter(
-        (arg) =>
-          arg !== "--json" &&
-          arg !== "--all" &&
-          arg !== "--verbose" &&
-          arg !== "-v" &&
-          arg !== "--include-done" &&
-          arg !== "--sent" &&
-          arg !== "--done" &&
-          arg !== "--new",
-      );
+  // `bb follow-up`, declared rather than parsed by hand: defineCli renders
+  // `--help` from these declarations, rejects an option a command does not
+  // declare (a misspelt flag used to become part of a follow-up's text), and
+  // prints the `{ ok: false, error }` envelope on stdout for any failure when
+  // `--json` is passed. Agents and the describe helper drive this command, so
+  // what it prints is pinned in tests/server.test.ts.
+  const threadOption = {
+    type: "string",
+    placeholder: "id",
+    description: "The thread to act on; defaults to the thread this runs in",
+  } as const;
+  const jsonResult = {
+    type: "boolean",
+    description: "Print the result as JSON",
+  } as const;
+  const jsonFailure = {
+    type: "boolean",
+    description: "Print a failure as a JSON error on stdout",
+  } as const;
+  const idArgument = {
+    name: "id",
+    required: true,
+    description: "The follow-up's id, as `bb follow-up show -v` prints it",
+  } as const;
 
-      // Both the flag and its value have to leave the positionals, which is why
-      // this goes through one helper rather than more index arithmetic. Only
-      // the flags every command shares plus handoff's are taken here; `amend`
-      // reads its own by index and its values are meaningless to anything else.
-      const taken = takeValueFlags(rest, [
-        "thread",
-        ...EXECUTION_FLAGS.map((flag) => flag.name),
-      ]);
-      if (taken.missing !== null) {
-        return { exitCode: 1, stderr: `--${taken.missing} needs a value.\n` };
+  const threadFor = (thread: string | undefined, ctx: PluginCliContext): string => {
+    const threadId = thread ?? ctx.threadId;
+    if (threadId === undefined) {
+      throw new PluginCliError("No thread in context — pass --thread <id>.");
+    }
+    return threadId;
+  };
+
+  const show = cliCommand({
+    summary: "Show open follow-ups (-v for detail, --include-done to list finished ones too)",
+    options: {
+      thread: threadOption,
+      json: jsonResult,
+      all: {
+        type: "boolean",
+        description: "List every thread that has open follow-ups, with a count for each",
+      },
+      verbose: { type: "boolean", short: "v", description: "Add each follow-up's id and detail" },
+      // `--sent` named this flag back when a sent row vanished from the open
+      // list, and it is in older notes. What it adds now is done rows: `show`
+      // already lists in-progress ones, sorted last.
+      "include-done": {
+        type: "boolean",
+        aliases: ["sent"],
+        description: "Also list finished follow-ups",
+      },
+      done: { type: "boolean", hidden: true, description: "List only finished follow-ups" },
+    },
+    async run({ options }, ctx) {
+      if (options.all) {
+        // The milestone-1 question in one command: did agents call the tool?
+        const keys = await bb.storage.kv.list(ITEMS_PREFIX);
+        const rows: { threadId: string; count: number }[] = [];
+        for (const key of keys) {
+          const id = key.slice(ITEMS_PREFIX.length);
+          rows.push({ threadId: id, count: (await listFollowUps(id)).length });
+        }
+        const live = rows.filter((row) => row.count > 0);
+        if (options.json) return { exitCode: 0, stdout: `${JSON.stringify(live)}\n` };
+        if (live.length === 0) {
+          return { exitCode: 0, stdout: "No thread has recorded a follow-up yet.\n" };
+        }
+        const text = live.map((row) => `${row.threadId}  ${row.count}`).join("\n");
+        return { exitCode: 0, stdout: `${text}\n` };
       }
-      const explicitThread = taken.values.thread;
-      const args = taken.rest;
-      const [command = "show"] = args;
+      const threadId = threadFor(options.thread, ctx);
+      const list = options.done
+        ? await listDone(threadId)
+        : options["include-done"]
+          ? await listIncludingInProgress(threadId)
+          : await listFollowUps(threadId);
+      if (options.json) return { exitCode: 0, stdout: `${JSON.stringify(list)}\n` };
+      return { exitCode: 0, stdout: `${formatList(list, options.verbose)}\n` };
+    },
+  });
 
-      const threadId = explicitThread ?? ctx.threadId;
-      const needsThread = () => ({
-        exitCode: 1,
-        stderr: "No thread in context — pass --thread <id>.\n",
-      });
-
-      switch (command) {
-        case "help":
-        case "--help":
-          return { exitCode: 0, stdout: `${usage}\n` };
-
-        case "handoff": {
-          if (threadId === undefined) return needsThread();
-          const [, id, skill] = args;
-          if (id === undefined) {
-            return {
-              exitCode: 1,
-              stderr: "Usage: bb follow-up handoff <id> [skill] [--new]\n",
-            };
-          }
-          // `here` is deliberately absent: it only fills a composer, and there
-          // is no composer on the far side of a CLI.
-          const target = argv.includes("--new") ? ("thread" as const) : ("child" as const);
-
-          // Build the execution options, and their provenance, from whatever
-          // was actually passed. A flag nobody gave contributes nothing, so
-          // omitting them all still means project defaults.
-          const execution: Record<string, unknown> = {};
-          const sources: Record<string, "explicit"> = {};
-          for (const flag of EXECUTION_FLAGS) {
-            const raw = taken.values[flag.name];
-            if (raw === undefined) continue;
-            if (flag.allowed !== null && !flag.allowed.includes(raw as never)) {
-              return {
-                exitCode: 1,
-                stderr: `--${flag.name} must be one of: ${flag.allowed.join(", ")}.\n`,
-              };
-            }
-            // The same rule the stored expansion tier follows in
-            // lib/expansion-execution.ts: trimmed, non-blank, bounded.
-            const value = flag.field === "serviceTier" ? raw.trim() : raw;
-            if (flag.field === "serviceTier" && value === "") {
-              return { exitCode: 1, stderr: `--${flag.name} needs a value.\n` };
-            }
-            if (flag.field === "serviceTier" && value.length > SERVICE_TIER_MAX) {
-              return {
-                exitCode: 1,
-                stderr: `--${flag.name} must be ${SERVICE_TIER_MAX} characters or fewer.\n`,
-              };
-            }
-            execution[flag.field] = value;
-            sources[flag.field] = "explicit";
-          }
-          const result = await handoffFollowUp(threadId, id, target, {
-            kind: "prompt",
-            skill: skill ?? null,
-            ...(Object.keys(execution).length === 0
-              ? {}
-              : { execution: { ...execution, executionInputSources: sources } }),
-          });
-          if (json) return { exitCode: 0, stdout: `${JSON.stringify(result)}\n` };
-          if (result.outcome !== "spawned") {
-            return { exitCode: 1, stderr: `Handoff failed: ${result.outcome}\n` };
-          }
-          return {
-            exitCode: 0,
-            stdout: `Handed off to ${result.spawnedThreadId}${skill === undefined ? "" : ` as /${skill}`}${target === "child" ? " (child of this thread)" : ""}\n`,
-          };
+  // Done and reopen are one operation run in two directions.
+  const setDoneCommand = (done: boolean) =>
+    cliCommand({
+      summary: done
+        ? "Mark a follow-up finished; it moves to Done"
+        : "Move a finished follow-up back to the open list",
+      positionals: [idArgument],
+      options: { thread: threadOption, json: jsonFailure },
+      async run({ options, positionals }, ctx) {
+        const threadId = threadFor(options.thread, ctx);
+        const target = await setDone(threadId, positionals.id, done);
+        if (target === null) {
+          throw new PluginCliError(`No follow-up with id ${positionals.id} on ${threadId}.`);
         }
+        return {
+          exitCode: 0,
+          stdout: `${done ? "Done" : "Reopened"}: ${target.text}\n`,
+        };
+      },
+    });
 
-        case "show": {
-          if (all) {
-            // The milestone-1 question in one command: did agents call the tool?
-            const keys = await bb.storage.kv.list(ITEMS_PREFIX);
-            const rows: { threadId: string; count: number }[] = [];
-            for (const key of keys) {
-              const id = key.slice(ITEMS_PREFIX.length);
-              rows.push({ threadId: id, count: (await listFollowUps(id)).length });
+  bb.cli.register(
+    defineCli({
+      name: "follow-up",
+      summary: "Read and reset the follow-ups agents recorded on a thread",
+      root: show,
+      commands: {
+        add: cliCommand({
+          summary: "Record a follow-up yourself, the same row the composer records",
+          positionals: [
+            {
+              name: "text",
+              required: true,
+              variadic: true,
+              description: `The follow-up, one line of at most ${TEXT_MAX} characters`,
+            },
+          ],
+          options: {
+            thread: threadOption,
+            json: jsonResult,
+            reason: {
+              type: "enum",
+              values: REASONS,
+              description: "Why it is not being done now",
+            },
+            detail: {
+              type: "string",
+              description: `What a reader would need to act on it, at most ${DETAIL_MAX} characters`,
+            },
+            file: { type: "string", placeholder: "path", description: "The file it is about" },
+          },
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const text = positionals.text.join(" ").trim();
+            if (text === "") throw new PluginCliError("add needs the follow-up text.");
+            if (text.length > TEXT_MAX) {
+              throw new PluginCliError(`The text must be ${TEXT_MAX} characters or fewer.`);
             }
-            const live = rows.filter((row) => row.count > 0);
-            if (json) return { exitCode: 0, stdout: `${JSON.stringify(live)}\n` };
-            if (live.length === 0) {
-              return { exitCode: 0, stdout: "No thread has recorded a follow-up yet.\n" };
+            if (options.detail !== undefined && options.detail.length > DETAIL_MAX) {
+              throw new PluginCliError(`The detail must be ${DETAIL_MAX} characters or fewer.`);
             }
-            const text = live
-              .map((row) => `${row.threadId}  ${row.count}`)
-              .join("\n");
-            return { exitCode: 0, stdout: `${text}\n` };
-          }
-          if (threadId === undefined) return needsThread();
-          const list = wantDone
-            ? await listDone(threadId)
-            : includeDone
-              ? await listIncludingInProgress(threadId)
-              : await listFollowUps(threadId);
-          if (json) return { exitCode: 0, stdout: `${JSON.stringify(list)}\n` };
-          return { exitCode: 0, stdout: `${formatList(list, verbose)}\n` };
-        }
-
-        case "move": {
-          if (threadId === undefined) return needsThread();
-          const id = args[1];
-          const position = args[2];
-          if (id === undefined || (position !== "top" && position !== "bottom")) {
-            return {
-              exitCode: 1,
-              stderr: "move needs a follow-up id and top or bottom.\n",
-            };
-          }
-          const moved = await moveOne(threadId, id, position, "user");
-          if (moved === null) {
-            return {
-              exitCode: 1,
-              stderr: `No open follow-up with id ${id} on ${threadId}.\n`,
-            };
-          }
-          return {
-            exitCode: 0,
-            stdout: `Moved to the ${position}: ${moved.row.text}\n`,
-          };
-        }
-
-        case "amend": {
-          if (threadId === undefined) return needsThread();
-          const id = args[1];
-          if (id === undefined) {
-            return { exitCode: 1, stderr: "amend needs a follow-up id.\n" };
-          }
-          const patch: Record<string, string> = {};
-          for (const field of ["text", "detail", "file", "reason"] as const) {
-            const at = args.indexOf(`--${field}`);
-            const value = at === -1 ? undefined : args[at + 1];
-            if (at !== -1 && value === undefined) {
-              return { exitCode: 1, stderr: `--${field} needs a value.\n` };
-            }
-            if (value !== undefined) patch[field] = value;
-          }
-          if (Object.keys(patch).length === 0) {
-            return {
-              exitCode: 1,
-              stderr: "amend needs at least one of --text, --detail, --file, --reason.\n",
-            };
-          }
-          if (patch.reason !== undefined && !REASONS.includes(patch.reason as never)) {
-            return {
-              exitCode: 1,
-              stderr: `--reason must be one of: ${REASONS.join(", ")}.\n`,
-            };
-          }
-          const result = await amendOne(threadId, id, patch, "user");
-          if (result.outcome !== "amended") {
-            return {
-              exitCode: 1,
-              stderr: `Not amended (${result.outcome}).\n`,
-            };
-          }
-          return { exitCode: 0, stdout: `Amended: ${result.row?.text}\n` };
-        }
-
-        case "done":
-        case "reopen": {
-          if (threadId === undefined) return needsThread();
-          const id = args[1];
-          if (id === undefined) {
-            return { exitCode: 1, stderr: `${command} needs a follow-up id.\n` };
-          }
-          const target = await setDone(threadId, id, command === "done");
-          if (target === null) {
-            return { exitCode: 1, stderr: `No follow-up with id ${id} on ${threadId}.\n` };
-          }
-          return {
-            exitCode: 0,
-            stdout: `${command === "done" ? "Done" : "Reopened"}: ${target.text}\n`,
-          };
-        }
-
-        case "clear-done": {
-          if (threadId === undefined) return needsThread();
-          const cleared = await clearDone(threadId);
-          return {
-            exitCode: 0,
-            stdout:
-              `Cleared ${cleared} finished follow-up${cleared === 1 ? "" : "s"}. ` +
-              `They can be recorded again if they recur.\n`,
-          };
-        }
-
-        case "add": {
-          if (threadId === undefined) return needsThread();
-          // Its own flag pass rather than the one at the top, which would strip
-          // these from `amend` too — that command scans `args` itself and would
-          // stop seeing them. Stripping here is what lets the text be written
-          // before or after its flags without the order mattering.
-          const flags = takeValueFlags(args.slice(1), ["reason", "detail", "file"]);
-          if (flags.missing !== null) {
-            return { exitCode: 1, stderr: `--${flags.missing} needs a value.\n` };
-          }
-          // The bug this guards is one this CLI has already shipped once: an
-          // unrecognised flag falls through as a positional, so `--resaon risk`
-          // would silently become part of the follow-up's text.
-          const stray = flags.rest.find((token) => token.startsWith("--"));
-          if (stray !== undefined) {
-            return { exitCode: 1, stderr: `Unknown flag ${stray}.\n` };
-          }
-          const text = flags.rest.join(" ").trim();
-          if (text === "") {
-            return { exitCode: 1, stderr: "add needs the follow-up text.\n" };
-          }
-          if (text.length > TEXT_MAX) {
-            return {
-              exitCode: 1,
-              stderr: `The text must be ${TEXT_MAX} characters or fewer.\n`,
-            };
-          }
-          const reason = flags.values.reason;
-          if (reason !== undefined && !REASONS.includes(reason as never)) {
-            return {
-              exitCode: 1,
-              stderr: `--reason must be one of: ${REASONS.join(", ")}.\n`,
-            };
-          }
-          const detail = flags.values.detail;
-          if (detail !== undefined && detail.length > DETAIL_MAX) {
-            return {
-              exitCode: 1,
-              stderr: `The detail must be ${DETAIL_MAX} characters or fewer.\n`,
-            };
-          }
-          const added = await addUserFollowUp(threadId, {
-            text,
-            ...(reason === undefined ? {} : { reason: reason as (typeof REASONS)[number] }),
-            ...(detail === undefined ? {} : { detail }),
-            ...(flags.values.file === undefined ? {} : { file: flags.values.file }),
-          });
-          if (json) return { exitCode: 0, stdout: `${JSON.stringify(added)}\n` };
-          switch (added.outcome) {
-            case "added":
-              return { exitCode: 0, stdout: `Recorded ${added.id}: ${text}\n` };
-            case "duplicate":
-              return {
-                exitCode: 1,
-                stderr: "This thread already has that follow-up.\n",
-              };
-            case "dismissed":
-              return {
-                exitCode: 1,
-                stderr:
+            const added = await addUserFollowUp(threadId, {
+              text,
+              ...(options.reason === undefined ? {} : { reason: options.reason }),
+              ...(options.detail === undefined ? {} : { detail: options.detail }),
+              ...(options.file === undefined ? {} : { file: options.file }),
+            });
+            if (options.json) return { exitCode: 0, stdout: `${JSON.stringify(added)}\n` };
+            switch (added.outcome) {
+              case "added":
+                return { exitCode: 0, stdout: `Recorded ${added.id}: ${text}\n` };
+              case "duplicate":
+                throw new PluginCliError("This thread already has that follow-up.");
+              case "dismissed":
+                throw new PluginCliError(
                   "That follow-up was dismissed on this thread and will not come " +
-                  "back. `bb follow-up forget` releases dismissed texts.\n",
-              };
-            default:
-              return {
-                exitCode: 1,
-                stderr: "This thread is holding as many follow-ups as it may.\n",
-              };
-          }
-        }
+                    "back. `bb follow-up forget` releases dismissed texts.",
+                );
+              default:
+                throw new PluginCliError("This thread is holding as many follow-ups as it may.");
+            }
+          },
+        }),
 
-        case "describe": {
+        show,
+
+        move: cliCommand({
+          summary: "Place a follow-up at the front or the back of the list",
+          positionals: [
+            idArgument,
+            { name: "position", required: true, description: "top or bottom" },
+          ],
+          options: { thread: threadOption, json: jsonFailure },
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const { id, position } = positionals;
+            if (position !== "top" && position !== "bottom") {
+              throw new PluginCliError("move needs a follow-up id and top or bottom.");
+            }
+            const moved = await moveOne(threadId, id, position, "user");
+            if (moved === null) {
+              throw new PluginCliError(`No open follow-up with id ${id} on ${threadId}.`);
+            }
+            return { exitCode: 0, stdout: `Moved to the ${position}: ${moved.row.text}\n` };
+          },
+        }),
+
+        amend: cliCommand({
+          summary: "Change a follow-up in place, keeping its id, age and position",
+          positionals: [idArgument],
+          options: {
+            thread: threadOption,
+            json: jsonFailure,
+            text: { type: "string", description: "New text" },
+            detail: { type: "string", description: "New detail" },
+            file: { type: "string", placeholder: "path", description: "New file anchor" },
+            reason: { type: "enum", values: REASONS, description: "New reason" },
+          },
+          constraints: [
+            { kind: "at-least-one", options: ["text", "detail", "file", "reason"] },
+          ],
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const patch: Record<string, string> = {};
+            for (const field of ["text", "detail", "file", "reason"] as const) {
+              const value = options[field];
+              if (value !== undefined) patch[field] = value;
+            }
+            const result = await amendOne(threadId, positionals.id, patch, "user");
+            if (result.outcome !== "amended") {
+              throw new PluginCliError(`Not amended (${result.outcome}).`);
+            }
+            return { exitCode: 0, stdout: `Amended: ${result.row?.text}\n` };
+          },
+        }),
+
+        done: setDoneCommand(true),
+        reopen: setDoneCommand(false),
+
+        "clear-done": cliCommand({
+          summary: "Empty Done, so those follow-ups can be recorded again if they recur",
+          options: { thread: threadOption, json: jsonFailure },
+          async run({ options }, ctx) {
+            const cleared = await clearDone(threadFor(options.thread, ctx));
+            return {
+              exitCode: 0,
+              stdout:
+                `Cleared ${cleared} finished follow-up${cleared === 1 ? "" : "s"}. ` +
+                `They can be recorded again if they recur.\n`,
+            };
+          },
+        }),
+
+        describe: cliCommand({
+          summary: "Have a short-lived helper read the thread and write a follow-up's detail",
+          positionals: [idArgument],
+          options: { thread: threadOption, json: jsonResult },
           // The same call the row's button makes, so the two cannot drift.
           // Without this the expansion path had no route but a click, which is
           // how a retry written around the wrong failure survived review: the
           // spawn does not throw on a dead provider, and nothing short of
           // running the feature would have shown that.
-          if (threadId === undefined) return needsThread();
-          const id = args[1];
-          if (id === undefined) {
-            return { exitCode: 1, stderr: "describe needs a follow-up id.\n" };
-          }
-          const started = await startExpansion(
-            threadId,
-            id,
-            await readExpansionExecution(),
-            false,
-          );
-          if (json) {
-            return { exitCode: 0, stdout: `${JSON.stringify(started)}\n` };
-          }
-          switch (started.outcome) {
-            case "started":
-              return {
-                exitCode: 0,
-                stdout:
-                  `Describing ${id} in ${started.helperThreadId}.\n` +
-                  "It writes the detail onto the row and archives itself; " +
-                  "`bb follow-up show -v` when it settles.\n",
-              };
-            case "not-found":
-              return {
-                exitCode: 1,
-                stderr: `No follow-up with id ${id} on ${threadId}.\n`,
-              };
-            case "disabled":
-              return {
-                exitCode: 1,
-                stderr:
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const { id } = positionals;
+            const started = await startExpansion(
+              threadId,
+              id,
+              await readExpansionExecution(),
+              false,
+            );
+            if (options.json) {
+              return { exitCode: 0, stdout: `${JSON.stringify(started)}\n` };
+            }
+            switch (started.outcome) {
+              case "started":
+                return {
+                  exitCode: 0,
+                  stdout:
+                    `Describing ${id} in ${started.helperThreadId}.\n` +
+                    "It writes the detail onto the row and archives itself; " +
+                    "`bb follow-up show -v` when it settles.\n",
+                };
+              case "not-found":
+                throw new PluginCliError(`No follow-up with id ${id} on ${threadId}.`);
+              case "disabled":
+                throw new PluginCliError(
                   "Describing is switched off. Turn on \"Offer Describe this in " +
-                  "more detail\" in the plugin's settings, or run " +
-                  "`bb plugin config follow-up set offerDescribe true`.\n",
-              };
-            default:
-              return {
-                exitCode: 1,
-                stderr: `Could not start a helper for ${id}.\n`,
-              };
-          }
-        }
+                    "more detail\" in the plugin's settings, or run " +
+                    "`bb plugin config follow-up set offerDescribe true`.",
+                );
+              default:
+                throw new PluginCliError(`Could not start a helper for ${id}.`);
+            }
+          },
+        }),
 
-        case "dismiss": {
-          if (threadId === undefined) return needsThread();
-          const id = args[1];
-          if (id === undefined) {
-            return { exitCode: 1, stderr: "dismiss needs a follow-up id.\n" };
-          }
-          const { dismissed, followUps } = await dismissFollowUp(threadId, id);
-          if (dismissed === null) {
+        dismiss: cliCommand({
+          summary: "Dismiss one follow-up so it is never recorded on this thread again",
+          positionals: [idArgument],
+          options: { thread: threadOption, json: jsonResult },
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const { dismissed, followUps } = await dismissFollowUp(threadId, positionals.id);
+            if (dismissed === null) {
+              throw new PluginCliError(`No follow-up with id ${positionals.id} on ${threadId}.`);
+            }
+            if (options.json) return { exitCode: 0, stdout: `${JSON.stringify(followUps)}\n` };
             return {
-              exitCode: 1,
-              stderr: `No follow-up with id ${id} on ${threadId}.\n`,
+              exitCode: 0,
+              stdout: `Dismissed: ${dismissed.text}\nIt will not be recorded again on this thread.\n`,
             };
-          }
-          if (json) return { exitCode: 0, stdout: `${JSON.stringify(followUps)}\n` };
-          return {
-            exitCode: 0,
-            stdout: `Dismissed: ${dismissed.text}\nIt will not be recorded again on this thread.\n`,
-          };
-        }
+          },
+        }),
 
-        case "clear": {
-          if (threadId === undefined) return needsThread();
-          const count = (await listFollowUps(threadId)).length;
-          await bb.storage.kv.delete(itemsKey(threadId));
-          bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
-          return {
-            exitCode: 0,
-            stdout: `Cleared ${count} follow-up${count === 1 ? "" : "s"} from ${threadId}.\n`,
-          };
-        }
+        handoff: cliCommand({
+          summary:
+            "Send a follow-up to a new thread, optionally invoking a skill on it (a child of this one unless --new)",
+          positionals: [
+            idArgument,
+            { name: "skill", description: "A skill to invoke on the new thread, as /<skill>" },
+          ],
+          options: {
+            thread: threadOption,
+            json: jsonResult,
+            new: {
+              type: "boolean",
+              description: "Start an independent thread rather than a child of this one",
+            },
+            provider: { type: "string", placeholder: "id", description: "Provider for the new thread" },
+            model: { type: "string", placeholder: "model", description: "Model for the new thread" },
+            "reasoning-level": {
+              type: "enum",
+              values: ["low", "medium", "high", "xhigh", "max"],
+              description: "Reasoning level for the new thread",
+            },
+            // Not a list: since SDK 0.6 each provider declares its own tiers,
+            // and `bb thread spawn` takes any id the provider lists.
+            "service-tier": {
+              type: "string",
+              placeholder: "tier",
+              description: "Any tier id the provider lists for the model (see `bb provider models`)",
+            },
+            "permission-mode": {
+              type: "enum",
+              values: ["accept-edits", "auto", "full"],
+              description: "Permission mode for the new thread",
+            },
+          },
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const { id, skill } = positionals;
+            // `here` is deliberately absent: it only fills a composer, and
+            // there is no composer on the far side of a CLI.
+            const target = options.new ? ("thread" as const) : ("child" as const);
 
-        case "forget": {
-          if (threadId === undefined) return needsThread();
-          const count = (await readTombstones(threadId)).length;
-          await bb.storage.kv.delete(tombsKey(threadId));
-          return {
-            exitCode: 0,
-            stdout: `Forgot ${count} dismissal${count === 1 ? "" : "s"} on ${threadId}.\n`,
-          };
-        }
-      }
+            // Build the execution options, and their provenance, from whatever
+            // was actually passed. A flag nobody gave contributes nothing, so
+            // omitting them all still means project defaults.
+            const execution: Record<string, unknown> = {};
+            const sources: Record<string, "explicit"> = {};
+            for (const flag of EXECUTION_FLAGS) {
+              const raw: string | undefined = options[flag.name];
+              if (raw === undefined) continue;
+              // The same rule the stored expansion tier follows in
+              // lib/expansion-execution.ts: trimmed, non-blank, bounded.
+              const value = flag.field === "serviceTier" ? raw.trim() : raw;
+              if (flag.field === "serviceTier" && value === "") {
+                throw new PluginCliError(`--${flag.name} needs a value.`);
+              }
+              if (flag.field === "serviceTier" && value.length > SERVICE_TIER_MAX) {
+                throw new PluginCliError(
+                  `--${flag.name} must be ${SERVICE_TIER_MAX} characters or fewer.`,
+                );
+              }
+              execution[flag.field] = value;
+              sources[flag.field] = "explicit";
+            }
+            const result = await handoffFollowUp(threadId, id, target, {
+              kind: "prompt",
+              skill: skill ?? null,
+              ...(Object.keys(execution).length === 0
+                ? {}
+                : { execution: { ...execution, executionInputSources: sources } }),
+            });
+            if (options.json) return { exitCode: 0, stdout: `${JSON.stringify(result)}\n` };
+            if (result.outcome !== "spawned") {
+              throw new PluginCliError(`Handoff failed: ${result.outcome}`);
+            }
+            return {
+              exitCode: 0,
+              stdout: `Handed off to ${result.spawnedThreadId}${skill === undefined ? "" : ` as /${skill}`}${target === "child" ? " (child of this thread)" : ""}\n`,
+            };
+          },
+        }),
 
-      return { exitCode: 1, stderr: `${usage}\n` };
-    },
-  });
+        clear: cliCommand({
+          summary: "Drop the follow-ups recorded on a thread",
+          options: { thread: threadOption, json: jsonFailure },
+          async run({ options }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const count = (await listFollowUps(threadId)).length;
+            await bb.storage.kv.delete(itemsKey(threadId));
+            bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
+            return {
+              exitCode: 0,
+              stdout: `Cleared ${count} follow-up${count === 1 ? "" : "s"} from ${threadId}.\n`,
+            };
+          },
+        }),
+
+        forget: cliCommand({
+          summary: "Drop the dismissal record, so dismissed follow-ups can be recorded again",
+          options: { thread: threadOption, json: jsonFailure },
+          async run({ options }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const count = (await readTombstones(threadId)).length;
+            await bb.storage.kv.delete(tombsKey(threadId));
+            return {
+              exitCode: 0,
+              stdout: `Forgot ${count} dismissal${count === 1 ? "" : "s"} on ${threadId}.\n`,
+            };
+          },
+        }),
+      },
+    }),
+  );
 
   bb.onDispose(() => {
     bb.log.info("disposed");

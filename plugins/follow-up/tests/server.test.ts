@@ -1,7 +1,7 @@
 // The server entry, run whole against the SDK's fake host.
 //
-// These pin what `bb follow-up` prints today, byte for byte, so the move to
-// `defineCli` can only change what it means to change: agents and the
+// These pin what `bb follow-up` prints, byte for byte, including the help and
+// usage errors defineCli renders from server.ts's declarations: agents and the
 // describe helper drive this CLI, and its wording is part of their contract.
 // A golden that has to move should move in its own reviewed hunk.
 import assert from "node:assert/strict";
@@ -42,40 +42,65 @@ async function host() {
 const ok = (stdout: string): Cli => ({ exitCode: 0, stdout, stderr: "" });
 const fail = (stderr: string): Cli => ({ exitCode: 1, stdout: "", stderr });
 
-const USAGE = [
+// What `bb follow-up help` and `--help` print, rendered by defineCli from the
+// declarations in server.ts.
+const HELP = [
+  "bb follow-up — Read and reset the follow-ups agents recorded on a thread",
+  "",
   "Usage:",
-  "  bb follow-up add <text> [--reason <r>]       Record one yourself",
-  "                   [--detail <s>] [--file <s>]",
-  "  bb follow-up show [--thread <id>] [-v] [--include-done] [--json]",
-  "                                               Open follow-ups, in-progress ones last;",
-  "                                               -v adds detail, --include-done also",
-  "                                               lists finished ones",
-  "  bb follow-up show --all [--json]             Every thread that recorded any",
-  "  bb follow-up move <id> top|bottom            Place one at the front or the back",
-  "  bb follow-up amend <id> [--text <s>]         Change one in place, keeping its id",
-  "                         [--detail <s>] [--file <s>] [--reason <r>]",
-  "  bb follow-up done <id> [--thread <id>]       Mark one finished",
-  "  bb follow-up reopen <id> [--thread <id>]     Move one back out of Done",
-  "  bb follow-up clear-done [--thread <id>]      Empty Done, releasing those texts",
-  "  bb follow-up describe <id> [--thread <id>]   Have a helper write its detail",
-  "  bb follow-up dismiss <id> [--thread <id>]    Drop one, and never record it again",
-  "  bb follow-up clear [--thread <id>]           Drop this thread's follow-ups",
-  "  bb follow-up handoff <id> [skill] [--new]    Send one to a new thread;",
-  "                       [--provider <id>] [--model <m>]         --new makes it independent",
-  "                       [--reasoning-level <l>] [--service-tier <tier>]",
-  "                       [--permission-mode <m>]",
-  "  bb follow-up forget [--thread <id>]          Let dismissed follow-ups return",
+  "  bb follow-up [--thread <id>] [--json] [--all] [--verbose] [--include-done]",
+  "  bb follow-up <command> [options]",
+  "",
+  "Commands:",
+  "  bb follow-up add         Record a follow-up yourself, the same row the composer records",
+  "  bb follow-up show        Show open follow-ups (-v for detail, --include-done to list finished ones too)",
+  "  bb follow-up move        Place a follow-up at the front or the back of the list",
+  "  bb follow-up amend       Change a follow-up in place, keeping its id, age and position",
+  "  bb follow-up done        Mark a follow-up finished; it moves to Done",
+  "  bb follow-up reopen      Move a finished follow-up back to the open list",
+  "  bb follow-up clear-done  Empty Done, so those follow-ups can be recorded again if they recur",
+  "  bb follow-up describe    Have a short-lived helper read the thread and write a follow-up's detail",
+  "  bb follow-up dismiss     Dismiss one follow-up so it is never recorded on this thread again",
+  "  bb follow-up handoff     Send a follow-up to a new thread, optionally invoking a skill on it (a child of this one unless --new)",
+  "  bb follow-up clear       Drop the follow-ups recorded on a thread",
+  "  bb follow-up forget      Drop the dismissal record, so dismissed follow-ups can be recorded again",
+  "",
+  "Options:",
+  "  --thread <id>   The thread to act on; defaults to the thread this runs in",
+  "  --json          Print the result as JSON",
+  "  --all           List every thread that has open follow-ups, with a count for each",
+  "  --verbose       Add each follow-up's id and detail",
+  "  --include-done  Also list finished follow-ups",
+  "  --help, -h      Show this help and exit",
+  "",
+  "Run `bb follow-up <command> --help` for a command's arguments and options.",
   "",
 ].join("\n");
 
-const REASON_CHOICES =
-  "--reason must be one of: out-of-scope, blocked, deferred, risk, cleanup.\n";
+/** The command list an unknown command prints under its error. */
+const COMMANDS = HELP.slice(HELP.indexOf("Commands:"), HELP.indexOf("\n\nOptions:") + 1);
 
-test("cli: help, --help and an unknown command print the usage", async () => {
+/** Each command's usage line, as a usage error prints it. */
+const USAGE = {
+  add: "bb follow-up add <text...> [--thread <id>] [--json] [--reason <out-of-scope|blocked|deferred|risk|cleanup>] [--detail <value>] [--file <path>]",
+  amend: "bb follow-up amend <id> [--thread <id>] [--json] [--text <value>] [--detail <value>] [--file <path>] [--reason <out-of-scope|blocked|deferred|risk|cleanup>]",
+  describe: "bb follow-up describe <id> [--thread <id>] [--json]",
+  done: "bb follow-up done <id> [--thread <id>] [--json]",
+  handoff: "bb follow-up handoff <id> [<skill>] [--thread <id>] [--json] [--new] [--provider <id>] [--model <model>] [--reasoning-level <low|medium|high|xhigh|max>] [--service-tier <tier>] [--permission-mode <accept-edits|auto|full>]",
+} as const;
+
+/** A usage error: the message, then the command's usage line. */
+const usageError = (message: string, command: keyof typeof USAGE): Cli =>
+  fail(`${message}\n\nUsage:\n  ${USAGE[command]}\n`);
+
+const REASON_CHOICES =
+  "Expected one of: out-of-scope, blocked, deferred, risk, cleanup";
+
+test("cli: help and --help print the help; an unknown command names itself", async () => {
   const { cli } = await host();
-  assert.deepEqual(await cli(["help"]), ok(USAGE));
-  assert.deepEqual(await cli(["--help"]), ok(USAGE));
-  assert.deepEqual(await cli(["bogus"]), fail(USAGE));
+  assert.deepEqual(await cli(["help"]), ok(HELP));
+  assert.deepEqual(await cli(["--help"]), ok(HELP));
+  assert.deepEqual(await cli(["bogus"]), fail(`unknown command 'bogus'\n\n${COMMANDS}`));
 });
 
 test("cli: add records a row and reports each refusal", async () => {
@@ -84,14 +109,27 @@ test("cli: add records a row and reports each refusal", async () => {
   assert.equal(added.exitCode, 0);
   assert.match(added.stdout, /^Recorded [0-9a-f]{8}: first one\n$/);
   assert.deepEqual(await cli(["add", "first one"]), fail("This thread already has that follow-up.\n"));
-  assert.deepEqual(await cli(["add"]), fail("add needs the follow-up text.\n"));
-  assert.deepEqual(await cli(["add", "x", "--reason", "bogus"]), fail(REASON_CHOICES));
-  assert.deepEqual(await cli(["add", "x", "--reason"]), fail("--reason needs a value.\n"));
+  assert.deepEqual(await cli(["add"]), usageError("missing required arguments: <text>", "add"));
+  assert.deepEqual(await cli(["add", "  "]), fail("add needs the follow-up text.\n"));
+  assert.deepEqual(
+    await cli(["add", "x", "--reason", "bogus"]),
+    usageError(`invalid value 'bogus' for --reason. ${REASON_CHOICES}`, "add"),
+  );
+  assert.deepEqual(
+    await cli(["add", "x", "--reason"]),
+    usageError(
+      "--reason requires a value (Write --reason=<value> when the value is itself an option name.)",
+      "add",
+    ),
+  );
 });
 
 test("cli: add rejects a misspelt flag instead of folding it into the text", async () => {
   const { cli } = await host();
-  assert.deepEqual(await cli(["add", "x", "--resaon", "risk"]), fail("Unknown flag --resaon.\n"));
+  assert.deepEqual(
+    await cli(["add", "x", "--resaon", "risk"]),
+    usageError("unknown option '--resaon' (Did you mean --reason?)", "add"),
+  );
   assert.deepEqual(await cli(["show"]), ok("No follow-ups recorded for this thread.\n"));
 });
 
@@ -180,7 +218,7 @@ test("cli: --include-done, its old --sent spelling, and --done", async () => {
 test("cli: done, reopen and clear-done", async () => {
   const { cli, add } = await host();
   const id = await add("first");
-  assert.deepEqual(await cli(["done"]), fail("done needs a follow-up id.\n"));
+  assert.deepEqual(await cli(["done"]), usageError("missing required arguments: <id>", "done"));
   assert.deepEqual(await cli(["done", "nope"]), fail(`No follow-up with id nope on ${THREAD}.\n`));
   assert.deepEqual(await cli(["done", id]), ok("Done: first\n"));
   assert.deepEqual(await cli(["reopen", id]), ok("Reopened: first\n"));
@@ -212,13 +250,19 @@ test("cli: move places a row and rejects a bad position or id", async () => {
 test("cli: amend changes a row in place and reports what is missing", async () => {
   const { cli, add } = await host();
   const id = await add("first");
-  assert.deepEqual(await cli(["amend"]), fail("amend needs a follow-up id.\n"));
+  assert.deepEqual(await cli(["amend"]), usageError("missing required arguments: <id>", "amend"));
   assert.deepEqual(
     await cli(["amend", id]),
-    fail("amend needs at least one of --text, --detail, --file, --reason.\n"),
+    usageError("missing required options: one of --text, --detail, --file, --reason", "amend"),
   );
-  assert.deepEqual(await cli(["amend", id, "--detail"]), fail("--detail needs a value.\n"));
-  assert.deepEqual(await cli(["amend", id, "--reason", "bad"]), fail(REASON_CHOICES));
+  assert.deepEqual(
+    await cli(["amend", id, "--detail"]),
+    usageError(`--detail requires a value (Write --detail=<value> when the value is itself an option name.)`, "amend"),
+  );
+  assert.deepEqual(
+    await cli(["amend", id, "--reason", "bad"]),
+    usageError(`invalid value 'bad' for --reason. ${REASON_CHOICES}`, "amend"),
+  );
   assert.deepEqual(await cli(["amend", id, "--text", "first amended"]), ok("Amended: first amended\n"));
   assert.deepEqual(await cli(["show"]), ok(" 1. first amended\n"));
 });
@@ -247,7 +291,10 @@ test("cli: dismiss tombstones the text until forget releases it", async () => {
 test("cli: describe starts a hidden helper on the row", async () => {
   const { cli, add, spawns } = await host();
   const id = await add("first");
-  assert.deepEqual(await cli(["describe"]), fail("describe needs a follow-up id.\n"));
+  assert.deepEqual(
+    await cli(["describe"]),
+    usageError("missing required arguments: <id>", "describe"),
+  );
   assert.deepEqual(
     await cli(["describe", id]),
     ok(
@@ -374,15 +421,24 @@ test("cli: handoff with no execution flags leaves the project defaults alone", a
 test("cli: handoff refusals", async () => {
   const { cli, add } = await host();
   const id = await add("work");
-  assert.deepEqual(await cli(["handoff"]), fail("Usage: bb follow-up handoff <id> [skill] [--new]\n"));
-  assert.deepEqual(await cli(["handoff", id, "--model"]), fail("--model needs a value.\n"));
+  assert.deepEqual(await cli(["handoff"]), usageError("missing required arguments: <id>", "handoff"));
+  assert.deepEqual(
+    await cli(["handoff", id, "--model"]),
+    usageError(`--model requires a value (Write --model=<value> when the value is itself an option name.)`, "handoff"),
+  );
   assert.deepEqual(
     await cli(["handoff", id, "--reasoning-level", "bogus"]),
-    fail("--reasoning-level must be one of: low, medium, high, xhigh, max.\n"),
+    usageError(
+      "invalid value 'bogus' for --reasoning-level. Expected one of: low, medium, high, xhigh, max",
+      "handoff",
+    ),
   );
   assert.deepEqual(
     await cli(["handoff", id, "--permission-mode", "bogus"]),
-    fail("--permission-mode must be one of: accept-edits, auto, full.\n"),
+    usageError(
+      "invalid value 'bogus' for --permission-mode. Expected one of: accept-edits, auto, full",
+      "handoff",
+    ),
   );
   assert.deepEqual(await cli(["handoff", "nope", "--json"]).then((r) => JSON.parse(r.stdout)), {
     outcome: "not-found",
@@ -392,20 +448,66 @@ test("cli: handoff refusals", async () => {
   assert.deepEqual(await cli(["handoff", "nope"]), fail("Handoff failed: not-found\n"));
 });
 
-test("cli: a value flag takes the next token unless it is a switch, and the last repeat wins", async () => {
+test("cli: a value flag refuses an option name as its value, and takes one value once", async () => {
   const { cli, add, spawns } = await host();
   const id = await add("work");
-  // The boolean switches are stripped before values are read, so one cannot
-  // be taken as a value; the flag is reported as missing one instead.
-  assert.deepEqual(await cli(["handoff", id, "--model", "--json"]), fail("--model needs a value.\n"));
-  assert.deepEqual(await cli(["handoff", id, "--model", "--new"]), fail("--model needs a value.\n"));
-  // Any other token is the value, even one that looks like a flag.
-  assert.equal((await cli(["handoff", id, "--model", "--provider"])).exitCode, 0);
+  const modelNeedsValue = usageError(`--model requires a value (Write --model=<value> when the value is itself an option name.)`, "handoff");
+  // `--json` is an option this command declares, so it is not taken as the
+  // model, and asking for JSON also prints the error envelope on stdout.
+  const asJson = await cli(["handoff", id, "--model", "--json"]);
+  assert.deepEqual({ ...asJson, stdout: "" }, modelNeedsValue);
+  assert.deepEqual(JSON.parse(asJson.stdout), {
+    ok: false,
+    error: {
+      code: "invalid_value",
+      message: "--model requires a value",
+      hint: "Write --model=<value> when the value is itself an option name.",
+    },
+  });
+  assert.deepEqual(await cli(["handoff", id, "--model", "--new"]), modelNeedsValue);
+  // Any declared option name, not only a switch: `--provider` was taken as the
+  // model before defineCli.
+  assert.deepEqual(await cli(["handoff", id, "--model", "--provider"]), modelNeedsValue);
+  // Written with `=`, or not an option of this command, a dash-led token is the value.
+  assert.equal((await cli(["handoff", id, "--model=--provider"])).exitCode, 0);
   assert.equal(spawns()[0]?.model, "--provider");
   assert.equal(spawns()[0]?.providerId, undefined);
   const second = await add("more work");
-  await cli(["handoff", second, "--model", "m1", "--model", "m2"]);
-  assert.equal(spawns()[1]?.model, "m2");
+  assert.equal((await cli(["handoff", second, "--model", "--not-an-option"])).exitCode, 0);
+  assert.equal(spawns()[1]?.model, "--not-an-option");
+  // A single-value flag given twice is refused rather than the last one winning.
+  const third = await add("third work");
+  assert.deepEqual(
+    await cli(["handoff", third, "--model", "m1", "--model", "m2"]),
+    usageError("--model was given more than once; it takes a single value", "handoff"),
+  );
+  assert.equal(spawns().length, 2);
+});
+
+test("cli: every command answers --help with its own usage", async () => {
+  const { cli } = await host();
+  const commands = [
+    "add", "show", "move", "amend", "done", "reopen", "clear-done",
+    "describe", "dismiss", "handoff", "clear", "forget",
+  ];
+  for (const command of commands) {
+    const result = await cli([command, "--help"]);
+    assert.equal(result.exitCode, 0, command);
+    assert.match(result.stdout, new RegExp(`^bb follow-up ${command} — .+\\n\\nUsage:\\n  bb follow-up ${command} `), command);
+  }
+  // `-v` and the old `--sent` spelling still work, though help names neither.
+  assert.match((await cli(["show", "--help"])).stdout, /--verbose/);
+});
+
+test("cli: with --json, a failure prints the error envelope on stdout", async () => {
+  const { cli } = await host();
+  const result = await cli(["done", "nope", "--json"]);
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.stderr, `No follow-up with id nope on ${THREAD}.\n`);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    ok: false,
+    error: { code: "command_failed", message: `No follow-up with id nope on ${THREAD}.` },
+  });
 });
 
 test("rpc: followups_add reports added, duplicate and dismissed", async () => {
