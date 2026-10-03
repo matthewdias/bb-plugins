@@ -62,7 +62,7 @@ const USAGE = [
   "  bb follow-up clear [--thread <id>]           Drop this thread's follow-ups",
   "  bb follow-up handoff <id> [skill] [--new]    Send one to a new thread;",
   "                       [--provider <id>] [--model <m>]         --new makes it independent",
-  "                       [--reasoning-level <l>] [--service-tier <t>]",
+  "                       [--reasoning-level <l>] [--service-tier <tier>]",
   "                       [--permission-mode <m>]",
   "  bb follow-up forget [--thread <id>]          Let dismissed follow-ups return",
   "",
@@ -329,6 +329,34 @@ test("cli: handoff forwards execution flags with explicit provenance", async () 
   );
 });
 
+test("cli: handoff passes any tier id the provider lists, trimmed, as explicit", async () => {
+  const { cli, add, spawns } = await host();
+  // Tiers are per provider since SDK 0.6, so the CLI leaves judging them to bb.
+  const id = await add("work");
+  assert.equal((await cli(["handoff", id, "--service-tier", "priority"])).exitCode, 0);
+  const other = await add("other work");
+  assert.equal((await cli(["handoff", other, "--service-tier", "  flex  "])).exitCode, 0);
+  const [first, second] = spawns();
+  assert.equal(first?.serviceTier, "priority");
+  assert.deepEqual(first?.executionInputSources, { serviceTier: "explicit" });
+  assert.equal(second?.serviceTier, "flex");
+});
+
+test("cli: handoff refuses a blank or overlong tier", async () => {
+  const { cli, add, spawns } = await host();
+  const id = await add("work");
+  assert.deepEqual(
+    await cli(["handoff", id, "--service-tier", "   "]),
+    fail("--service-tier needs a value.\n"),
+  );
+  assert.deepEqual(
+    await cli(["handoff", id, "--service-tier", "t".repeat(65)]),
+    fail("--service-tier must be 64 characters or fewer.\n"),
+  );
+  assert.equal((await cli(["handoff", id, "--service-tier", "t".repeat(64)])).exitCode, 0);
+  assert.equal(spawns().length, 1);
+});
+
 test("cli: handoff with no execution flags leaves the project defaults alone", async () => {
   const { cli, add, spawns } = await host();
   const id = await add("work");
@@ -355,10 +383,6 @@ test("cli: handoff refusals", async () => {
   assert.deepEqual(
     await cli(["handoff", id, "--permission-mode", "bogus"]),
     fail("--permission-mode must be one of: accept-edits, auto, full.\n"),
-  );
-  assert.deepEqual(
-    await cli(["handoff", id, "--service-tier", "priority"]),
-    fail("--service-tier must be one of: fast, default.\n"),
   );
   assert.deepEqual(await cli(["handoff", "nope", "--json"]).then((r) => JSON.parse(r.stdout)), {
     outcome: "not-found",

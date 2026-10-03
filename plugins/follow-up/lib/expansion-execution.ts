@@ -3,6 +3,12 @@
 import { z } from "zod";
 
 /**
+ * The longest tier id accepted, here and by `bb follow-up handoff
+ * --service-tier`. Tier ids are a provider's own, so length is the only bound.
+ */
+export const SERVICE_TIER_MAX = 64;
+
+/**
  * What the expansion helper runs on, when it is not the project's defaults.
  *
  * The shape is `ExperimentalProviderModelPickerValue` — the value bb's own
@@ -31,7 +37,7 @@ export const expansionExecutionSchema = z
       "max",
       "ultra",
     ]),
-    serviceTier: z.string().trim().min(1).max(64).optional(),
+    serviceTier: z.string().trim().min(1).max(SERVICE_TIER_MAX).optional(),
   })
   .strict();
 
