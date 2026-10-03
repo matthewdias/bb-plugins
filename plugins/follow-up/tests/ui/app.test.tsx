@@ -22,7 +22,12 @@ describe("app.tsx", () => {
     // The harness collects commands untyped; only the ids are read here.
     const registered = (app as unknown as { commandPaletteActions: { id: string }[] })
       .commandPaletteActions.map((command) => command.id);
-    expect(registered).toEqual(["toggle-followups", "open-followups-panel", "open-handoff-panel"]);
+    expect(registered).toEqual([
+      "toggle-followups",
+      "open-followups-panel",
+      "open-handoff-panel",
+      "record-draft",
+    ]);
   });
 
   it("offers the + menu row only while there are rows behind a collapsed banner", async () => {

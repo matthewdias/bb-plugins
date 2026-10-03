@@ -10,6 +10,10 @@ checkout, reordered, marked done, or dismissed. Marking a row done or
 dismissing it takes its pill back out of your draft. A dismissed row stays
 gone: an agent that notices the same thing again cannot re-add it.
 
+Record a follow-up yourself: *Record as follow-up* in the menu beside the send
+button, or the *Follow-ups: record the draft* command, files what you typed
+and clears the draft. It works on phones too, from a long-press on Send.
+
 Five agent tools — `record_follow_up`, `list_follow_ups`, `complete_follow_up`,
 `prioritize_follow_up`, and `amend_follow_up`. Agents record as they work and
 close the rows they finish, including rows you wrote yourself.
@@ -19,8 +23,8 @@ A `bb follow-up` command covering the same ground from a terminal: `add`,
 `handoff`, `clear`, and `forget`. Each one prints its own options with
 `--help`.
 
-Palette commands to show or hide the list, open the panel, or start a
-handoff, each of which you can bind to a key.
+Palette commands to show or hide the list, open the panel, start a handoff,
+or record the draft, each of which you can bind to a key.
 
 Follow-ups in the `@` menu, so a row can be pulled into a prompt by name.
 Mentioning one can claim it, marking it in progress as you send.

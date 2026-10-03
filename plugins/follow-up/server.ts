@@ -1449,9 +1449,9 @@ export default async function plugin(bb: BbPluginApi) {
   /**
    * Record a row the user wrote, from whichever surface they wrote it in.
    *
-   * Shared by the composer's record button and `bb follow-up add`, so the two
-   * cannot come to disagree about what a user-written row is. `createdBy` is
-   * "user" in both, which is what `backfillRequest` keys on — an agent's row
+   * Shared by recording the draft (the send-menu row and its command), the
+   * message action and `bb follow-up add`, so they cannot come to disagree
+   * about what a user-written row is. `createdBy` is "user" in all of them, which is what `backfillRequest` keys on — an agent's row
    * came through a tool that asked for a file and a detail, so a gap there was
    * a decision; a gap in one of these was someone jotting.
    *
