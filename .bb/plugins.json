@@ -5,6 +5,7 @@
   "plugins": [
     { "name": "follow-up", "source": "./plugins/follow-up" },
     { "name": "thread-badges", "source": "./plugins/thread-badges" },
+    { "name": "top-tabs", "source": "./plugins/top-tabs" },
     { "name": "workflow-stages", "source": "./plugins/workflow-stages" }
   ]
 }
