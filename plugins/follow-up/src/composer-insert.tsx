@@ -7,11 +7,16 @@
 // So the hook call stays isolated in a child behind an error boundary: if a
 // panel has no composer, the action quietly does not appear instead of taking
 // the panel down with it.
-import { Component, type ReactNode } from "react";
+import { Component, useEffect, type ReactNode } from "react";
 import { useComposer } from "@get-bb/plugin-sdk/app";
 import { pillLabel } from "./banner.tsx";
-import { insertPill } from "./insert-pill.ts";
-import type { FollowUp } from "../lib/followups.ts";
+import { insertPill, stripPill } from "./insert-pill.ts";
+import {
+  followUpMentionId,
+  isFollowUpInDraft,
+  MENTION_PROVIDER,
+  type FollowUp,
+} from "../lib/followups.ts";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
@@ -41,7 +46,7 @@ function InsertButton({
   onInserted?: () => void;
 }) {
   const composer = useComposer();
-  const inserted = composer.text.includes(pillLabel(row.text));
+  const inserted = isFollowUpInDraft(composer.draft.mentions, threadId, row.id);
 
   return (
     <span
@@ -60,8 +65,8 @@ function InsertButton({
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
           insertPill(composer, {
-            provider: "follow-up",
-            id: `${threadId}.${row.id}`,
+            provider: MENTION_PROVIDER,
+            id: followUpMentionId(threadId, row.id),
             label: pillLabel(row.text),
           });
           composer.focus();
@@ -88,9 +93,9 @@ function InsertButton({
  * exists is that a panel is not guaranteed a composer, and lifting the hook out
  * would trade a missing glyph for a dead panel.
  */
-function InsertedMark({ row }: { row: FollowUp }) {
+function InsertedMark({ row, threadId }: { row: FollowUp; threadId: string }) {
   const composer = useComposer();
-  if (!composer.text.includes(pillLabel(row.text))) return null;
+  if (!isFollowUpInDraft(composer.draft.mentions, threadId, row.id)) return null;
   return (
     <span title="In the composer" className="mt-1 inline-flex shrink-0 text-foreground">
       <span className="sr-only">In the composer</span>
@@ -99,10 +104,49 @@ function InsertedMark({ row }: { row: FollowUp }) {
   );
 }
 
-export function ComposerInsertedMark({ row }: { row: FollowUp }) {
+export function ComposerInsertedMark({ row, threadId }: { row: FollowUp; threadId: string }) {
   return (
     <HideOnError>
-      <InsertedMark row={row} />
+      <InsertedMark row={row} threadId={threadId} />
+    </HideOnError>
+  );
+}
+
+/** Takes a row's pill out of the draft; the panel calls it after its own done or dismiss. */
+export type PillRemover = (rowId: string) => void;
+
+function PillRemoverHost({
+  threadId,
+  register,
+}: {
+  threadId: string;
+  register: (remove: PillRemover | null) => void;
+}) {
+  const composer = useComposer();
+  useEffect(() => {
+    register((rowId) => stripPill(composer, threadId, rowId));
+    return () => register(null);
+  }, [composer, threadId, register]);
+  return null;
+}
+
+/**
+ * Hands the panel a way to remove a pill, from behind the same boundary as the
+ * insert button. The panel's done and dismiss run in the panel itself, which
+ * calls no composer hook, so this child is where the composer handle lives. A
+ * panel without a composer never registers one, and its done and dismiss leave
+ * the draft as it is.
+ */
+export function ComposerPillRemover({
+  threadId,
+  register,
+}: {
+  threadId: string;
+  register: (remove: PillRemover | null) => void;
+}) {
+  return (
+    <HideOnError>
+      <PillRemoverHost threadId={threadId} register={register} />
     </HideOnError>
   );
 }

@@ -6,8 +6,9 @@ normally live in one reply and are gone by the next turn. This keeps them.
 
 A banner above the composer listing what the current thread accumulated. Each
 row can be pushed into the composer, handed to a new thread in the same
-checkout, reordered, marked done, or dismissed. A dismissed row stays gone: an
-agent that notices the same thing again cannot re-add it.
+checkout, reordered, marked done, or dismissed. Marking a row done or
+dismissing it takes its pill back out of your draft. A dismissed row stays
+gone: an agent that notices the same thing again cannot re-add it.
 
 Five agent tools — `record_follow_up`, `list_follow_ups`, `complete_follow_up`,
 `prioritize_follow_up`, and `amend_follow_up`. Agents record as they work and

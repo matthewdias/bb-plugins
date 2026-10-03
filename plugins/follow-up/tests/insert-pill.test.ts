@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { insertPill } from "../src/insert-pill.ts";
+import { insertPill, stripPill } from "../src/insert-pill.ts";
 
 const pill = { provider: "follow-up", id: "thr_x.abc123", label: "Fix the flaky test" };
 
@@ -36,4 +36,27 @@ test("a pill goes at the end when the composer has no cursor to insert at", () =
 test("a composer that is gone altogether still fails loudly", () => {
   const composer = fakeComposer(["cursor", "end"]);
   assert.throws(() => insertPill(composer, pill), /cannot insert at end/);
+});
+
+test("stripPill replaces the draft without the row's pill", () => {
+  const text = "go Fix it now";
+  const draft = {
+    text,
+    mentions: [
+      { kind: "plugin", pluginId: "follow-up", provider: "follow-up", id: "thr_x.abc123", label: "Fix it", from: 3, to: 9 },
+    ],
+    attachments: [],
+  };
+  let next: unknown = null;
+  stripPill(
+    { replace: (update: unknown) => void (next = (update as (d: typeof draft) => unknown)(draft)) } as never,
+    "thr_x",
+    "abc123",
+  );
+  assert.deepEqual(next, { text: "go now", mentions: [] });
+});
+
+test("stripPill swallows a composer that has gone away", () => {
+  const gone = { replace: () => { throw new Error("This composer is no longer available"); } };
+  assert.doesNotThrow(() => stripPill(gone as never, "thr_x", "abc123"));
 });

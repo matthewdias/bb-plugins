@@ -33,8 +33,8 @@ function pill(label: string, at: number): ComposerMention {
   };
 }
 
-// "Already in the composer" is a text match on the pill label today. These pin
-// both of its known misreadings so moving to `draft.mentions` shows as a diff.
+// "Already in the composer" reads the draft's mentions, not its text, so the two
+// cases a text match on the label got wrong are pinned the right way round.
 describe("ComposerInsert", () => {
   it("inserts the row's pill and focuses the composer", () => {
     const slot = render("");
@@ -45,19 +45,19 @@ describe("ComposerInsert", () => {
     expect(slot.inspection.composer.focusCount).toBe(1);
   });
 
-  it("reads as inserted while the draft contains the label", () => {
+  it("reads as inserted while the draft holds the row's pill", () => {
     const slot = render(row.text, [pill(row.text, 0)]);
     const button = slot.getByRole("button", { name: `"${row.text}" is already in the composer` });
     expect((button as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("counts a typed copy of the label as inserted, though no pill is there", () => {
+  it("does not count a typed copy of the label, since no pill is there", () => {
     const slot = render(`please ${row.text}`);
-    expect(slot.queryByRole("button", { name: `"${row.text}" is already in the composer` })).not.toBeNull();
+    expect(slot.queryByRole("button", { name: `Put "${row.text}" in the composer` })).not.toBeNull();
   });
 
-  it("misses a pill for this row whose label no longer matches the row's text", () => {
+  it("still finds this row's pill after its label stops matching the row's text", () => {
     const slot = render("an older wording", [pill("an older wording", 0)]);
-    expect(slot.queryByRole("button", { name: `Put "${row.text}" in the composer` })).not.toBeNull();
+    expect(slot.queryByRole("button", { name: `"${row.text}" is already in the composer` })).not.toBeNull();
   });
 });
