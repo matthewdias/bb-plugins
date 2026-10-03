@@ -23,8 +23,11 @@ A `bb follow-up` command covering the same ground from a terminal: `add`,
 `handoff`, `clear`, and `forget`. Each one prints its own options with
 `--help`.
 
+The `+` menu's Follow-ups row opens a picker of this thread's open follow-ups:
+search, choose one, and its pill goes into the composer.
+
 Palette commands to show or hide the list, open the panel, start a handoff,
-or record the draft, each of which you can bind to a key.
+record the draft, or open the picker, each of which you can bind to a key.
 
 Follow-ups in the `@` menu, so a row can be pulled into a prompt by name.
 Mentioning one can claim it, marking it in progress as you send.

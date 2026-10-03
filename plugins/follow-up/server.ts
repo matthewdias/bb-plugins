@@ -1451,9 +1451,10 @@ export default async function plugin(bb: BbPluginApi) {
    *
    * Shared by recording the draft (the send-menu row and its command), the
    * message action and `bb follow-up add`, so they cannot come to disagree
-   * about what a user-written row is. `createdBy` is "user" in all of them, which is what `backfillRequest` keys on — an agent's row
-   * came through a tool that asked for a file and a detail, so a gap there was
-   * a decision; a gap in one of these was someone jotting.
+   * about what a user-written row is. `createdBy` is "user" in all of them,
+   * which is what `backfillRequest` keys on — an agent's row came through a
+   * tool that asked for a file and a detail, so a gap there was a decision; a
+   * gap in one of these was someone jotting.
    *
    * `reason` is optional here and required by the agent tool, deliberately.
    * "Why am I not doing this now" is a question an agent should have to answer

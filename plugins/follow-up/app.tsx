@@ -10,6 +10,7 @@ import { FollowUpBanner } from "./src/banner";
 import { FollowUpPanel } from "./src/panel";
 import { HandoffPanel } from "./src/handoff-panel.tsx";
 import { HANDOFF_PANEL_ACTION } from "./src/handoff.tsx";
+import { FollowUpPicker, PICKER_POPUP_ID, registerInsertCommand } from "./src/picker.tsx";
 import {
   recordSendMenuItem,
   REFUSAL_DETAIL,
@@ -17,7 +18,7 @@ import {
 } from "./src/record-draft.ts";
 import { ExpansionModelSettings } from "./src/settings-section.tsx";
 import { threadIdFromScope } from "./src/scope.ts";
-import { hasFollowUps, peekFollowUpState, setCollapsed } from "./src/store.ts";
+import { hasFollowUps, setCollapsed } from "./src/store.ts";
 import { commands } from "./src/commands.ts";
 import { FOLLOWUPS_PANEL_ACTION } from "./src/panel-ids.ts";
 import { getRpc } from "./src/rpc.ts";
@@ -36,28 +37,38 @@ export default definePluginApp((app) => {
     // not. It never unmounts while the thread has rows, which is what lets it
     // own fetching — there is no second component to keep in step.
     banners: [{ id: "followups", chrome: "card", component: FollowUpBanner }],
-    // The + menu attaches, and our attach verb is "put a follow-up in the
-    // composer" — which every banner row already offers. So this hands you the
-    // list rather than duplicating it: a `plusMenu` run gets no panel handle,
-    // so a real picker would have to go through `bb.ui.requestInput` and a
-    // pending interaction, and a modal over rows you can already see and click
-    // is strictly worse. See the decision in PLAN.md.
+    // The + menu brings things into the draft, and ours is a follow-up: the
+    // row opens a picker over the composer (src/picker.tsx), registered in its
+    // own customization below. Where bb has no popups, or the picker is out of
+    // scope (the sent-message editor), the row falls back to what it did
+    // before popups existed: it expands the banner, whose rows can be inserted.
     plusMenu: [
       {
         id: "show-followups",
         label: "Follow-ups",
         icon: "TextWrap",
-        description: "Show this thread's follow-ups above the composer.",
-        // Greyed rather than a no-op: nothing to show, or already showing.
-        disabled: (composer) => {
-          const threadId = threadIdFromScope(composer.scope);
-          return !hasFollowUps(threadId) || !peekFollowUpState(threadId).collapsed;
-        },
+        description: "Pick one of this thread's follow-ups to put in the composer.",
+        // Greyed only when there is nothing to pick. The picker is worth
+        // opening whether or not the banner is expanded.
+        disabled: (composer) => !hasFollowUps(threadIdFromScope(composer.scope)),
         run({ composer }) {
+          if (composer.experimental_openPopup?.(PICKER_POPUP_ID)) return;
           const threadId = threadIdFromScope(composer.scope);
           if (threadId !== null) setCollapsed(threadId, false);
         },
       },
+    ],
+  });
+
+  // The picker the + row opens. Its own registration, not part of the one
+  // above: popups are experimental, and bb rejects a customization it cannot
+  // validate as a whole, so a host that refused them would take the banner and
+  // the send-menu row down too.
+  app.composer.customize({
+    id: "follow-up-picker",
+    scopes: ["thread"],
+    experimental_popups: [
+      { id: PICKER_POPUP_ID, label: "Follow-ups", component: FollowUpPicker },
     ],
   });
 
@@ -104,8 +115,10 @@ export default definePluginApp((app) => {
   // Show or hide the banner, open the panel, start a handoff: see
   // src/commands.ts for why none of them has a default shortcut.
   for (const command of commands) app.commands.register(command);
-  // Record the draft from the keyboard, in whichever composer holds the caret.
+  // Record the draft, or open the picker, from the keyboard, in whichever
+  // composer holds the caret.
   registerRecordCommand(app.composer);
+  registerInsertCommand(app.composer);
 
   // The one setting that cannot be declarative: a live provider and model
   // catalog. Everything else this plugin exposes is a `settings.define` field

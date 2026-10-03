@@ -27,10 +27,11 @@ describe("app.tsx", () => {
       "open-followups-panel",
       "open-handoff-panel",
       "record-draft",
+      "insert-followup",
     ]);
   });
 
-  it("offers the + menu row only while there are rows behind a collapsed banner", async () => {
+  it("offers the + menu row whenever the thread has open rows, banner open or not", async () => {
     const app = await loadPluginApp(() => import("../../app.tsx"));
     const item = app.composerCustomizations[0]?.plusMenu?.find((entry) => entry.id === "show-followups");
     const disabled = item?.disabled;
@@ -39,9 +40,11 @@ describe("app.tsx", () => {
       (disabled as (composer: PluginComposerApi) => boolean)(composerFor(threadId));
 
     expect(isDisabled("thr_plus_empty")).toBe(true);
+    setRows("thr_plus_done_only", [], [row]);
+    expect(isDisabled("thr_plus_done_only")).toBe(true);
     setRows("thr_plus_rows", [row]);
     setCollapsed("thr_plus_rows", false);
-    expect(isDisabled("thr_plus_rows")).toBe(true);
+    expect(isDisabled("thr_plus_rows")).toBe(false);
     setCollapsed("thr_plus_rows", true);
     expect(isDisabled("thr_plus_rows")).toBe(false);
   });

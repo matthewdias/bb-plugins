@@ -14,9 +14,7 @@ import {
   needsReview,
   isExpanding,
   expansionGaveUp,
-  followUpMentionId,
   isFollowUpInDraft,
-  MENTION_PROVIDER,
   type FollowUp,
   type Reason,
 } from "../lib/followups.ts";
@@ -30,7 +28,8 @@ import {
 import { dismissKeyboard } from "./keyboard.ts";
 import { FollowUpSortable, useSortableRow } from "./sortable.tsx";
 import { threadIdFromScope } from "./scope.ts";
-import { insertPill, stripPill } from "./insert-pill.ts";
+import { stripPill } from "./insert-pill.ts";
+import { commitOrder as commitRowOrder, insertRow } from "./reorder.ts";
 import { useFollowUps } from "./use-follow-ups.ts";
 import { HandoffAction } from "./handoff.tsx";
 import { EmptyState } from "./empty-state.tsx";
@@ -52,18 +51,6 @@ const REASON_ICON: Record<Reason, IconName> = {
   risk: "AlertTriangle",
   cleanup: "Clean",
 };
-
-/**
- * Pill text. Follow-up text runs to 240 characters, which would render as an
- * unusable pill, so the label is truncated. Display only: whether a row is in
- * the composer is read from the pill's id, not from this text.
- */
-const PILL_LABEL_MAX = 48;
-export function pillLabel(text: string): string {
-  return text.length <= PILL_LABEL_MAX
-    ? text
-    : `${text.slice(0, PILL_LABEL_MAX - 1).trimEnd()}\u2026`;
-}
 
 /**
  * The detail tooltip, in its own component so the entry flag resets each time
@@ -759,76 +746,32 @@ export function FollowUpBanner() {
 
   const threadIdRef = useRef(threadId);
   const rpcRef = useRef(rpc);
-  const rowsRef = useRef(rows);
-  const doneRef = useRef(done);
   threadIdRef.current = threadId;
   rpcRef.current = rpc;
-  rowsRef.current = rows;
-  doneRef.current = done;
 
-  // Optimistic first: the rows are already where the user dropped them, so
-  // waiting for the server would drag them back for a frame.
+  // A drag's new order, through the same path an insert's move to the top
+  // takes: see src/reorder.ts.
   const commitOrder = useCallback((orderedIds: string[], movedId: string) => {
     const target = threadIdRef.current;
     if (target === null) return;
-    const byId = new Map(rowsRef.current.map((entry) => [entry.id, entry]));
-    const reordered = orderedIds
-      .map((id) => byId.get(id))
-      .filter((entry): entry is FollowUp => entry !== undefined);
-    setRows(target, reordered, doneRef.current);
-    void (async () => {
-      try {
-        const result = await rpcRef.current.call("followups_reorder", {
-          threadId: target,
-          orderedIds,
-          movedId,
-        });
-        if (threadIdRef.current === target) {
-          setRows(target, result.followUps, result.done);
-        }
-      } catch {
-        // Nothing else fetches now that the pill is gone, so ask again
-        // rather than leaving an optimistic edit standing as the truth.
-        reload();
-      }
-    })();
-  }, [reload]);
+    commitRowOrder(rpcRef.current, target, orderedIds, movedId);
+  }, []);
 
   const ids = rows.map((entry) => entry.id);
 
-  // A mention pill, not plain text: it survives editing, never clobbers a draft
-  // the way replacing its text would, and resolves the whole record —
-  // including `detail` — into agent context at send time. Sending is also what
-  // marks the row sent, so inserting and then deleting the pill costs nothing.
+  // The pill, and the row moved to the top: see src/reorder.ts, which the +
+  // menu's picker shares.
   const insert = useCallback(
     (row: FollowUp) => {
       const target = threadIdRef.current;
       if (target === null) return;
-      insertPill(composer, {
-        provider: MENTION_PROVIDER,
-        id: followUpMentionId(target, row.id),
-        label: pillLabel(row.text),
-      });
-      composer.focus();
-      // Inserting is a statement that this is the one being worked on next,
-      // which is what the top of the list means — so it is a real reorder,
-      // through the same path a drag takes, not a display-only sort. A sort
-      // would have diverged from the stored rank, and the next drag would
-      // have committed that divergence as permanent rank without anyone
-      // asking for it.
-      const current = rowsRef.current;
-      if (current.length > 1 && current[0]?.id !== row.id) {
-        commitOrder(
-          [row.id, ...current.filter((entry) => entry.id !== row.id).map((entry) => entry.id)],
-          row.id,
-        );
-      }
+      insertRow(composer, rpcRef.current, target, row);
       // The row is at the top now, which is off-screen if the list was
       // scrolled down — so the feedback for having inserted it would be
       // invisible exactly when the list is long enough to need it.
       listRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     },
-    [composer, commitOrder],
+    [composer],
   );
 
   const dismiss = useCallback(
