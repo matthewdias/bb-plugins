@@ -54,6 +54,15 @@ if you would rather have the card — and *suggest what's next* with it — wait
 on any thread with nothing outstanding. It stays out of the way mid-turn either
 way.
 
+**Palette commands.** Three commands in bb's command palette, none bound to a
+key by default. Bind any of them under Settings → Keyboard.
+
+| Command | What it does |
+| --- | --- |
+| Follow-ups: show or hide the list | Expand or collapse the banner on a thread with open follow-ups |
+| Follow-ups: open panel | Open the Follow-ups tab in the side panel |
+| Follow-ups: hand off… | Open the Hand off tab, composing a new thread in this checkout |
+
 **The `@` menu.** Follow-ups appear as mentions, so a row can be pulled into a
 prompt by name. Mentioning one can claim it, marking it in progress as you send,
 and can ask the agent to fill in a missing file anchor or detail.

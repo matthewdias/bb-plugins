@@ -19,6 +19,9 @@ A `bb follow-up` command covering the same ground from a terminal: `add`,
 `handoff`, `clear`, and `forget`. Each one prints its own options with
 `--help`.
 
+Palette commands to show or hide the list, open the panel, or start a
+handoff, each of which you can bind to a key.
+
 Follow-ups in the `@` menu, so a row can be pulled into a prompt by name.
 Mentioning one can claim it, marking it in progress as you send.
 

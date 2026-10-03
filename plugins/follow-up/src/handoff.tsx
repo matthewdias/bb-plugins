@@ -19,8 +19,9 @@ import type { FollowUp } from "../lib/followups.ts";
 import { Button } from "@/components/ui/button";
 import { dismissKeyboard } from "./keyboard.ts";
 
-/** The panel tab the compose view renders in. */
-export const HANDOFF_PANEL_ACTION = "handoff";
+import { HANDOFF_PANEL_ACTION } from "./panel-ids.ts";
+
+export { HANDOFF_PANEL_ACTION };
 
 export function HandoffAction({ row }: { row: FollowUp }) {
   const navigate = useBbNavigate();
