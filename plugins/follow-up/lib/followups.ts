@@ -614,25 +614,21 @@ export function backfillRequest(row: FollowUp): string | null {
   );
 }
 
-/** One @-mention as the host reports it in the structured draft. */
+/**
+ * One @-mention as `composer.draft.mentions` reports it — only the fields read
+ * here, so the SDK's `ComposerMention` passes in as it is.
+ */
 export interface DraftMention {
-  provider: string;
-  id: string;
-  label: string;
+  kind: string;
+  path?: string;
 }
 
 /**
- * bb's own file mentions arrive under this provider, with the path as the id.
- *
- * Read out of the host's own mapping rather than guessed: a native mention's
- * `provider` is its kind, and for `path` the id is the path itself. Plugin
- * mentions use the plugin's id as the provider, so this cannot collide with
- * one — including this plugin's own follow-up pills.
- */
-export const FILE_MENTION_PROVIDER = "path";
-
-/**
  * The anchor a typed note carries, if it mentioned a file.
+ *
+ * bb's own file and directory mentions are `kind: "path"`. Plugin mentions,
+ * this plugin's follow-up pills among them, are `kind: "plugin"`, so a pill
+ * whose label happens to look like a path is never mistaken for one.
  *
  * First mention wins. A note naming two files has no single anchor and
  * guessing between them would be worse than the one the writer put first —
@@ -642,8 +638,8 @@ export function fileMentionOf(
   mentions: readonly DraftMention[],
 ): string | null {
   for (const mention of mentions) {
-    if (mention.provider !== FILE_MENTION_PROVIDER) continue;
-    const path = mention.id.trim();
+    if (mention.kind !== "path") continue;
+    const path = mention.path?.trim() ?? "";
     if (path !== "") return path;
   }
   return null;

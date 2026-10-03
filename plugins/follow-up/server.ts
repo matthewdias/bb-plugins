@@ -41,40 +41,10 @@ import {
   TEXT_MAX,
   type FollowUp,
 } from "./lib/followups.ts";
-
-/**
- * What the expansion helper runs on, when it is not the project's defaults.
- *
- * The shape is `ExperimentalProviderModelPickerValue` — the value bb's own
- * picker emits, documented as existing to be forwarded verbatim to
- * `threads.spawn`. Modelling it here rather than reusing the host type keeps
- * the wire validated, and the two cannot drift far: the picker only ever emits
- * a coherent selection.
- *
- * `model` is `min(1)` on purpose. It is the one field that can be absent while
- * a selection is half-made, and a spawn carrying an empty model would fail
- * where falling back to the project default would have worked. Refusing to
- * store it is what makes the fallback the only other outcome.
- */
-const expansionExecutionSchema = z
-  .object({
-    providerId: z.string().min(1).max(120),
-    model: z.string().min(1).max(200),
-    reasoningLevel: z.enum([
-      "none",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "ultracode",
-      "max",
-      "ultra",
-    ]),
-    serviceTier: z.enum(["fast", "default"]).optional(),
-  })
-  .strict();
-
-type ExpansionExecution = z.infer<typeof expansionExecutionSchema>;
+import {
+  expansionExecutionSchema,
+  type ExpansionExecution,
+} from "./lib/expansion-execution.ts";
 
 /** Global, not per-thread: settings have no project or thread scope. */
 const EXECUTION_KEY = "expansion-execution";

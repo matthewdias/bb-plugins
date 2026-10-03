@@ -1,16 +1,16 @@
 // "Put this in the composer", for surfaces that are not the composer.
 //
 // The banner lives inside a composer slot, so it can call useComposer freely.
-// The side panel is a thread panel slot, and neither the SDK types nor any
-// installed plugin establishes whether a composer is resolvable there — the
-// types describe which composer useComposer writes to, not which slots may ask.
+// The side panel is a thread panel slot. SDK 0.6 documents that a thread's
+// panels get that thread's composer, but earlier SDKs said nothing either way.
 //
-// So the hook call is isolated in a child behind an error boundary: if a panel
-// has no composer, the action quietly does not appear instead of taking the
-// panel down with it.
+// So the hook call stays isolated in a child behind an error boundary: if a
+// panel has no composer, the action quietly does not appear instead of taking
+// the panel down with it.
 import { Component, type ReactNode } from "react";
-import { useComposer, useComposerView } from "@get-bb/plugin-sdk/app";
+import { useComposer } from "@get-bb/plugin-sdk/app";
 import { pillLabel } from "./banner.tsx";
+import { insertPill } from "./insert-pill.ts";
 import type { FollowUp } from "../lib/followups.ts";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -41,8 +41,7 @@ function InsertButton({
   onInserted?: () => void;
 }) {
   const composer = useComposer();
-  const view = useComposerView();
-  const inserted = view.draft.text.includes(pillLabel(row.text));
+  const inserted = composer.text.includes(pillLabel(row.text));
 
   return (
     <span
@@ -60,7 +59,7 @@ function InsertButton({
         disabled={inserted}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
-          composer.insertMention({
+          insertPill(composer, {
             provider: "follow-up",
             id: `${threadId}.${row.id}`,
             label: pillLabel(row.text),
@@ -90,8 +89,8 @@ function InsertButton({
  * would trade a missing glyph for a dead panel.
  */
 function InsertedMark({ row }: { row: FollowUp }) {
-  const view = useComposerView();
-  if (!view.draft.text.includes(pillLabel(row.text))) return null;
+  const composer = useComposer();
+  if (!composer.text.includes(pillLabel(row.text))) return null;
   return (
     <span title="In the composer" className="mt-1 inline-flex shrink-0 text-foreground">
       <span className="sr-only">In the composer</span>

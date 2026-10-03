@@ -13,7 +13,6 @@ import { HANDOFF_PANEL_ACTION } from "./src/handoff.tsx";
 import { RecordDraftAction } from "./src/record-draft.tsx";
 import { ExpansionModelSettings } from "./src/settings-section.tsx";
 import { threadIdFromScope } from "./src/scope.ts";
-import { rememberDraftMentions } from "./src/draft-mentions.ts";
 import { peekFollowUpState, setCollapsed } from "./src/store.ts";
 import { getRpc } from "./src/rpc.ts";
 
@@ -37,15 +36,6 @@ export default definePluginApp((app) => {
     // not. It never unmounts while the thread has rows, which is what lets it
     // own fetching — there is no second component to keep in step.
     banners: [{ id: "followups", chrome: "card", component: FollowUpBanner }],
-    // Observed, never painted. The only route to a typed note's @-mentions:
-    // `ComposerView.draft` is text alone, so a file mentioned while writing the
-    // note would otherwise be visible on screen and invisible to the row it
-    // becomes. `effects` is deliberately absent — this paints nothing.
-    richText: {
-      onDraftChange(draft, view) {
-        rememberDraftMentions(threadIdFromScope(view.scope), draft.mentions);
-      },
-    },
     // The + menu attaches, and our attach verb is "put a follow-up in the
     // composer" — which every banner row already offers. So this hands you the
     // list rather than duplicating it: a `plusMenu` run gets no panel handle,
@@ -59,14 +49,14 @@ export default definePluginApp((app) => {
         icon: "TextWrap",
         description: "Show this thread's follow-ups above the composer.",
         // Greyed rather than a no-op: nothing to show, or already showing.
-        disabled: (view) => {
-          const threadId = threadIdFromScope(view.scope);
+        disabled: (composer) => {
+          const threadId = threadIdFromScope(composer.scope);
           if (threadId === null) return true;
           const { rows, collapsed } = peekFollowUpState(threadId);
           return rows.length === 0 || !collapsed;
         },
-        run({ view }) {
-          const threadId = threadIdFromScope(view.scope);
+        run({ composer }) {
+          const threadId = threadIdFromScope(composer.scope);
           if (threadId !== null) setCollapsed(threadId, false);
         },
       },

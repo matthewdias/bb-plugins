@@ -28,6 +28,8 @@ import {
   type FollowUp,
 } from "../lib/followups.ts";
 import { takeValueFlags } from "../lib/argv.ts";
+import { expansionExecutionSchema } from "../lib/expansion-execution.ts";
+import type { ComposerMention } from "@get-bb/plugin-sdk/app";
 import { backfillRequest, expansionPrompt, fileMentionOf, isExpanding, expansionGaveUp, contextAround, rowsEqual, houseStyleBlock, EXPANSION_TURNS, EXPANSION_WORD_CAP, CAP_CEILING } from "../lib/followups.ts";
 
 function row(text: string, overrides: Partial<FollowUp> = {}): FollowUp {
@@ -901,40 +903,94 @@ test("unknown flags are left alone for whoever does know them", () => {
   assert.deepEqual(rest, ["amend", "id", "--text", "hi"]);
 });
 
-const mention = (provider: string, id: string) => ({ provider, id, label: id });
+// Typed as SDK 0.6's `composer.draft.mentions`, so this also checks that the
+// host's own mention type passes straight into `fileMentionOf`.
+const anchorOf = (...mentions: ComposerMention[]) => fileMentionOf(mentions);
+const at = { from: 0, to: 1 };
+const pathMention = (path: string): ComposerMention => ({
+  ...at,
+  kind: "path",
+  label: path,
+  path,
+  source: "workspace",
+  entryKind: "file",
+});
 
 test("a file mention in the note becomes the row's anchor", () => {
   assert.equal(
-    fileMentionOf([mention("path", "src/record-draft.tsx")]),
+    anchorOf(pathMention("src/record-draft.tsx")),
     "src/record-draft.tsx",
   );
 });
 
 test("mentions that are not files are not anchors", () => {
-  // A follow-up pill, a thread and a project all ride in the same list.
+  // A follow-up pill, a thread and a project all ride in the same list. The
+  // pill's id looks nothing like a path, but its label could.
   assert.equal(
-    fileMentionOf([
-      mention("follow-up", "thr_x.abc123"),
-      mention("thread", "thr_y"),
-      mention("project", "proj_z"),
-    ]),
+    anchorOf(
+      { ...at, kind: "plugin", label: "src/a.ts", pluginId: "follow-up", provider: "follow-up", id: "thr_x.abc123" },
+      { ...at, kind: "thread", label: "thr_y", threadId: "thr_y" },
+      { ...at, kind: "project", label: "proj_z", projectId: "proj_z" },
+    ),
     null,
   );
 });
 
 test("the first file mentioned wins", () => {
   assert.equal(
-    fileMentionOf([mention("path", "a.ts"), mention("path", "b.ts")]),
+    anchorOf(pathMention("a.ts"), pathMention("b.ts")),
     "a.ts",
   );
 });
 
 test("a note with no mentions has no anchor", () => {
-  assert.equal(fileMentionOf([]), null);
+  assert.equal(anchorOf(), null);
 });
 
 test("a file mention with a blank path is not an anchor", () => {
-  assert.equal(fileMentionOf([mention("path", "   ")]), null);
+  assert.equal(anchorOf(pathMention("   ")), null);
+});
+
+test("the anchor is the mention's path, not the label it shows", () => {
+  assert.equal(
+    anchorOf({ ...pathMention("src/deep/record-draft.tsx"), label: "record-draft.tsx" }),
+    "src/deep/record-draft.tsx",
+  );
+});
+
+test("only bb's path mentions anchor, whatever else carries a path", () => {
+  // No 0.6 kind but `path` has the field; a later one might.
+  assert.equal(fileMentionOf([{ kind: "diff", path: "src/a.ts" }]), null);
+});
+
+test("a provider-declared service tier can be saved", () => {
+  const parsed = expansionExecutionSchema.safeParse({
+    providerId: "codex",
+    model: "gpt-5.5",
+    reasoningLevel: "high",
+    serviceTier: "priority",
+  });
+  assert.ok(parsed.success);
+  assert.equal(parsed.data.serviceTier, "priority");
+});
+
+test("a blank service tier is refused", () => {
+  const parsed = expansionExecutionSchema.safeParse({
+    providerId: "codex",
+    model: "gpt-5.5",
+    reasoningLevel: "high",
+    serviceTier: "  ",
+  });
+  assert.equal(parsed.success, false);
+});
+
+test("a selection with no service tier is still whole", () => {
+  const parsed = expansionExecutionSchema.safeParse({
+    providerId: "claude-code",
+    model: "claude-opus-5-5",
+    reasoningLevel: "max",
+  });
+  assert.ok(parsed.success);
 });
 
 test("a thin user note asks for both the anchor and the context", () => {
