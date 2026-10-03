@@ -43,6 +43,7 @@ import {
 } from "./lib/followups.ts";
 import {
   expansionExecutionSchema,
+  SERVICE_TIER_MAX,
   type ExpansionExecution,
 } from "./lib/expansion-execution.ts";
 
@@ -1966,7 +1967,9 @@ export default async function plugin(bb: BbPluginApi) {
       field: "reasoningLevel",
       allowed: ["low", "medium", "high", "xhigh", "max"],
     },
-    { name: "service-tier", field: "serviceTier", allowed: ["fast", "default"] },
+    // Not a list: since SDK 0.6 each provider declares its own tiers, and
+    // `bb thread spawn` takes any id the provider lists for the model.
+    { name: "service-tier", field: "serviceTier", allowed: null },
     {
       name: "permission-mode",
       field: "permissionMode",
@@ -1994,7 +1997,7 @@ export default async function plugin(bb: BbPluginApi) {
     "  bb follow-up clear [--thread <id>]           Drop this thread's follow-ups",
     "  bb follow-up handoff <id> [skill] [--new]    Send one to a new thread;",
     "                       [--provider <id>] [--model <m>]         --new makes it independent",
-    "                       [--reasoning-level <l>] [--service-tier <t>]",
+    "                       [--reasoning-level <l>] [--service-tier <tier>]",
     "                       [--permission-mode <m>]",
     "  bb follow-up forget [--thread <id>]          Let dismissed follow-ups return",
   ].join("\n");
@@ -2362,12 +2365,24 @@ export default async function plugin(bb: BbPluginApi) {
           const execution: Record<string, unknown> = {};
           const sources: Record<string, "explicit"> = {};
           for (const flag of EXECUTION_FLAGS) {
-            const value = taken.values[flag.name];
-            if (value === undefined) continue;
-            if (flag.allowed !== null && !flag.allowed.includes(value as never)) {
+            const raw = taken.values[flag.name];
+            if (raw === undefined) continue;
+            if (flag.allowed !== null && !flag.allowed.includes(raw as never)) {
               return {
                 exitCode: 1,
                 stderr: `--${flag.name} must be one of: ${flag.allowed.join(", ")}.\n`,
+              };
+            }
+            // The same rule the stored expansion tier follows in
+            // lib/expansion-execution.ts: trimmed, non-blank, bounded.
+            const value = flag.field === "serviceTier" ? raw.trim() : raw;
+            if (flag.field === "serviceTier" && value === "") {
+              return { exitCode: 1, stderr: `--${flag.name} needs a value.\n` };
+            }
+            if (flag.field === "serviceTier" && value.length > SERVICE_TIER_MAX) {
+              return {
+                exitCode: 1,
+                stderr: `--${flag.name} must be ${SERVICE_TIER_MAX} characters or fewer.\n`,
               };
             }
             execution[flag.field] = value;

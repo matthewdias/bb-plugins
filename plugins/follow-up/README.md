@@ -111,6 +111,10 @@ bb follow-up clear                   # drop this thread's follow-ups
 bb follow-up forget                  # let dismissed follow-ups be recorded again
 ```
 
+`handoff` takes the execution flags `bb thread spawn` does: `--provider`,
+`--model`, `--reasoning-level`, `--permission-mode`, and `--service-tier`, which
+takes any tier id the provider lists for the model (see `bb provider models`).
+
 `dismiss` is the same action as the banner's x, exposed so the tombstone path is
 testable without a browser. `clear` empties the list without dismissing
 anything. `forget` drops the *dismissal* record — use it when you deleted
