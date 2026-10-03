@@ -29,6 +29,7 @@
     "lib",
     "hooks",
     "tests",
-    "types"
+    "types",
+    "vitest.config.ts"
   ]
 }

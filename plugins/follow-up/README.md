@@ -160,6 +160,16 @@ bb plugin logs follow-up -f
 `lib/followups.ts` holds every rule and touches no plugin API, so it is testable
 without a running bb. Keep `bb.*` calls in `server.ts`.
 
+`npm test` runs two suites:
+
+- **`node --test`**, for `lib/`, `src/insert-pill.ts` and `tests/server.test.ts`.
+  The last one loads `server.ts` against the SDK's fake host and pins what
+  `bb follow-up` prints, byte for byte. Agents and the describe helper drive
+  that CLI, so a golden that has to change should change in its own reviewed
+  hunk.
+- **vitest with jsdom**, for the composer surfaces in `tests/ui/`, rendered
+  through the SDK's `renderSlot` harness.
+
 The test suite is mutation-checked: removing the tombstone check, the duplicate
 check, the per-thread cap, `normalizeKey`'s case folding, `applyTombstones`, or
 the empty-text guard each turns it red.
