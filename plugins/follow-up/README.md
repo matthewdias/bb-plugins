@@ -67,7 +67,12 @@ if you would rather have the card — and *suggest what's next* with it — wait
 on any thread with nothing outstanding. It stays out of the way mid-turn either
 way.
 
-**Palette commands.** Four commands in bb's command palette, none bound to a
+**The `+` menu's Follow-ups row.** Opens a picker over the composer listing this
+thread's open follow-ups. Type to narrow it, use the arrow keys to choose, and
+press Enter (or click) to put that row's pill in the composer; the row moves to
+the top of the list, as inserting from the banner does.
+
+**Palette commands.** Five commands in bb's command palette, none bound to a
 key by default. Bind any of them under Settings → Keyboard.
 
 | Command | What it does |
@@ -76,6 +81,7 @@ key by default. Bind any of them under Settings → Keyboard.
 | Follow-ups: open panel | Open the Follow-ups tab in the side panel |
 | Follow-ups: hand off… | Open the Hand off tab, composing a new thread in this checkout |
 | Follow-ups: record the draft | Record the composer's draft as a follow-up and clear it |
+| Follow-ups: insert one… | Open the follow-up picker in the composer |
 
 **The `@` menu.** Follow-ups appear as mentions, so a row can be pulled into a
 prompt by name. Mentioning one can claim it, marking it in progress as you send,

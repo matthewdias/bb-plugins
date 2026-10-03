@@ -27,6 +27,7 @@ describe("app.tsx", () => {
       "open-followups-panel",
       "open-handoff-panel",
       "record-draft",
+      "insert-followup",
     ]);
   });
 

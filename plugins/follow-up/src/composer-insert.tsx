@@ -9,8 +9,7 @@
 // the panel down with it.
 import { Component, useEffect, type ReactNode } from "react";
 import { useComposer } from "@get-bb/plugin-sdk/app";
-import { pillLabel } from "./banner.tsx";
-import { insertPill, stripPill } from "./insert-pill.ts";
+import { insertPill, pillLabel, stripPill } from "./insert-pill.ts";
 import {
   followUpMentionId,
   isFollowUpInDraft,

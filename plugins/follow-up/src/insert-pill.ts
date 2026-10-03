@@ -9,6 +9,18 @@
 import type { PluginComposerApi, PluginComposerMention } from "@get-bb/plugin-sdk/app";
 import { isFollowUpPill, withoutMentions } from "../lib/followups.ts";
 
+/**
+ * Pill text. Follow-up text runs to 240 characters, which would render as an
+ * unusable pill, so the label is truncated. Display only: whether a row is in
+ * the composer is read from the pill's id, not from this text.
+ */
+const PILL_LABEL_MAX = 48;
+export function pillLabel(text: string): string {
+  return text.length <= PILL_LABEL_MAX
+    ? text
+    : `${text.slice(0, PILL_LABEL_MAX - 1).trimEnd()}\u2026`;
+}
+
 export function insertPill(
   composer: Pick<PluginComposerApi, "insert">,
   pill: PluginComposerMention,
