@@ -297,8 +297,7 @@ function FollowUpRow({
             />
           )}
           {/* Deliberately not animated: this toggles as you edit the draft, so
-              it would fire while you type — the same reason the record-draft
-              action does not animate in. */}
+              it would fire while you type. */}
           {inserted && (
             <Icon name="EditFile" className="size-3 text-foreground" aria-hidden />
           )}

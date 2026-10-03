@@ -31,6 +31,19 @@ dismiss it, in the banner or the panel, and its pill comes back out of the
 draft, so sending cannot hand the agent a row that is gone. A row an agent
 finishes, or one closed from the CLI or another window, leaves your draft alone.
 
+**Recording the draft.** Type a follow-up into the composer, then choose
+*Record as follow-up* in the menu beside the send button, or run the
+*Follow-ups: record the draft* command. The row is recorded and the draft
+clears. A refusal (a duplicate, a wording you dismissed earlier, a full list)
+appears as a toast and leaves the draft as it was. A file you @-mention in the
+draft becomes the row's anchor. On a phone, long-press Send to reach the menu.
+While bb is waiting on you (a question, a plan approval) the send menu is
+hidden, so use the command; bind it under Settings → Keyboard.
+
+Highlighting a sentence in a message and choosing *Record as follow-up* records
+that sentence instead, with the prose around it kept as detail. A refusal there
+is a toast too.
+
 Dismissal beats recording: once you delete a follow-up it stays gone, even if an
 agent notices the same thing again. Recording the same text twice is a no-op —
 matching ignores case and punctuation, because agents rarely reproduce their own
@@ -54,7 +67,7 @@ if you would rather have the card — and *suggest what's next* with it — wait
 on any thread with nothing outstanding. It stays out of the way mid-turn either
 way.
 
-**Palette commands.** Three commands in bb's command palette, none bound to a
+**Palette commands.** Four commands in bb's command palette, none bound to a
 key by default. Bind any of them under Settings → Keyboard.
 
 | Command | What it does |
@@ -62,6 +75,7 @@ key by default. Bind any of them under Settings → Keyboard.
 | Follow-ups: show or hide the list | Expand or collapse the banner on a thread with open follow-ups |
 | Follow-ups: open panel | Open the Follow-ups tab in the side panel |
 | Follow-ups: hand off… | Open the Hand off tab, composing a new thread in this checkout |
+| Follow-ups: record the draft | Record the composer's draft as a follow-up and clear it |
 
 **The `@` menu.** Follow-ups appear as mentions, so a row can be pulled into a
 prompt by name. Mentioning one can claim it, marking it in progress as you send,
