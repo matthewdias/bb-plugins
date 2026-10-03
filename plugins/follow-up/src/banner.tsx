@@ -14,6 +14,9 @@ import {
   needsReview,
   isExpanding,
   expansionGaveUp,
+  followUpMentionId,
+  isFollowUpInDraft,
+  MENTION_PROVIDER,
   type FollowUp,
   type Reason,
 } from "../lib/followups.ts";
@@ -27,7 +30,7 @@ import {
 import { dismissKeyboard } from "./keyboard.ts";
 import { FollowUpSortable, useSortableRow } from "./sortable.tsx";
 import { threadIdFromScope } from "./scope.ts";
-import { insertPill } from "./insert-pill.ts";
+import { insertPill, stripPill } from "./insert-pill.ts";
 import { useFollowUps } from "./use-follow-ups.ts";
 import { HandoffAction } from "./handoff.tsx";
 import { EmptyState } from "./empty-state.tsx";
@@ -52,8 +55,8 @@ const REASON_ICON: Record<Reason, IconName> = {
 
 /**
  * Pill text. Follow-up text runs to 240 characters, which would render as an
- * unusable pill, so the label is truncated — and the same string is what the
- * inserted check looks for in the draft.
+ * unusable pill, so the label is truncated. Display only: whether a row is in
+ * the composer is read from the pill's id, not from this text.
  */
 const PILL_LABEL_MAX = 48;
 export function pillLabel(text: string): string {
@@ -602,11 +605,9 @@ export function FollowUpBanner() {
   const { rows, done, collapsed, showDone, everRecorded, reload } =
     useFollowUps(threadId);
   // Reactive: a pill removed from the draft clears the row's inserted state.
-  // This is a text match against the pill label rather than a structural read;
-  // it predates SDK 0.6's `draft.mentions`, which could replace it. Editing the
-  // pill's text breaks the match, which is the known sharp edge of doing it
-  // this way.
-  const draftText = composer.text;
+  // Read from the draft's mentions, not its text, so a label typed by hand is
+  // not mistaken for the pill and an amended row's pill is still found.
+  const draftMentions = composer.draft.mentions;
   const isCompact = useIsCompactViewport();
   const navigate = useBbNavigate();
   // The collapse threshold is a setting, but the store that applies it is
@@ -802,9 +803,11 @@ export function FollowUpBanner() {
   // marks the row sent, so inserting and then deleting the pill costs nothing.
   const insert = useCallback(
     (row: FollowUp) => {
+      const target = threadIdRef.current;
+      if (target === null) return;
       insertPill(composer, {
-        provider: "follow-up",
-        id: `${threadIdRef.current}.${row.id}`,
+        provider: MENTION_PROVIDER,
+        id: followUpMentionId(target, row.id),
         label: pillLabel(row.text),
       });
       composer.focus();
@@ -848,6 +851,7 @@ export function FollowUpBanner() {
           threadId: target,
           id: row.id,
         });
+        stripPill(composer, target, row.id);
         if (threadIdRef.current === target) setRows(target, result.followUps, result.done);
       } catch {
         // Nothing else fetches now that the pill is gone, so ask again
@@ -857,7 +861,7 @@ export function FollowUpBanner() {
         setBusy(false);
       }
     },
-    [rows, done, reload],
+    [rows, done, reload, composer],
   );
 
   const expandRow = useCallback(
@@ -903,6 +907,7 @@ export function FollowUpBanner() {
           id: row.id,
           done: next,
         });
+        if (next) stripPill(composer, target, row.id);
         if (threadIdRef.current === target) setRows(target, result.followUps, result.done);
       } catch {
         // Nothing else fetches now that the pill is gone, so ask again
@@ -912,7 +917,7 @@ export function FollowUpBanner() {
         setBusy(false);
       }
     },
-    [reload],
+    [reload, composer],
   );
 
   const clearDone = useCallback(async () => {
@@ -1160,7 +1165,7 @@ export function FollowUpBanner() {
               key={row.id}
               row={row}
               busy={busy}
-              inserted={draftText.includes(pillLabel(row.text))}
+              inserted={isFollowUpInDraft(draftMentions, threadId, row.id)}
               flash={flashing.has(row.id)}
               showDetail={!isCompact}
               hoverActions={!isCompact}

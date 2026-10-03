@@ -645,6 +645,101 @@ export function fileMentionOf(
   return null;
 }
 
+/** The mention provider id this plugin registers; a follow-up pill carries it. */
+export const MENTION_PROVIDER = "follow-up";
+
+/**
+ * A follow-up pill's item id. `resolve` receives only this, with no thread
+ * context, so the thread is encoded into it. "." is safe: thread ids are
+ * `thr_<alnum>` and follow-up ids are hex, and the host splits only on ":".
+ */
+export function followUpMentionId(threadId: string, rowId: string): string {
+  return `${threadId}.${rowId}`;
+}
+
+/** A mention as the composer reports it, with only the fields read here. */
+export interface PillMention {
+  kind: string;
+  provider?: string;
+  id?: string;
+}
+
+/** Is this mention the pill for that row? */
+export function isFollowUpPill(
+  mention: PillMention,
+  threadId: string,
+  rowId: string,
+): boolean {
+  return (
+    mention.kind === "plugin" &&
+    mention.provider === MENTION_PROVIDER &&
+    mention.id === followUpMentionId(threadId, rowId)
+  );
+}
+
+/**
+ * Whether the draft holds this row's pill.
+ *
+ * Read from the draft's mentions rather than its text: a label typed out by
+ * hand is not a pill and does not hand the row to the agent, and a pill whose
+ * label no longer matches the row (amended since, or edited) still does.
+ * Matched on provider and id, not the owning plugin's id, which only the
+ * experimental `experimental_usePluginId()` would supply.
+ */
+export function isFollowUpInDraft(
+  mentions: readonly PillMention[],
+  threadId: string,
+  rowId: string,
+): boolean {
+  return mentions.some((mention) => isFollowUpPill(mention, threadId, rowId));
+}
+
+/** A mention with its range in the draft text, as `ComposerMention` has. */
+export interface RangedMention {
+  from: number;
+  to: number;
+}
+
+/**
+ * The draft with every mention `drop` matches taken out, text and all.
+ *
+ * `composer.replace` does not rebase mention ranges, so this does: each later
+ * mention moves back by what was removed before it. Where a removal leaves two
+ * spaces side by side, or a space at the start or end of a line, one space goes
+ * with it, so a pill typed between words leaves one space behind.
+ *
+ * Returns the draft itself when nothing matches, which `replace` treats as no
+ * change. Otherwise returns text and mentions only, so attachments are kept.
+ */
+export function withoutMentions<M extends RangedMention>(
+  draft: { readonly text: string; readonly mentions: readonly M[] },
+  drop: (mention: M) => boolean,
+): typeof draft | { text: string; mentions: M[] } {
+  const removing = draft.mentions.filter(drop);
+  if (removing.length === 0) return draft;
+  let text = draft.text;
+  let kept = draft.mentions.filter((mention) => !drop(mention));
+  // Last first, so a removal never moves a range still waiting to be removed.
+  for (const mention of [...removing].sort((a, b) => b.from - a.from)) {
+    let start = mention.from;
+    let end = mention.to;
+    const before = text.slice(0, start);
+    const after = text.slice(end);
+    const lineStart = before === "" || before.endsWith("\n");
+    const lineEnd = after === "" || after.startsWith("\n");
+    if (after.startsWith(" ") && (before.endsWith(" ") || lineStart)) end += 1;
+    else if (before.endsWith(" ") && lineEnd) start -= 1;
+    const removed = end - start;
+    text = text.slice(0, start) + text.slice(end);
+    kept = kept.map((other) =>
+      other.from >= end
+        ? { ...other, from: other.from - removed, to: other.to - removed }
+        : other,
+    );
+  }
+  return { text, mentions: kept };
+}
+
 /** How much of the surrounding message a captured selection keeps. */
 export const CONTEXT_WINDOW = 600;
 

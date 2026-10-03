@@ -25,6 +25,12 @@ correct as the plugin releases and `bb plugin update` follows it.
 row can be pushed into the composer, handed to a new thread in the same
 checkout, dragged into a different order, marked done, or dismissed.
 
+A row pushed into the composer goes in as a pill, and the row is marked as in
+the composer for as long as that pill is in your draft. Mark the row done or
+dismiss it, in the banner or the panel, and its pill comes back out of the
+draft, so sending cannot hand the agent a row that is gone. A row an agent
+finishes, or one closed from the CLI or another window, leaves your draft alone.
+
 Dismissal beats recording: once you delete a follow-up it stays gone, even if an
 agent notices the same thing again. Recording the same text twice is a no-op —
 matching ignores case and punctuation, because agents rarely reproduce their own

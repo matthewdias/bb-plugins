@@ -39,6 +39,8 @@ import {
   openFollowUps,
   REASONS,
   TEXT_MAX,
+  MENTION_PROVIDER,
+  followUpMentionId,
   type FollowUp,
 } from "./lib/followups.ts";
 import {
@@ -483,15 +485,9 @@ function suggestMethod(houseStyle: string): string {
 /** Frontend refetch signal; the payload names the thread that changed. */
 const FOLLOWUPS_CHANGED = "followups-changed";
 
-/** Mention provider id; the host composes wire ids as "<providerId>:<itemId>". */
-const MENTION_PROVIDER = "follow-up";
-
-/**
- * `resolve` receives only the item id, with no thread context, so the thread is
- * encoded into the id. "." is safe: thread ids are `thr_<alnum>` and follow-up
- * ids are hex, and the host only splits on the first ":".
- */
-const mentionItemId = (threadId: string, id: string) => `${threadId}.${id}`;
+// The mention provider id and the pill's item id are shared with the banner,
+// which reads pills back out of the draft: see lib/followups.ts.
+const mentionItemId = followUpMentionId;
 
 function parseMentionItemId(itemId: string): { threadId: string; id: string } | null {
   const at = itemId.lastIndexOf(".");

@@ -16,7 +16,12 @@ import {
   type FollowUp,
 } from "../lib/followups.ts";
 import { FollowUpSortable, useSortableRow } from "./sortable.tsx";
-import { ComposerInsert, ComposerInsertedMark } from "./composer-insert.tsx";
+import {
+  ComposerInsert,
+  ComposerInsertedMark,
+  ComposerPillRemover,
+  type PillRemover,
+} from "./composer-insert.tsx";
 import { HandoffAction } from "./handoff.tsx";
 import { EmptyState } from "./empty-state.tsx";
 import { rememberRpc } from "./rpc.ts";
@@ -149,6 +154,11 @@ export function FollowUpPanel({
   const [problem, setProblem] = useState<string | null>(null);
   const rowsRef = useRef<FollowUp[] | null>(rows);
   rowsRef.current = rows;
+  // Set by `ComposerPillRemover` when this panel has a composer; see there.
+  const removePill = useRef<PillRemover | null>(null);
+  const registerPillRemover = useCallback((remove: PillRemover | null) => {
+    removePill.current = remove;
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -188,6 +198,7 @@ export function FollowUpPanel({
       setDone((current) => current.filter((entry) => entry.id !== row.id));
       try {
         const result = await rpc.call("followups_dismiss", { threadId, id: row.id });
+        removePill.current?.(row.id);
         setRows(result.followUps);
         setDone(result.done);
       } catch {
@@ -208,6 +219,7 @@ export function FollowUpPanel({
           id: row.id,
           done: next,
         });
+        if (next) removePill.current?.(row.id);
         setRows(result.followUps);
         setDone(result.done);
       } catch {
@@ -347,9 +359,14 @@ export function FollowUpPanel({
   // to end. This panel is opened deliberately, so there is no cost to it having
   // an answer — which is what covers the thread that never recorded a follow-up
   // at all, and where the banner is right to stay silent.
+  const pillRemover = (
+    <ComposerPillRemover threadId={threadId} register={registerPillRemover} />
+  );
+
   if (rows.length === 0) {
     return (
       <div className="flex flex-col gap-3 p-3">
+        {pillRemover}
         {/* Never animated here. The banner earns its entrance by marking a
             change you may not have watched happen; a panel you just opened is
             not a change, it is a page. */}
@@ -379,6 +396,7 @@ export function FollowUpPanel({
 
   return (
     <div className="flex flex-col gap-3 p-3">
+      {pillRemover}
       <p className="text-xs text-muted-foreground">
         {rows.length} follow-up{rows.length === 1 ? "" : "s"}
         {rollup === "" ? "" : ` · ${rollup}`}
@@ -617,7 +635,7 @@ function PanelRow({
             />
           </span>
         )}
-        <ComposerInsertedMark row={row} />
+        <ComposerInsertedMark row={row} threadId={threadId} />
         <span className="min-w-0 flex-1 text-sm leading-snug">{row.text}</span>
         {/* One slot, two states: describe this, or stop describing it. Offered
             only on a row with no detail, which is what an expansion is for. */}
