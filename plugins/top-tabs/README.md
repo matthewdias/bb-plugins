@@ -41,7 +41,8 @@ header, the strip keeps working from the last list it saw.
 - **Pin a tab** from its context menu, or with the pin on its row in the
   **+** menu, to keep it. See [Pinned tabs](#pinned-tabs).
 - **Close a tab** with the × that replaces its icon on hover, a middle-click,
-  or its context menu. Pinned tabs don't close. Closing the tab in view moves to its right-hand
+  its context menu, or bb's own Close at the top right of the page. Pinned
+  tabs don't close. Closing the tab in view moves to its right-hand
   neighbour, then its left, then Threads.
 - **Reopen a closed tab** with Ctrl+Shift+T, the context menu, or the **+**
   menu. It comes back in the same position, at the same place inside the
@@ -82,6 +83,10 @@ Each row shows the title, project and how long ago. The thread you're in is
 in bold, and isn't repeated under Recent. Picking one goes straight to it,
 focusing its pane if a split shows it. **Top Tabs: Switch
 thread…** opens the same card from the palette, ready for the arrow keys.
+
+Threads never closes. On Threads, **Top Tabs: Close tab** closes the thread
+in view instead, as bb's Close at the top right of the page does, and opens
+New Thread. In a split, or already on the compose screen, it does nothing.
 
 ### The Settings tab
 
@@ -276,7 +281,7 @@ All are in bb's command palette, and every shortcut can be rebound under
 | Top Tabs: Go to Threads | — |
 | Top Tabs: Switch thread… | — |
 | Top Tabs: Open a tab… | — |
-| Top Tabs: Close tab | — |
+| Top Tabs: Close tab (on Threads: close the thread in view) | — |
 | Top Tabs: Pin or unpin tab | — |
 
 In a web browser, the browser keeps Ctrl+Tab and Ctrl+Shift+T for itself.
@@ -350,6 +355,12 @@ workarounds are kept small and in one place each:
   (`lib/split-bridge.ts`). The same bridge carries the drag handler the strip
   passes a tab to when it leaves the strip. Closing a pane clicks that pane's
   own "Close pane" button.
+- **bb's Close on a lone page.** Since bb 0.45 a page shown on its own has
+  the same "Close pane" button, and it opens New Thread. On a plugin tab the
+  strip answers it first, from a capture-phase click listener on the
+  document, and closes the tab instead (`lib/shell.ts`). A lone page is one
+  with a single `[data-split-pane-id]` pane. If bb renames the button, bb's
+  own behaviour comes back.
 
 If bb renames any of these, the likely failure is an element drawn under the
 strip or a sidebar that stops collapsing, not a broken app. If another

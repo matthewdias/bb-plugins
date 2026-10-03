@@ -30,6 +30,7 @@ import { restoreNavigation, useBridgedNavigation } from "../lib/navigation-bridg
 import {
   COMPACT_QUERY,
   closePane,
+  interceptPageClose,
   isSidebarOpen,
   observeSidebar,
   toggleSidebar,
@@ -58,6 +59,7 @@ import {
   seed,
   sidebarStep,
   splitPartner,
+  stripTakesPageClose,
   successorAfterClose,
   threadIdFromPath,
   threadPaneFor,
@@ -386,6 +388,19 @@ export function TopTabs() {
       if (next !== null && next !== active) activateSoon(next);
     },
     [activateSoon],
+  );
+
+  // bb's Close on a lone plugin page would open New Thread and leave the tab
+  // open behind Threads; it closes the tab instead, as the tab's own × does.
+  useEffect(
+    () =>
+      interceptPageClose(() => {
+        const { active } = live.current;
+        if (!stripTakesPageClose(active, getState().pinned)) return false;
+        closeTab(active!);
+        return true;
+      }),
+    [closeTab],
   );
 
   /**

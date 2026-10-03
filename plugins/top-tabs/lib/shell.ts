@@ -44,6 +44,9 @@ export function observeSidebar(onChange: (open: boolean) => void): () => void {
   return () => observer.disconnect();
 }
 
+const PANE = "[data-split-pane-id]";
+const CLOSE_PANE = 'button[aria-label="Close pane"]';
+
 /**
  * Close one pane of a split with its own header button. Closing a tab that is
  * on screen closes the view too, as it would in a browser; bb then decides
@@ -51,10 +54,41 @@ export function observeSidebar(onChange: (open: boolean) => void): () => void {
  */
 export function closePane(paneId: string): boolean {
   const pane = document.querySelector(`[data-split-pane-id="${CSS.escape(paneId)}"]`);
-  const button = pane?.querySelector<HTMLElement>('button[aria-label="Close pane"]');
+  const button = pane?.querySelector<HTMLElement>(CLOSE_PANE);
   if (button == null) return false;
   button.click();
   return true;
+}
+
+/**
+ * bb's Close on a page shown on its own: since bb 0.45 a lone thread or plugin
+ * page has the same "Close pane" button a split pane has, and pressing it
+ * opens New Thread. Null in a split, on the compose screen, and on bb's own
+ * pages, which have none.
+ */
+export function pageClose(): HTMLElement | null {
+  const panes = document.querySelectorAll(PANE);
+  if (panes.length !== 1) return null;
+  return panes[0]!.querySelector<HTMLElement>(CLOSE_PANE);
+}
+
+/**
+ * Let `take` answer presses of bb's lone-page Close before bb does. Listening
+ * on the document's capture phase runs ahead of React, whose handlers sit on
+ * the app root; when `take` returns true the press stops there and bb never
+ * sees it. A split pane's Close is never offered.
+ */
+export function interceptPageClose(take: () => boolean): () => void {
+  const listener = (event: MouseEvent) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const button = target?.closest(CLOSE_PANE);
+    if (button == null || button !== pageClose()) return;
+    if (!take()) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  document.addEventListener("click", listener, true);
+  return () => document.removeEventListener("click", listener, true);
 }
 
 /** Where bb lays out its pages, beside the sidebar and below the strip. */
