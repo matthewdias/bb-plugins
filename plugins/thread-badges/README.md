@@ -83,17 +83,27 @@ done, a visible notch at "one left", and a full green ring once the list is
 clear. A thread that never recorded a follow-up shows nothing. Hovering names
 the count — "27 of 28 follow-ups done".
 
-The ring reads another plugin's state.
-[Follow Up](../follow-up) publishes a versioned counts contract, and every
-failure here is treated as "draw nothing", so an absent, disabled, or renamed
-Follow Up makes the ring disappear and breaks nothing else.
+The ring reads another plugin's state, and it has two ways to. Every failure on
+either is treated as "draw nothing", so an absent, disabled, or renamed
+[Follow Up](../follow-up) makes the ring disappear and breaks nothing else.
 
-Liveness is the one thing that cannot be fixed from either side: a plugin
-receives only its own realtime signals, so Follow Up publishing
-`followups-changed` on every mutation is inaudible here. Verified — recording a
-follow-up did not move the ring until the page reloaded. Until bb widens that,
-this badge refreshes on mount and when the window regains focus (throttled to
-once every ten seconds), which the host supplies to every badge as `revision`.
+**Live, from Follow Up 0.7.** Follow Up publishes each thread's progress as a
+*complication* — a small value any plugin can draw — and publishes it again the
+moment a follow-up is recorded, closed or dismissed. The ring moves within a
+second, without a reload.
+
+This needed a new channel, not a faster poll. A plugin receives only its own
+realtime signals, so Follow Up's `followups-changed` is inaudible here — before
+0.7, recording a follow-up did not move the ring until the page reloaded. But
+bb imports every plugin's bundle into one page, so they share one JavaScript
+global: Follow Up hears its own change and tells everyone else through a
+registry kept there. Both plugins carry the same copy of that registry,
+[`lib/complications.ts`](lib/complications.ts); its header is the protocol.
+
+**Polling, for an older Follow Up.** One that does not publish falls back to
+its versioned counts contract, asked for every visible row in one request: on
+mount, when the window regains focus (throttled to once every ten seconds,
+supplied to every badge as `revision`), and every 30 seconds.
 
 ### Ports
 
@@ -267,7 +277,8 @@ Consequences worth knowing:
 
 The pull-request badges need a thread whose environment has a branch with a pull
 request on a git host bb can reach. The follow-ups ring needs
-[Follow Up](../follow-up) installed, and the ports plug needs
+[Follow Up](../follow-up) installed, 0.7 or later for it to update live, and
+the ports plug needs
 [Worktree Ports](https://github.com/to-infinity-labs/bb-plugin-worktree-ports);
 without either one, that badge does not draw and the others are unaffected.
 

@@ -23,7 +23,8 @@ when someone has to fix something.
 
 **Follow-ups.** A ring showing how much of a thread's follow-up list is closed —
 empty at none done, a visible notch at one left, full green once the list is
-clear. You can show the open count beside the ring, or hide the ring once
+clear. With Follow Up 0.7 or later it moves the moment a follow-up is recorded
+or closed. You can show the open count beside the ring, or hide the ring once
 everything is done.
 
 **Ports.** A plug on threads whose worktree is serving something — green when

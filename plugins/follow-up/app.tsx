@@ -23,8 +23,17 @@ import { commands } from "./src/commands.ts";
 import { FOLLOWUPS_PANEL_ACTION } from "./src/panel-ids.ts";
 import { getRpc } from "./src/rpc.ts";
 import { toast } from "sonner";
+import { ComplicationPublisher } from "./src/complication-publisher.tsx";
 
 export default definePluginApp((app) => {
+  // Publishes each thread's follow-up progress for any surface drawing it —
+  // Thread Badges' ring today. An overlay because it must outlive any one
+  // thread view: it is the only listener for every thread's changes.
+  app.slots.experimental_appOverlay({
+    id: "complications",
+    component: ComplicationPublisher,
+  });
+
   app.composer.customize({
     id: "follow-up",
     // "Record the draft" is an alternative to sending it, so it is a row in
