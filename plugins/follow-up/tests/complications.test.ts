@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  COMPLICATIONS_IMPLEMENTATION,
   createRegistry,
   getComplications,
   MAX_DETAIL_ROWS,
@@ -50,6 +51,40 @@ test("something that is not a registry under the symbol yields null, not a guess
   const withoutDiscovery = { ...createRegistry() } as Record<string, unknown>;
   delete withoutDiscovery.providers;
   assert.equal(getComplications({ [KEY]: withoutDiscovery }), null, "v1 includes discovery");
+});
+
+test("a registry reports the implementation of the copy that created it", () => {
+  assert.equal(createRegistry().implementation, COMPLICATIONS_IMPLEMENTATION);
+  assert.equal(getComplications({})?.implementation, COMPLICATIONS_IMPLEMENTATION);
+});
+
+test("a newer copy that finds an older one in charge says so once, and still uses it", (t) => {
+  const warn = t.mock.method(console, "warn", () => undefined);
+  const older = { ...createRegistry(), implementation: COMPLICATIONS_IMPLEMENTATION - 1 };
+  const window = { [KEY]: older };
+  assert.equal(getComplications(window), older, "the older registry is the window's registry");
+  assert.equal(getComplications(window), older);
+  assert.equal(warn.mock.callCount(), 1, "once per registry, not once per call");
+  const message = String(warn.mock.calls[0]?.arguments[0]);
+  assert.match(message, new RegExp(`implementation ${COMPLICATIONS_IMPLEMENTATION - 1}\\b`));
+  assert.match(message, new RegExp(`implementation ${COMPLICATIONS_IMPLEMENTATION}\\b`));
+});
+
+test("a registry as new as this copy, or newer, raises nothing", (t) => {
+  const warn = t.mock.method(console, "warn", () => undefined);
+  for (const implementation of [COMPLICATIONS_IMPLEMENTATION, COMPLICATIONS_IMPLEMENTATION + 1]) {
+    const registry = { ...createRegistry(), implementation };
+    assert.equal(getComplications({ [KEY]: registry }), registry);
+  }
+  assert.equal(warn.mock.callCount(), 0);
+});
+
+test("a registry that predates the stamp counts as older", (t) => {
+  const warn = t.mock.method(console, "warn", () => undefined);
+  const unstamped = { ...createRegistry() } as Record<string, unknown>;
+  delete unstamped.implementation;
+  assert.equal(getComplications({ [KEY]: unstamped }), unstamped);
+  assert.equal(warn.mock.callCount(), 1);
 });
 
 // Wanting and providing

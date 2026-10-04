@@ -2,11 +2,12 @@
 // Fail when a vendored module's copies have drifted apart.
 //
 // bb installs each plugin from its own subdirectory, so code two plugins share
-// cannot live in a package they both depend on — it is copied into each. Those
-// copies are one contract, and the complications registry is the sharpest
-// case: whichever bundle loads first creates the registry that every other
-// bundle then calls, so two copies that disagree are two plugins that disagree
-// about the protocol, at runtime, depending on load order.
+// cannot live in a workspace package. A published one would work, but bb
+// bundles it into each plugin all the same, so for now it is simply copied
+// into each. Those copies are one contract, and the complications registry is
+// the sharpest case: whichever bundle loads first creates the registry that
+// every other bundle then calls, so two copies that disagree are two plugins
+// that disagree about the protocol, at runtime, depending on load order.
 //
 // Each entry lists every copy. Edit one, then copy it over the rest.
 import { readFileSync } from "node:fs";

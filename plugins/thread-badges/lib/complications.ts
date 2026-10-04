@@ -3,8 +3,11 @@
 // VENDORED. This file is copied byte for byte into every plugin in this
 // repository that provides or draws a complication, and
 // `scripts/check-vendored.mjs` fails the repository check when the copies
-// drift. bb installs a plugin from its own subdirectory, so a shared package
-// would be a dependency the installed plugin does not have.
+// drift. Copying is how it ships, not how it runs: bb bundles each plugin's
+// dependencies into that plugin, so a published npm package would still put
+// one copy in every bundle. A package would add versioning for plugins outside
+// this repository; a workspace-only one would not install at all, because bb
+// installs each plugin from its own subdirectory.
 //
 // The registry lives on `globalThis`, under a versioned symbol. bb imports
 // every plugin's frontend bundle into the same document — a plain
@@ -15,18 +18,26 @@
 //
 // Whichever bundle loads first creates the registry, and every later bundle
 // uses that object, methods included. An older copy's code may therefore be
-// the one answering a newer copy's calls. Two rules follow, and they are what
-// "protocol v1" means:
+// the one answering a newer copy's calls, depending only on which plugin
+// loaded first. Three rules follow, and they are what "protocol v1" means:
 //
-// - Behaviour is frozen. `provide`, `want`, `read`, `subscribe`, `providers`
-//   and `subscribeProviders` keep exactly these semantics under this symbol.
-//   A new method or a changed meaning is a new symbol.
+// - Behaviour is frozen. `provide`, `want`, `read`, `isProvided`, `subscribe`,
+//   `providers` and `subscribeProviders` keep exactly these semantics under
+//   this symbol. A new method or a changed meaning is a new symbol.
 // - The schema is not. The registry validates the fields it names and carries
 //   every other JSON-safe field across untouched, so a field added later
 //   reaches surfaces even through an older copy. A surface must check any
 //   field this file does not name before it draws it.
+// - Which copy is running is never a guess. Bump `COMPLICATIONS_IMPLEMENTATION`
+//   with any change to this file's behaviour, fixes included. The registry
+//   reports the number of the copy that created it, and a newer copy that
+//   finds an older one in charge says so, once, in the console: its fix does
+//   not apply until every plugin carrying the older copy updates.
 
 export const COMPLICATIONS_PROTOCOL = 1 as const;
+
+/** This copy's implementation. Bump it with any change in behaviour. */
+export const COMPLICATIONS_IMPLEMENTATION = 1;
 
 const REGISTRY_KEY = Symbol.for("bb-community.complications.v1");
 
@@ -151,6 +162,11 @@ export interface ComplicationProviderHandle {
 
 export interface ComplicationsRegistry {
   readonly protocol: typeof COMPLICATIONS_PROTOCOL;
+  /**
+   * `COMPLICATIONS_IMPLEMENTATION` of the copy that created this registry —
+   * the copy whose code every plugin in the window is running.
+   */
+  readonly implementation: number;
   /** Throws on a malformed id or a blank name: those are bugs in the caller. */
   provide(registration: ComplicationProviderRegistration): ComplicationProviderHandle;
   /** Say that a surface needs this value. Returns the release. */
@@ -444,6 +460,7 @@ export function createRegistry(): ComplicationsRegistry {
 
   return {
     protocol: COMPLICATIONS_PROTOCOL,
+    implementation: COMPLICATIONS_IMPLEMENTATION,
 
     provide(registration) {
       const info = describe(registration);
@@ -586,6 +603,27 @@ function isRegistry(value: unknown): value is ComplicationsRegistry {
   );
 }
 
+/** Registries this copy has already complained about, so it says so once. */
+const warnedAbout = new WeakSet<object>();
+
+/**
+ * Say, once, that an older copy is answering for everyone. Not an error: the
+ * older copy keeps working, by the frozen behaviour. But a fix in this copy
+ * does not apply until every plugin carrying the older one updates, and
+ * without this line that is indistinguishable from the fix not working.
+ */
+function warnIfOlder(registry: ComplicationsRegistry): void {
+  const running = typeof registry.implementation === "number" ? registry.implementation : 0;
+  if (running >= COMPLICATIONS_IMPLEMENTATION || warnedAbout.has(registry)) return;
+  warnedAbout.add(registry);
+  console.warn(
+    `[complications] An older copy (implementation ${running}) created this ` +
+      `window's registry, so its code is what runs; this copy is ` +
+      `implementation ${COMPLICATIONS_IMPLEMENTATION}. Update the plugin that ` +
+      `carries the older copy to get this one's behaviour.`,
+  );
+}
+
 /**
  * The window's registry, created by whichever bundle asks first. `null` only
  * if something other than a registry already holds the symbol — draw nothing
@@ -594,7 +632,11 @@ function isRegistry(value: unknown): value is ComplicationsRegistry {
 export function getComplications(scope: object = globalThis): ComplicationsRegistry | null {
   const holder = scope as Record<symbol, unknown>;
   const existing = holder[REGISTRY_KEY];
-  if (existing !== undefined) return isRegistry(existing) ? existing : null;
+  if (existing !== undefined) {
+    if (!isRegistry(existing)) return null;
+    warnIfOlder(existing);
+    return existing;
+  }
   const created = createRegistry();
   // Not writable or configurable: a later bundle must find this object, not
   // replace it and strand everyone who already subscribed to the old one.
