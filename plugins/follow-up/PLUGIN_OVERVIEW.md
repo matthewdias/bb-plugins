@@ -4,9 +4,10 @@ normally live in one reply and are gone by the next turn. This keeps them.
 
 ## What you get
 
-A banner above the composer listing what the current thread accumulated. Each
-row can be pushed into the composer, handed to a new thread in the same
-checkout, reordered, marked done, or dismissed. Marking a row done or
+A banner above the composer listing what the current thread accumulated, laid
+out like bb's Queue card. Each row leads with one action (hand off for
+out-of-scope work, put in the composer for the rest), drags to reorder, and
+has a ⋯ menu that edits the text in place, marks it done, or dismisses it. Marking a row done or
 dismissing it takes its pill back out of your draft. A dismissed row stays
 gone: an agent that notices the same thing again cannot re-add it.
 

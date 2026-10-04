@@ -21,9 +21,13 @@ correct as the plugin releases and `bb plugin update` follows it.
 
 ## What it does
 
-**The banner.** Above the composer, listing what this thread accumulated. Each
-row can be pushed into the composer, handed to a new thread in the same
-checkout, dragged into a different order, marked done, or dismissed.
+**The banner.** Above the composer, listing what this thread accumulated, laid
+out like bb's own Queue card beneath it. Each row shows one action and keeps the
+rest in its ⋯ menu. An out-of-scope row leads with handing it to a new thread in
+the same checkout; every other row leads with pushing it into the composer. The
+menu also edits the text in place (Enter saves, Escape puts it back), describes
+a row that has no detail, opens it in the panel for the detail, file and reason,
+marks it done, or dismisses it. Drag the handle to reorder.
 
 A row pushed into the composer goes in as a pill, and the row is marked as in
 the composer for as long as that pill is in your draft. Mark the row done or
@@ -156,7 +160,7 @@ declare as a hint. With `--json`, a failure also prints
 `{"ok": false, "error": {"code", "message", "hint"}}` on stdout, while stderr
 keeps the readable message.
 
-`dismiss` is the same action as the banner's x, exposed so the tombstone path is
+`dismiss` is the same action as the banner's Dismiss, exposed so the tombstone path is
 testable without a browser. `clear` empties the list without dismissing
 anything. `forget` drops the *dismissal* record — use it when you deleted
 something and want agents to be able to raise it again.

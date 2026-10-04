@@ -29,6 +29,7 @@ import {
 } from "../lib/followups.ts";
 import { expansionExecutionSchema } from "../lib/expansion-execution.ts";
 import type { ComposerMention } from "@get-bb/plugin-sdk/app";
+import { mainActionFor } from "../lib/followups.ts";
 import { backfillRequest, expansionPrompt, fileMentionOf, isExpanding, expansionGaveUp, contextAround, rowsEqual, houseStyleBlock, EXPANSION_TURNS, EXPANSION_WORD_CAP, CAP_CEILING } from "../lib/followups.ts";
 
 function row(text: string, overrides: Partial<FollowUp> = {}): FollowUp {
@@ -1243,4 +1244,11 @@ test("dismissal still beats a cap that would have allowed the row", () => {
 test("the cap ceiling is above the shipped default", () => {
   // Otherwise the setting could only ever narrow, which is not what it is for.
   assert.ok(CAP_CEILING > MAX_PER_THREAD);
+});
+
+test("an out-of-scope row leads with Hand off, every other row with the composer", () => {
+  assert.equal(mainActionFor("out-of-scope"), "handoff");
+  for (const reason of ["blocked", "deferred", "risk", "cleanup", null] as const) {
+    assert.equal(mainActionFor(reason), "insert", String(reason));
+  }
 });
