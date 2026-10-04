@@ -10,6 +10,7 @@ import {
   adopt,
   close,
   closeCommandAction,
+  closeOrderOf,
   closeOthers,
   closeToRight,
   cycle,
@@ -30,11 +31,14 @@ import {
   recordRecent,
   recordRecentThread,
   reopen,
+  reopenable,
+  resetPinned,
   seed,
   sidebarStep,
   splitPartner,
-  stripTakesPageClose,
+  pageCloseAction,
   successorAfterClose,
+  successorAfterPinClose,
   threadGroup,
   threadIdFromPath,
   threadPaneFor,
@@ -228,25 +232,128 @@ test("closing the tab in view moves right, then left, then to Threads", () => {
 test("closing a background tab keeps the tab in view", () => {
   assert.equal(successorAfterClose(["a", "b"], "a", "b"), "b");
   assert.equal(successorAfterClose(["a", "b"], "a", THREADS), THREADS);
+  assert.equal(successorAfterClose(["a", "b"], "a", "b", "recent", ["b", "a"]), "b");
+});
+
+test("in recent order, closing the tab in view goes back to the one before it", () => {
+  const open = ["a", "b", "c"];
+  assert.equal(successorAfterClose(open, "b", "b", "recent", ["b", "a", "c"]), "a");
+  assert.equal(successorAfterClose(open, "b", "b", "recent", ["b", THREADS, "c"]), THREADS);
+  // Tabs that have since closed, or whose plugin is not loaded, are passed over.
+  assert.equal(successorAfterClose(open, "b", "b", "recent", ["b", "gone", "c"]), "c");
+  // With nothing remembered still open, it falls back to the neighbour.
+  assert.equal(successorAfterClose(open, "b", "b", "recent", ["b", "gone"]), "c");
+  assert.equal(successorAfterClose(open, "c", "c", "recent", []), "b");
+});
+
+test("the recentAfterClose setting picks the close order", () => {
+  assert.equal(closeOrderOf(true), "recent");
+  assert.equal(closeOrderOf(false), "position");
+  assert.equal(closeOrderOf(undefined), "position");
+  assert.equal(closeOrderOf("yes"), "position");
+});
+
+test("leaving a pinned tab moves past the other pins", () => {
+  const open = ["p", "q", "a", "b"];
+  const pinned = ["p", "q"];
+  assert.equal(successorAfterPinClose(open, pinned, "p"), "a");
+  assert.equal(successorAfterPinClose(open, pinned, "q"), "a");
+  assert.equal(successorAfterPinClose(["p", "q"], pinned, "p"), THREADS);
+});
+
+test("in recent order, leaving a pinned tab goes to the ordinary tab used last", () => {
+  const open = ["p", "q", "a", "b"];
+  const pinned = ["p", "q"];
+  assert.equal(successorAfterPinClose(open, pinned, "p", "recent", ["p", "q", "b", "a"]), "b");
+  assert.equal(successorAfterPinClose(open, pinned, "p", "recent", ["p", "q", THREADS, "a"]), THREADS);
+  assert.equal(successorAfterPinClose(open, pinned, "p", "recent", ["p", "q", "gone"]), "a");
+});
+
+test("resetting a pinned tab forgets its location and keeps it pinned", () => {
+  const s = state({ open: ["p", "a"], pinned: ["p"], paths: { p: "/plugins/p/p/deep", a: "/x" } });
+  const reset = resetPinned(s, "p");
+  assert.deepEqual(reset.open, ["p", "a"]);
+  assert.deepEqual(reset.pinned, ["p"]);
+  assert.deepEqual(reset.paths, { a: "/x" });
+  assert.deepEqual(reset.closed, [{ id: "p", path: "/plugins/p/p/deep", index: 0, reset: true }]);
+  // Only pinned tabs reset, and a pin already at its start is left alone.
+  assert.equal(resetPinned(s, "a"), s);
+  assert.equal(resetPinned(reset, "p"), reset);
+});
+
+test("reopening after a reset gives the pin back its location", () => {
+  const s = state({
+    open: ["p", "a"],
+    pinned: ["p"],
+    paths: { p: "/plugins/p/p/deep" },
+    closed: [{ id: "b", path: null, index: 2 }],
+  });
+  const { state: back, tab } = reopen(resetPinned(s, "p"), () => true);
+  assert.equal(tab?.id, "p");
+  assert.equal(back.paths.p, "/plugins/p/p/deep");
+  assert.deepEqual(back.open, ["p", "a"]);
+  assert.deepEqual(back.pinned, ["p"]);
+  // The tab closed before the reset is next.
+  assert.deepEqual(back.closed, [{ id: "b", path: null, index: 2 }]);
+  assert.equal(reopen(back, () => true).tab?.id, "b");
+});
+
+test("going back to a reset pin takes the reset, so reopening skips it", () => {
+  const s = state({
+    open: ["p", "a"],
+    pinned: ["p"],
+    paths: { p: "/plugins/p/p/deep" },
+    closed: [{ id: "b", path: null, index: 2 }],
+  });
+  const visited = recordPath(resetPinned(s, "p"), "p", "/plugins/p/p");
+  assert.deepEqual(visited.closed, [{ id: "b", path: null, index: 2 }]);
+  assert.equal(reopen(visited, () => true).tab?.id, "b");
+  // Recording another tab's location leaves the reset to undo.
+  const elsewhere = recordPath(resetPinned(s, "p"), "a", "/plugins/a/a");
+  assert.equal(reopenable(elsewhere, () => true)?.id, "p");
+});
+
+test("a reset is undoable only while its tab is open", () => {
+  const entry = { id: "p", path: "/plugins/p/p/deep", index: 0, reset: true as const };
+  assert.equal(reopenable(state({ open: ["p"], pinned: ["p"], closed: [entry] }), () => true), entry);
+  assert.equal(reopenable(state({ open: [], closed: [entry] }), () => true), undefined);
+  assert.equal(reopenable(state({ open: ["p"], pinned: ["p"], closed: [entry] }), () => false), undefined);
+  // A closed tab opened again another way is still passed over.
+  assert.equal(reopenable(state({ open: ["a"], closed: [{ id: "a", path: null, index: 0 }] }), () => true), undefined);
+});
+
+test("a reset survives a reload", () => {
+  const entry = { id: "p", path: "/plugins/p/p/deep", index: 0, reset: true };
+  const parsed = parseState({ open: ["p"], pinned: ["p"], closed: [entry, { id: "b", path: null, index: 1, reset: "yes" }] });
+  assert.deepEqual(parsed.closed, [entry, { id: "b", path: null, index: 1 }]);
 });
 
 test("bb's Close on a lone page closes the tab in view", () => {
-  assert.equal(stripTakesPageClose("gh/gh", []), true);
-  assert.equal(stripTakesPageClose(SETTINGS, []), true);
+  assert.equal(pageCloseAction("gh/gh", []), "tab");
+  assert.equal(pageCloseAction(SETTINGS, []), "tab");
 });
 
-test("bb keeps its own Close on Threads, pinned tabs and pages no tab holds", () => {
+test("bb's Close on a pinned tab resets it, as the close-tab command does", () => {
+  assert.equal(pageCloseAction("gh/gh", ["gh/gh"]), "pin");
+  assert.equal(pageCloseAction(SETTINGS, [SETTINGS]), "pin");
+  assert.equal(pageCloseAction("gh/gh", ["gh/gh"]), closeCommandAction("gh/gh", ["gh/gh"], true));
+});
+
+test("bb keeps its own Close on Threads and pages no tab holds", () => {
   // bb opens New Thread, which is where Threads should go anyway.
-  assert.equal(stripTakesPageClose(THREADS, []), false);
-  // A pinned tab never closes; bb leaves the page and the tab stays.
-  assert.equal(stripTakesPageClose("gh/gh", ["gh/gh"]), false);
-  assert.equal(stripTakesPageClose(null, []), false);
+  assert.equal(pageCloseAction(THREADS, []), null);
+  assert.equal(pageCloseAction(null, []), null);
 });
 
 test("the close-tab command closes a destination tab", () => {
   assert.equal(closeCommandAction("gh/gh", [], false), "tab");
   assert.equal(closeCommandAction("gh/gh", [], true), "tab");
-  assert.equal(closeCommandAction("gh/gh", ["gh/gh"], true), null);
+});
+
+test("on a pinned tab, the close-tab command resets it instead", () => {
+  assert.equal(closeCommandAction("gh/gh", ["gh/gh"], true), "pin");
+  assert.equal(closeCommandAction("gh/gh", ["gh/gh"], false), "pin");
+  assert.equal(closeCommandAction(SETTINGS, [SETTINGS], false), "pin");
 });
 
 test("on Threads, the close-tab command closes the thread page instead", () => {

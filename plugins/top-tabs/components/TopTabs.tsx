@@ -43,6 +43,7 @@ import {
   activeTabFor,
   adopt,
   close,
+  closeOrderOf,
   closeOthers,
   closeToRight,
   cycle,
@@ -56,11 +57,14 @@ import {
   recordRecent,
   recordRecentThread,
   reopen,
+  reopenable,
+  resetPinned,
   seed,
   sidebarStep,
   splitPartner,
-  stripTakesPageClose,
+  pageCloseAction,
   successorAfterClose,
+  successorAfterPinClose,
   threadIdFromPath,
   threadPaneFor,
   unpin,
@@ -154,6 +158,7 @@ export function TopTabs() {
   const collapseSidebar = values?.collapseSidebar !== false;
   const closeSettingsOnExit = values?.closeSettingsOnExit !== false;
   const labelMode = labelModeOf(values?.tabLabels);
+  const closeOrder = closeOrderOf(values?.recentAfterClose);
   const compact = useMediaQuery(COMPACT_QUERY);
   const trafficLights = useReservesTrafficLights();
   const path = useSyncExternalStore(subscribeLocation, currentPath);
@@ -187,8 +192,8 @@ export function TopTabs() {
 
   // Callbacks below read the latest of these rather than closing over them,
   // so the controller and window listeners never act on a stale strip.
-  const live = useRef({ active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit });
-  live.current = { active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit };
+  const live = useRef({ active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit, closeOrder });
+  live.current = { active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit, closeOrder };
 
   // First run: the destinations the sidebar showed become the open tabs.
   // Wait for the list to settle, since plugin panels register as their
@@ -207,10 +212,15 @@ export function TopTabs() {
     return () => window.clearTimeout(timer);
   }, [tabs.seeded, visibleKey]);
 
+  // A pinned tab the close-tab command reset, until the strip has left it:
+  // its location must not be recorded again on the way out.
+  const resetting = useRef<TabId | null>(null);
+
   // A destination reached any other way — the palette, a shortcut, a link —
   // gets a tab, and every tab remembers where it was left.
   useEffect(() => {
     if (active === null) return;
+    if (resetting.current !== active) resetting.current = null;
     // Read the location now rather than from the render: it is the one
     // source that cannot lag behind.
     const here = currentPath();
@@ -220,6 +230,7 @@ export function TopTabs() {
     update((s) => {
       let next = recordRecent(adopt(s, active), active);
       if (threadId !== null) next = recordRecentThread(next, threadId);
+      if (resetting.current === active) return next;
       return pathFits(active, target, pathnameOf(here)) ? recordPath(next, active, here) : next;
     });
   }, [active, path, byId]);
@@ -379,8 +390,8 @@ export function TopTabs() {
     (id: TabId) => {
       // Threads and pinned tabs stay; a pinned tab has to be unpinned first.
       if (id === THREADS || getState().pinned.includes(id)) return;
-      const { active, shown, screen } = live.current;
-      const next = successorAfterClose(shown, id, active);
+      const { active, shown, screen, closeOrder } = live.current;
+      const next = successorAfterClose(shown, id, active, closeOrder, getState().recent);
       update((s) => close(s, [id]));
       // A tab on screen in a split closes with its pane, and bb chooses which
       // pane takes focus; there is no neighbour to switch to.
@@ -390,17 +401,39 @@ export function TopTabs() {
     [activateSoon],
   );
 
+  /**
+   * Close a pinned tab with the close-tab command or bb's Close, as Arc does:
+   * it stays pinned, forgets where it was left, and the strip moves past the
+   * other pins. The tab's ×, a middle-click and the batch closes still leave
+   * pinned tabs alone.
+   */
+  const closePinned = useCallback(
+    (id: TabId) => {
+      const { pinned, recent } = getState();
+      if (!pinned.includes(id)) return;
+      const { active, shown, screen, closeOrder } = live.current;
+      update((s) => resetPinned(s, id));
+      if (id !== active) return;
+      resetting.current = id;
+      if (closePanesOf(screen, [id])) return;
+      activateSoon(successorAfterPinClose(shown, pinned, id, closeOrder, recent));
+    },
+    [activateSoon],
+  );
+
   // bb's Close on a lone plugin page would open New Thread and leave the tab
-  // open behind Threads; it closes the tab instead, as the tab's own × does.
+  // open behind Threads; it closes the tab instead, as the tab's own × does,
+  // or resets a pinned one, as the close-tab command does.
   useEffect(
     () =>
       interceptPageClose(() => {
         const { active } = live.current;
-        if (!stripTakesPageClose(active, getState().pinned)) return false;
-        closeTab(active!);
-        return true;
+        const action = pageCloseAction(active, getState().pinned);
+        if (action === "tab") closeTab(active!);
+        else if (action === "pin") closePinned(active!);
+        return action !== null;
       }),
-    [closeTab],
+    [closeTab, closePinned],
   );
 
   /**
@@ -528,6 +561,7 @@ export function TopTabs() {
         active: () => live.current.active,
         activate: activateSoon,
         close: closeTab,
+        closePinned,
         cycle: (direction) => {
           const { active, shown } = live.current;
           activateSoon(cycle([THREADS, ...shown], active, direction));
@@ -538,7 +572,7 @@ export function TopTabs() {
         togglePin,
         openSwitcher: () => setSwitcher({ keyboard: true }),
       }),
-    [activateSoon, closeTab, reopenTab, togglePin],
+    [activateSoon, closeTab, closePinned, reopenTab, togglePin],
   );
 
   // Keep the tab in view visible when the strip scrolls.
@@ -617,7 +651,7 @@ export function TopTabs() {
       id === THREADS
         ? closable.length > 0
         : shown.slice(shown.indexOf(id) + 1).some((other) => closable.includes(other)),
-    canReopen: tabs.closed.some((c) => byId.has(c.id) && !tabs.open.includes(c.id)),
+    canReopen: reopenable(tabs, (id) => byId.has(id)) !== undefined,
     onClose: () => closeTab(id),
     onTogglePin: () => togglePin(id),
     onCloseOthers: () => closeOtherTabs(id),
@@ -789,7 +823,7 @@ export function TopTabs() {
         openIds={shown}
         pinnedIds={tabs.pinned}
         active={active}
-        canReopen={tabs.closed.some((c) => byId.has(c.id) && !tabs.open.includes(c.id))}
+        canReopen={reopenable(tabs, (id) => byId.has(id)) !== undefined}
         splitFor={splitActionFor}
         onPick={activateSoon}
         onTogglePin={togglePin}
