@@ -33,6 +33,8 @@ import {
   interceptPageClose,
   isSidebarOpen,
   observeSidebar,
+  playEntrance,
+  stopEntrances,
   toggleSidebar,
 } from "../lib/shell.ts";
 import { useBridgedSplits } from "../lib/split-bridge.ts";
@@ -252,6 +254,8 @@ export function TopTabs() {
   const syncSidebar = useCallback((next: TabId | null) => {
     const before = previous.current;
     previous.current = next;
+    // An entrance left running would carry on over the page being left for.
+    if (next !== THREADS) stopEntrances();
     const { compact, collapseSidebar, inSplit } = live.current;
     if (compact || !collapseSidebar || inSplit) return;
     const sidebarOpen = isSidebarOpen();
@@ -267,7 +271,13 @@ export function TopTabs() {
         ? s
         : { ...s, threadsSidebarOpen: step.threadsSidebarOpen },
     );
-    if (step.action !== null) toggleSidebar({ instant: true });
+    if (step.action === null) return;
+    // Coming back to Threads slides the sidebar in, on the compositor; see
+    // playEntrance. Not on load, where there is nothing to come back from.
+    if (step.action === "expand" && next === THREADS && before !== undefined) {
+      playEntrance("sidebar");
+    }
+    toggleSidebar({ instant: true });
   }, []);
 
   useEffect(() => {
@@ -328,7 +338,10 @@ export function TopTabs() {
       }
       // No early return for Threads: navigating to the saved location is a
       // no-op when already there, and anywhere else it is the way back.
-      if (active !== THREADS) syncSidebar(THREADS);
+      if (active !== THREADS) {
+        syncSidebar(THREADS);
+        if (!live.current.inSplit) playEntrance("page");
+      }
       if (saved === undefined || !navigateToPath(saved)) bbNavigate.toCompose();
       return;
     }
@@ -379,7 +392,10 @@ export function TopTabs() {
       const { active, threadActions } = live.current;
       setSwitcher(null);
       stripMove.current = { to: THREADS, at: performance.now() };
-      if (active !== THREADS) syncSidebar(THREADS);
+      if (active !== THREADS) {
+        syncSidebar(THREADS);
+        if (!live.current.inSplit) playEntrance("page");
+      }
       // bb's own open: it focuses the thread's pane if a split shows it.
       threadActions.open(thread.id);
     },

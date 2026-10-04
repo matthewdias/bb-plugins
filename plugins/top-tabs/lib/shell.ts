@@ -120,3 +120,64 @@ export function toggleSidebar(options: { instant?: boolean } = {}): boolean {
   trigger.click();
   return true;
 }
+
+/**
+ * The motion an instant switch keeps. Each one is a keyframe animation in
+ * top-tabs.css keyed on a class on <html>, and animates only `translate` or
+ * `opacity`, which the compositor runs without laying the page out again —
+ * the page still lays out once, at its final width, as `instant` promises.
+ * A class rather than an animation on an element, because the navigation it
+ * covers may replace the element before the first frame.
+ */
+const ENTRANCES = {
+  /** The sidebar slides back in over the space it already holds. */
+  sidebar: { className: "bb-top-tabs-sidebar-enter", animation: "bb-top-tabs-sidebar-in" },
+  /** The page fades in, so a thread rendered afresh does not just appear. */
+  page: { className: "bb-top-tabs-page-enter", animation: "bb-top-tabs-page-in" },
+} as const;
+
+/**
+ * Longest an entrance class stays once a frame has drawn it: past its 200ms,
+ * for an element that mounts a little late. The animation's own end removes
+ * it sooner; this covers reduced motion, where nothing runs, and an element
+ * that never appears.
+ */
+const ENTRANCE_MAX_MS = 600;
+
+const playing = new Map<string, () => void>();
+
+/**
+ * Play one entrance from the next frame. One already running carries on
+ * rather than starting over. Its end is the only signal listened for: a
+ * cancel also fires when bb replaces the element mid-animation, and the
+ * class has to stay for the element that replaces it.
+ */
+export function playEntrance(kind: keyof typeof ENTRANCES): void {
+  const { className, animation } = ENTRANCES[kind];
+  const root = document.documentElement;
+  playing.get(className)?.();
+  let timer: number | undefined;
+  const frame = requestAnimationFrame(() => {
+    // Counted from the first frame that applies the class, since the render
+    // that blocks before it can last longer than the animation.
+    timer = window.setTimeout(stop, ENTRANCE_MAX_MS);
+  });
+  const onEnd = (event: AnimationEvent) => {
+    if (event.animationName === animation) stop();
+  };
+  function stop() {
+    cancelAnimationFrame(frame);
+    window.clearTimeout(timer);
+    document.removeEventListener("animationend", onEnd, true);
+    root.classList.remove(className);
+    playing.delete(className);
+  }
+  playing.set(className, stop);
+  document.addEventListener("animationend", onEnd, true);
+  root.classList.add(className);
+}
+
+/** Stop every entrance now, for a switch away before one has finished. */
+export function stopEntrances(): void {
+  for (const stop of [...playing.values()]) stop();
+}

@@ -236,10 +236,14 @@ The sidebar belongs to Threads:
   undoes that. See [The Settings tab](#the-settings-tab).
 - **A split** pauses all of this until it closes.
 
-When the strip moves the sidebar as part of a switch, it does so instantly.
-The sidebar changes in the same step as the page, so the page lays out once,
-at its final width. A slide would make a long thread lay itself out again on
-every frame. Opening or closing the sidebar yourself still slides.
+When the strip moves the sidebar as part of a switch, the space it takes
+changes instantly, in the same step as the page, so the page lays out once,
+at its final width. Sliding that space open would make a long thread lay
+itself out again on every frame. What moves is drawn on top: going back to
+Threads, the sidebar slides in over the space it already has and the thread
+fades in, both animated without laying anything out again. Leaving Threads
+is instant. Opening or closing the sidebar yourself still slides as bb
+draws it. With reduced motion on, nothing animates.
 
 Above the thread list, the sidebar keeps bb's own navigation, unchanged.
 Its rows, drag-to-reorder, options menu, More, customize editor and
