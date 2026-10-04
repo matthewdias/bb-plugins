@@ -57,6 +57,7 @@ import {
   recordRecent,
   recordRecentThread,
   reopen,
+  reopenable,
   resetPinned,
   seed,
   sidebarStep,
@@ -650,7 +651,7 @@ export function TopTabs() {
       id === THREADS
         ? closable.length > 0
         : shown.slice(shown.indexOf(id) + 1).some((other) => closable.includes(other)),
-    canReopen: tabs.closed.some((c) => byId.has(c.id) && !tabs.open.includes(c.id)),
+    canReopen: reopenable(tabs, (id) => byId.has(id)) !== undefined,
     onClose: () => closeTab(id),
     onTogglePin: () => togglePin(id),
     onCloseOthers: () => closeOtherTabs(id),
@@ -822,7 +823,7 @@ export function TopTabs() {
         openIds={shown}
         pinnedIds={tabs.pinned}
         active={active}
-        canReopen={tabs.closed.some((c) => byId.has(c.id) && !tabs.open.includes(c.id))}
+        canReopen={reopenable(tabs, (id) => byId.has(id)) !== undefined}
         splitFor={splitActionFor}
         onPick={activateSoon}
         onTogglePin={togglePin}

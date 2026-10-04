@@ -48,7 +48,7 @@ header, the strip keeps working from the last list it saw.
   used**, to the tab you were on before it.
 - **Reopen a closed tab** with Ctrl+Shift+T, the context menu, or the **+**
   menu. It comes back in the same position, at the same place inside the
-  panel.
+  panel. It also undoes a pinned tab's reset.
 - **Reorder** by dragging a tab sideways, within its group: pinned tabs among
   pinned, the rest among the rest. Drag it down into the page instead to open
   it in a split.
@@ -124,7 +124,8 @@ A pinned tab is one you always want in the strip:
   the other pins: to the first ordinary tab, or Threads if there is none. With **After closing a tab, go back to the last
   one you used** on, it goes to the ordinary tab you used last instead. So
   pressing the shortcut again closes that tab rather than stepping through
-  the pins. ⌃⇧T doesn't undo a reset.
+  the pins. ⌃⇧T undoes a reset and takes the tab back to where it was, until
+  you go back to the tab yourself: then the reset is taken as it is.
 - Unpin it from its context menu (or with **Top Tabs: Pin or unpin tab**) to
   make it an ordinary tab again. It lands first among the ordinary tabs.
 

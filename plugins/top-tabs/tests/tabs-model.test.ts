@@ -31,6 +31,7 @@ import {
   recordRecent,
   recordRecentThread,
   reopen,
+  reopenable,
   resetPinned,
   seed,
   sidebarStep,
@@ -274,10 +275,57 @@ test("resetting a pinned tab forgets its location and keeps it pinned", () => {
   assert.deepEqual(reset.open, ["p", "a"]);
   assert.deepEqual(reset.pinned, ["p"]);
   assert.deepEqual(reset.paths, { a: "/x" });
-  assert.deepEqual(reset.closed, []);
+  assert.deepEqual(reset.closed, [{ id: "p", path: "/plugins/p/p/deep", index: 0, reset: true }]);
   // Only pinned tabs reset, and a pin already at its start is left alone.
   assert.equal(resetPinned(s, "a"), s);
   assert.equal(resetPinned(reset, "p"), reset);
+});
+
+test("reopening after a reset gives the pin back its location", () => {
+  const s = state({
+    open: ["p", "a"],
+    pinned: ["p"],
+    paths: { p: "/plugins/p/p/deep" },
+    closed: [{ id: "b", path: null, index: 2 }],
+  });
+  const { state: back, tab } = reopen(resetPinned(s, "p"), () => true);
+  assert.equal(tab?.id, "p");
+  assert.equal(back.paths.p, "/plugins/p/p/deep");
+  assert.deepEqual(back.open, ["p", "a"]);
+  assert.deepEqual(back.pinned, ["p"]);
+  // The tab closed before the reset is next.
+  assert.deepEqual(back.closed, [{ id: "b", path: null, index: 2 }]);
+  assert.equal(reopen(back, () => true).tab?.id, "b");
+});
+
+test("going back to a reset pin takes the reset, so reopening skips it", () => {
+  const s = state({
+    open: ["p", "a"],
+    pinned: ["p"],
+    paths: { p: "/plugins/p/p/deep" },
+    closed: [{ id: "b", path: null, index: 2 }],
+  });
+  const visited = recordPath(resetPinned(s, "p"), "p", "/plugins/p/p");
+  assert.deepEqual(visited.closed, [{ id: "b", path: null, index: 2 }]);
+  assert.equal(reopen(visited, () => true).tab?.id, "b");
+  // Recording another tab's location leaves the reset to undo.
+  const elsewhere = recordPath(resetPinned(s, "p"), "a", "/plugins/a/a");
+  assert.equal(reopenable(elsewhere, () => true)?.id, "p");
+});
+
+test("a reset is undoable only while its tab is open", () => {
+  const entry = { id: "p", path: "/plugins/p/p/deep", index: 0, reset: true as const };
+  assert.equal(reopenable(state({ open: ["p"], pinned: ["p"], closed: [entry] }), () => true), entry);
+  assert.equal(reopenable(state({ open: [], closed: [entry] }), () => true), undefined);
+  assert.equal(reopenable(state({ open: ["p"], pinned: ["p"], closed: [entry] }), () => false), undefined);
+  // A closed tab opened again another way is still passed over.
+  assert.equal(reopenable(state({ open: ["a"], closed: [{ id: "a", path: null, index: 0 }] }), () => true), undefined);
+});
+
+test("a reset survives a reload", () => {
+  const entry = { id: "p", path: "/plugins/p/p/deep", index: 0, reset: true };
+  const parsed = parseState({ open: ["p"], pinned: ["p"], closed: [entry, { id: "b", path: null, index: 1, reset: "yes" }] });
+  assert.deepEqual(parsed.closed, [entry, { id: "b", path: null, index: 1 }]);
 });
 
 test("bb's Close on a lone page closes the tab in view", () => {

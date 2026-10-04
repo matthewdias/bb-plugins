@@ -24,6 +24,11 @@ export interface ClosedTab {
   path: string | null;
   /** Its position in `open`, so reopening puts it back where it was. */
   index: number;
+  /**
+   * A pinned tab that was reset rather than closed. It is still open, so
+   * reopening it gives back its location instead of a slot in the strip.
+   */
+  reset?: true;
 }
 
 export interface TabsState {
@@ -119,12 +124,13 @@ export function parseState(raw: unknown): TabsState {
   if (Array.isArray(record.closed)) {
     for (const entry of record.closed) {
       if (typeof entry !== "object" || entry === null) continue;
-      const { id, path, index } = entry as Record<string, unknown>;
+      const { id, path, index, reset } = entry as Record<string, unknown>;
       if (!isTabId(id) || id === THREADS) continue;
       closed.push({
         id,
         path: isAppPath(path) ? path : null,
         index: typeof index === "number" && Number.isInteger(index) && index >= 0 ? index : 0,
+        ...(reset === true ? { reset: true as const } : {}),
       });
       if (closed.length === CLOSED_LIMIT) break;
     }
@@ -319,9 +325,16 @@ export function unpin(state: TabsState, id: TabId): TabsState {
   return { ...state, pinned, open: [...pinned, id, ...others] };
 }
 
+/**
+ * Note where `id` is. A reset pin the user has gone back to has been taken
+ * as it is, so ⌃⇧T no longer gives back the location it forgot.
+ */
 export function recordPath(state: TabsState, id: TabId, path: string): TabsState {
   if (!isAppPath(path) || state.paths[id] === path) return state;
-  return { ...state, paths: { ...state.paths, [id]: path } };
+  const closed = state.closed.some((c) => c.id === id && c.reset)
+    ? state.closed.filter((c) => c.id !== id)
+    : state.closed;
+  return { ...state, paths: { ...state.paths, [id]: path }, closed };
 }
 
 /** Fill an empty strip once, from the destinations the sidebar showed. */
@@ -417,12 +430,18 @@ export function successorAfterPinClose(
 
 /**
  * Close a pinned tab without unpinning it, as Arc does: it stays in the
- * strip and forgets where it was left, so it next opens at its start.
+ * strip and forgets where it was left, so it next opens at its start. The
+ * location goes on the closed list, so ⌃⇧T can give it back.
  */
 export function resetPinned(state: TabsState, id: TabId): TabsState {
-  if (!state.pinned.includes(id)) return state;
-  const paths = withoutPath(state.paths, id);
-  return paths === state.paths ? state : { ...state, paths };
+  const path = state.paths[id];
+  if (!state.pinned.includes(id) || path === undefined) return state;
+  const entry: ClosedTab = { id, path, index: state.open.indexOf(id), reset: true };
+  return {
+    ...state,
+    paths: withoutPath(state.paths, id),
+    closed: remember(state.closed, [entry]),
+  };
 }
 
 /**
@@ -492,15 +511,39 @@ export function closeToRight(state: TabsState, of: TabId): TabsState {
 }
 
 /**
- * Reopen the most recently closed tab that can still open.
- * `isAvailable` filters out destinations whose plugin has since gone away.
+ * The most recently closed tab that can still open, or reset pin that is
+ * still open. `isAvailable` filters out destinations whose plugin has since
+ * gone away. A closed tab reopened another way since is passed over.
+ */
+export function reopenable(
+  state: TabsState,
+  isAvailable: (id: string) => boolean,
+): ClosedTab | undefined {
+  return state.closed.find(
+    (c) => isAvailable(c.id) && state.open.includes(c.id) === (c.reset === true),
+  );
+}
+
+/**
+ * Reopen the most recently closed tab, or give a reset pin back its
+ * location. See `reopenable`.
  */
 export function reopen(
   state: TabsState,
   isAvailable: (id: string) => boolean,
 ): { state: TabsState; tab: ClosedTab | null } {
-  const tab = state.closed.find((c) => isAvailable(c.id) && !state.open.includes(c.id));
+  const tab = reopenable(state, isAvailable);
   if (tab === undefined) return { state, tab: null };
+  if (tab.reset) {
+    return {
+      state: {
+        ...state,
+        paths: tab.path === null ? state.paths : { ...state.paths, [tab.id]: tab.path },
+        closed: state.closed.filter((c) => c !== tab),
+      },
+      tab,
+    };
+  }
   const open = [...state.open];
   // Back in its old slot, but never among the pinned tabs.
   const index = Math.max(state.pinned.length, Math.min(tab.index, open.length));
