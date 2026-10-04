@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { useComposer, type ComposerMention, type PluginComposerApi } from "@get-bb/plugin-sdk/app";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+// Loaded at the top, not inside a test: the first load pulls in every hugeicons icon,
+// which can take longer than a test's 5s timeout on a busy machine.
+import pluginApp from "../../app.tsx";
 import { toast } from "sonner";
 import {
   FollowUpPicker,
@@ -180,7 +183,7 @@ describe("the picker", () => {
 
 describe("the + menu row", () => {
   async function plusRow() {
-    const app = await loadPluginApp(() => import("../../app.tsx"));
+    const app = await loadPluginApp(pluginApp);
     const item = app.composerCustomizations[0]?.plusMenu?.find((entry) => entry.id === "show-followups");
     expect(item).toBeDefined();
     return item!;
@@ -212,7 +215,7 @@ describe("the + menu row", () => {
   });
 
   it("has the picker in its own thread-only customization", async () => {
-    const app = await loadPluginApp(() => import("../../app.tsx"));
+    const app = await loadPluginApp(pluginApp);
     const picker = app.composerCustomizations.find((entry) => entry.id === "follow-up-picker");
     expect(picker?.scopes).toEqual(["thread"]);
     expect(picker?.experimental_popups?.map((popup) => popup.id)).toEqual([PICKER_POPUP_ID]);
