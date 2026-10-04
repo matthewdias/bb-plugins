@@ -29,6 +29,13 @@ export default async function plugin(bb: BbPluginApi) {
         "Escape, Back to app or going back closes the tab, as if Settings were a dialog. Switching tabs in the strip leaves it open, and a pinned Settings tab never closes.",
       default: true,
     },
+    recentAfterClose: {
+      type: "boolean",
+      label: "After closing a tab, go back to the last one you used",
+      description:
+        "When off, closing the tab in view moves to its right-hand neighbour, as a browser does. When on, it returns to the tab you were on before it, as VS Code does.",
+      default: false,
+    },
     tabLabels: {
       type: "select",
       label: "Tab labels",

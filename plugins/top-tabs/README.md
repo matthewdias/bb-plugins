@@ -42,8 +42,10 @@ header, the strip keeps working from the last list it saw.
   **+** menu, to keep it. See [Pinned tabs](#pinned-tabs).
 - **Close a tab** with the × that replaces its icon on hover, a middle-click,
   its context menu, or bb's own Close at the top right of the page. Pinned
-  tabs don't close. Closing the tab in view moves to its right-hand
-  neighbour, then its left, then Threads.
+  tabs don't close; bb's Close and **Top Tabs: Close tab** reset one instead. Closing the
+  tab in view moves to its right-hand neighbour, then its left, then
+  Threads, or, with **After closing a tab, go back to the last one you
+  used**, to the tab you were on before it.
 - **Reopen a closed tab** with Ctrl+Shift+T, the context menu, or the **+**
   menu. It comes back in the same position, at the same place inside the
   panel.
@@ -116,6 +118,13 @@ A pinned tab is one you always want in the strip:
   for its name.
 - It has no ×, and middle-click, close-others and close-to-the-right all
   leave it alone.
+- bb's Close at the top right of the page, or **Top Tabs: Close tab**,
+  resets it instead, as Arc does. It stays pinned, forgets where it was
+  left, so it next opens at the panel's start, and the strip moves on past
+  the other pins: to the first ordinary tab, or Threads if there is none. With **After closing a tab, go back to the last
+  one you used** on, it goes to the ordinary tab you used last instead. So
+  pressing the shortcut again closes that tab rather than stepping through
+  the pins. ⌃⇧T doesn't undo a reset.
 - Unpin it from its context menu (or with **Top Tabs: Pin or unpin tab**) to
   make it an ordinary tab again. It lands first among the ordinary tabs.
 
@@ -253,10 +262,18 @@ rows, hidden ones behind **More**.
 | --- | --- |
 | Collapse the sidebar on other tabs | on |
 | Close the Settings tab when you leave Settings | on |
+| After closing a tab, go back to the last one you used | off |
 | Tab labels | Always |
 
 **Collapse the sidebar** off keeps the sidebar wherever you leave it. The
 tabs work the same either way.
+
+**After closing a tab, go back to the last one you used** chooses where
+closing the tab in view goes. Off, it moves to the tab on its right, as a
+browser does. On, it returns to the tab you were on before it, as VS Code
+does, Threads included, and to the tab on its right once none of the tabs you
+used recently is still open. Closing a pinned tab follows it too, skipping
+the other pins.
 
 **Tab labels** chooses how much of the strip is words:
 
@@ -281,7 +298,7 @@ All are in bb's command palette, and every shortcut can be rebound under
 | Top Tabs: Go to Threads | — |
 | Top Tabs: Switch thread… | — |
 | Top Tabs: Open a tab… | — |
-| Top Tabs: Close tab (on Threads: close the thread in view) | — |
+| Top Tabs: Close tab (on Threads: close the thread in view; on a pinned tab: reset it) | — |
 | Top Tabs: Pin or unpin tab | — |
 
 In a web browser, the browser keeps Ctrl+Tab and Ctrl+Shift+T for itself.

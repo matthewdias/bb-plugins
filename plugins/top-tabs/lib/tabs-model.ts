@@ -346,48 +346,116 @@ function remember(closed: readonly ClosedTab[], entries: readonly ClosedTab[]): 
 }
 
 /**
+ * Where closing the tab in view goes: to its right-hand neighbour, as a
+ * browser does, or back to the tab in view before it, as VS Code does.
+ */
+export type CloseOrder = "position" | "recent";
+
+/** The `recentAfterClose` setting. */
+export function closeOrderOf(value: unknown): CloseOrder {
+  return value === true ? "recent" : "position";
+}
+
+/** The tab most recently in view that is still open, other than `id`. */
+function lastInView(
+  open: readonly string[],
+  recent: readonly TabId[],
+  id: string,
+  skip: readonly string[] = [],
+): TabId | undefined {
+  return recent.find(
+    (other) => other !== id && !skip.includes(other) && (other === THREADS || open.includes(other)),
+  );
+}
+
+/**
  * The tab to show after closing `id` while `active` is in view.
  *
  * Closing a background tab changes nothing. Closing the one in view moves to
  * its right-hand neighbour, as a browser does, then its left, then Threads.
+ * In recent order it goes back to the tab in view before it instead, and to
+ * the neighbour once no tab it remembers is still open.
  */
 export function successorAfterClose(
   open: readonly string[],
   id: string,
   active: TabId | null,
+  order: CloseOrder = "position",
+  recent: readonly TabId[] = [],
 ): TabId | null {
   if (id !== active) return active;
   const index = open.indexOf(id);
   if (index === -1) return active;
+  if (order === "recent") {
+    const last = lastInView(open, recent, id);
+    if (last !== undefined) return last;
+  }
   return open[index + 1] ?? open[index - 1] ?? THREADS;
 }
 
 /**
- * Whether the strip answers bb's Close on a page shown on its own (bb 0.45+).
+ * The tab to show after the close-tab command leaves the pinned tab `id`.
  *
- * bb opens New Thread there. For a destination tab that would leave the tab
- * open behind Threads, so the strip closes it instead, as the tab's own ×
- * does. Threads keeps bb's behaviour, and so does a pinned tab, which never
- * closes: bb leaves the page and the tab stays.
+ * It moves past the other pins, as VS Code skips its pinned editors, so
+ * pressing the shortcut again closes an ordinary tab rather than stepping
+ * through every pin: the first ordinary tab, or in recent order the one most
+ * recently in view, and Threads when there is none.
  */
-export function stripTakesPageClose(active: TabId | null, pinned: readonly string[]): boolean {
-  return active !== null && active !== THREADS && !pinned.includes(active);
+export function successorAfterPinClose(
+  open: readonly string[],
+  pinned: readonly string[],
+  id: string,
+  order: CloseOrder = "position",
+  recent: readonly TabId[] = [],
+): TabId {
+  if (order === "recent") {
+    const last = lastInView(open, recent, id, pinned);
+    if (last !== undefined) return last;
+  }
+  return open.find((other) => !pinned.includes(other)) ?? THREADS;
 }
 
 /**
- * What the close-tab command does: close the destination tab in view, or, on
- * Threads, which cannot close, press bb's Close on the lone thread page so it
- * opens New Thread. Null when there is nothing to close: a pinned tab, or
- * Threads with no Close on screen (a split, or the compose screen itself).
+ * Close a pinned tab without unpinning it, as Arc does: it stays in the
+ * strip and forgets where it was left, so it next opens at its start.
+ */
+export function resetPinned(state: TabsState, id: TabId): TabsState {
+  if (!state.pinned.includes(id)) return state;
+  const paths = withoutPath(state.paths, id);
+  return paths === state.paths ? state : { ...state, paths };
+}
+
+/**
+ * What the strip does with bb's Close on a page shown on its own (bb 0.45+).
+ *
+ * bb opens New Thread there. For a destination tab that would leave the tab
+ * open behind Threads, so the strip answers it as the close-tab command does:
+ * it closes the tab, or resets a pinned one and leaves it, pinned. Null when
+ * bb keeps its own behaviour: on Threads, where New Thread is where it should
+ * go anyway, and on pages no tab holds.
+ */
+export function pageCloseAction(
+  active: TabId | null,
+  pinned: readonly string[],
+): "tab" | "pin" | null {
+  if (active === null || active === THREADS) return null;
+  return pinned.includes(active) ? "pin" : "tab";
+}
+
+/**
+ * What the close-tab command does: what bb's Close does on a destination tab
+ * (see pageCloseAction), or, on Threads, which cannot close, press bb's Close
+ * on the lone thread page so it opens New Thread. Null when there is nothing
+ * to close: Threads with no Close on screen (a split, or the compose screen
+ * itself).
  */
 export function closeCommandAction(
   active: TabId | null,
   pinned: readonly string[],
   hasPageClose: boolean,
-): "tab" | "page" | null {
-  if (active === null) return null;
+): "tab" | "pin" | "page" | null {
   if (active === THREADS) return hasPageClose ? "page" : null;
-  return pinned.includes(active) ? null : "tab";
+  return pageCloseAction(active, pinned);
 }
 
 /** Close tabs. Pinned tabs are skipped: unpin a tab to close it. */
@@ -620,7 +688,7 @@ export function threadPaneFor(
   return threads.find((pane) => pane.threadId === savedThreadId) ?? threads[0] ?? null;
 }
 
-/** Note that `tab` is in view, for choosing a split partner later. */
+/** Note that `tab` is in view, for choosing a split partner or where a close goes. */
 export function recordRecent(state: TabsState, tab: TabId): TabsState {
   if (state.recent[0] === tab) return state;
   return {

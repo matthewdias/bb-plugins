@@ -10,6 +10,8 @@ export interface TabsController {
   active(): TabId | null;
   activate(id: TabId): void;
   close(id: TabId): void;
+  /** Reset a pinned tab to its start and leave it, still pinned. */
+  closePinned(id: TabId): void;
   cycle(direction: 1 | -1): void;
   reopen(): void;
   openPicker(): void;

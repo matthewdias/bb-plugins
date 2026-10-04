@@ -26,7 +26,8 @@ The sidebar keeps bb's own navigation, so you can reorder, hide and split
 from it as always.
 
 **Pinned tabs.** Pin the destinations you always want: they sit beside
-Threads as icons and never close by accident. Labels can be icons-only, or
+Threads as icons and never close by accident. Closing one with bb's Close or
+the keyboard sends it back to its start and leaves it pinned. Labels can be icons-only, or
 only on the tab in view.
 
 **Splits.** Drag a tab down into the page to split it, as you would a
@@ -34,7 +35,8 @@ thread, or open one in a split from the + menu. The strip marks every tab that's
 which pane it's in. Clicking one focuses its pane.
 
 **Keyboard.** Ctrl+Tab and Ctrl+Shift+Tab switch tabs, and every command is
-in the palette.
+in the palette. Closing a tab moves to its neighbour, as a browser does, or
+back to the last tab you used, as VS Code does.
 
 ## How it works
 

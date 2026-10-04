@@ -80,7 +80,8 @@ export default definePluginApp((app) => {
     },
   });
   // On Threads, which cannot close, this presses bb's Close on the thread page,
-  // which opens New Thread.
+  // which opens New Thread. On a pinned tab it resets the tab and leaves it,
+  // still pinned.
   const closeAction = () => {
     const controller = getController();
     const active = controller?.active() ?? null;
@@ -95,6 +96,7 @@ export default definePluginApp((app) => {
       const { controller, active, action } = closeAction();
       if (action === "page") pageClose()?.click();
       else if (action === "tab" && controller && active) controller.close(active);
+      else if (action === "pin" && controller && active) controller.closePinned(active);
     },
   });
   app.commands.register({
