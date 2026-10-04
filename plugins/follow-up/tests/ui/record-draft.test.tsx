@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useComposer, useRpc, type ComposerMention, type PluginComposerApi, type PluginComposerScope } from "@get-bb/plugin-sdk/app";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+// Loaded at the top, not inside a test: the first load pulls in every hugeicons icon,
+// which can take longer than a test's 5s timeout on a busy machine.
+import pluginApp from "../../app.tsx";
 import { toast } from "sonner";
 import {
   recordCommand,
@@ -167,14 +170,14 @@ describe("the composer command", () => {
 
 describe("app.tsx", () => {
   it("puts the row in the send menu and has no action-row button", async () => {
-    const app = await loadPluginApp(() => import("../../app.tsx"));
+    const app = await loadPluginApp(pluginApp);
     const customization = app.composerCustomizations[0];
     expect(customization?.sendMenu?.map((item) => item.id)).toEqual(["record-as-follow-up"]);
     expect(customization?.actions ?? []).toEqual([]);
   });
 
   it("reports a message action's refusal in a toast rather than opening the panel", async () => {
-    const app = await loadPluginApp(() => import("../../app.tsx"));
+    const app = await loadPluginApp(pluginApp);
     const action = app.messageActions.find((entry) => entry.id === "record-follow-up");
     rememberRpc({
       call: async () => ({ outcome: "dismissed", id: null, followUps: [], done: [] }),
