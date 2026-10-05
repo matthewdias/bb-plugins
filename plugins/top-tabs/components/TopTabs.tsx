@@ -62,6 +62,7 @@ import {
   recordPath,
   recordRecent,
   recordRecentThread,
+  rememberSidebar,
   reopen,
   reopenable,
   resetPinned,
@@ -241,9 +242,11 @@ export function TopTabs() {
     });
   }, [active, path, byId]);
 
-  // The sidebar belongs to Threads; see sidebarStep for the rules. A split is
-  // the user's own arrangement, and the sidebar is where they drag threads
-  // into it from, so while one is up the strip leaves the sidebar alone.
+  // Each tab keeps the sidebar as the user left it; see sidebarStep for the
+  // rules. A split is the user's own arrangement, and the sidebar is where
+  // they drag threads into it from, so while one is up the strip leaves the
+  // sidebar alone. `previous` is the tab the strip has brought the sidebar
+  // in line with, which a tab click sets before the route catches up.
   const previous = useRef<TabId | null | undefined>(undefined);
   const wasInSplit = useRef(false);
 
@@ -267,17 +270,8 @@ export function TopTabs() {
     if (compact || !collapseSidebar || inSplit) return;
     const sidebarOpen = isSidebarOpen();
     if (sidebarOpen === null) return;
-    const step = sidebarStep({
-      previous: before,
-      next,
-      sidebarOpen,
-      threadsSidebarOpen: getState().threadsSidebarOpen,
-    });
-    update((s) =>
-      s.threadsSidebarOpen === step.threadsSidebarOpen
-        ? s
-        : { ...s, threadsSidebarOpen: step.threadsSidebarOpen },
-    );
+    const step = sidebarStep({ previous: before, next, sidebarOpen, sidebar: getState().sidebar });
+    update((s) => (s.sidebar === step.sidebar ? s : { ...s, sidebar: step.sidebar }));
     if (step.action === null) return;
     // The sidebar slides in coming back to Threads or opening Settings, and
     // out leaving Threads, on the compositor; see playEntrance and
@@ -292,20 +286,26 @@ export function TopTabs() {
 
   useEffect(() => {
     // When a split closes, look at what is left afresh, as on first load: the
-    // sidebar comes back on Threads and slides away on any other tab.
+    // tab in view gets back the sidebar it keeps.
     if (wasInSplit.current && !inSplit) previous.current = undefined;
     wasInSplit.current = inSplit;
     syncSidebar(active);
   }, [active, compact, collapseSidebar, inSplit, syncSidebar]);
 
-  // While Threads is in view, the user's own toggling is their preference.
-  // The strip's toggles happen once another tab is already active, or set
-  // the preference they restore, so they never record anything wrong.
+  // The user's own toggling is the preference of the tab they are on. It is
+  // filed under `previous`, not the route: a tab click toggles the sidebar
+  // before it navigates, and the route still names the tab being left. The
+  // strip's own toggles set the state the tab already wants, so recording
+  // them changes nothing.
   useEffect(() => {
-    if (active !== THREADS || compact || !collapseSidebar) return;
+    if (compact || !collapseSidebar) return;
     return observeSidebar((open) => {
-      if (live.current.active !== THREADS) return;
-      update((s) => (s.threadsSidebarOpen === open ? s : { ...s, threadsSidebarOpen: open }));
+      const tab = previous.current;
+      if (tab === undefined || tab === null || live.current.inSplit) return;
+      update((s) => {
+        const sidebar = rememberSidebar(s.sidebar, tab, open);
+        return sidebar === s.sidebar ? s : { ...s, sidebar };
+      });
     });
   }, [active, compact, collapseSidebar]);
 

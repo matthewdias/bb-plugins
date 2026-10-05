@@ -21,7 +21,8 @@ middle-click to close, Ctrl+Shift+T to reopen.
 it was on: the pull request inside GitHub, not just GitHub.
 
 **The sidebar gets out of the way.** It slides away on other tabs, so the
-destination has the whole window, and returns with Threads, as you left it.
+destination has the whole window, and returns with Threads. Each tab keeps it
+as you left it there, so a panel you like beside the thread list keeps it.
 The sidebar keeps bb's own navigation, so you can reorder, hide and split
 from it as always.
 
