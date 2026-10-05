@@ -44,9 +44,6 @@ const REGISTRY_KEY = Symbol.for("bb-community.complications.v1");
 /** The largest value the registry carries, in characters of its JSON. */
 export const MAX_VALUE_LENGTH = 4096;
 
-/** Rows a detail carries; a longer list is cut here. */
-export const MAX_DETAIL_ROWS = 8;
-
 /** `<pluginId>/<name>`, each lowercase letters, digits and single dashes. */
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -76,33 +73,18 @@ export interface ComplicationSubject {
  */
 export type ComplicationTone = "default" | "info" | "success" | "warning" | "error" | "running";
 
-/** Where clicking goes. A surface draws a real link, so copy and middle-click work. */
-export interface ComplicationOpen {
-  /** An http(s) URL, or an app path beginning with a single `/`. */
-  readonly href: string;
-}
-
-export interface ComplicationDetailRow {
-  readonly label: string;
-  readonly value: string;
-  readonly tone?: ComplicationTone | (string & {});
-  readonly open?: ComplicationOpen;
-}
-
-/** The large size: what a card or hover shows. */
-export interface ComplicationDetail {
-  readonly title?: string;
-  /** At most `MAX_DETAIL_ROWS`; rows past that are dropped. */
-  readonly rows: readonly ComplicationDetailRow[];
-}
-
 /**
  * One value that can be read at a glance. Data, not a component: the surface
  * draws it, in whichever size its slot has room for, and a surface outside bb
  * can draw it too. Smallest to largest: a glyph (`icon`, `tone`), inline
- * (`text`), a gauge (`fraction`), a card (`detail`).
+ * (`text`), a gauge (`fraction`).
  *
  * Fields not named here pass through the registry as JSON; read them with care.
+ * Two names are reserved for what no surface draws yet: `detail`, the large
+ * size a card or hover shows, and `open`, where clicking goes. Their shapes
+ * will be settled by the first surface that draws them, so the registry does
+ * not check them — a surface must, before it draws one, and an `href` above
+ * all.
  */
 export interface ComplicationValue {
   /** A bb icon name: a built-in glyph, or a namespaced `"<pluginId>/<name>"`. */
@@ -114,8 +96,6 @@ export interface ComplicationValue {
   readonly text?: string;
   /** Progress from 0 to 1. Present, it makes the value a gauge. */
   readonly fraction?: number;
-  readonly detail?: ComplicationDetail;
-  readonly open?: ComplicationOpen;
 }
 
 export interface ComplicationProviderRegistration {
@@ -255,36 +235,7 @@ function normalizeTone(raw: unknown): string | undefined {
   return isNonBlank(raw) && raw.length <= MAX_TONE_LENGTH ? raw : undefined;
 }
 
-/**
- * http(s), or an app path beginning with exactly one `/`. Anything with a
- * control character or space is refused outright: URL parsers strip tabs and
- * newlines, which turns `/\t/evil.example` into the protocol-relative
- * `//evil.example`.
- */
-function isSafeHref(href: string): boolean {
-  if (href.length === 0 || /[\x00-\x20\x7f]/.test(href)) return false;
-  if (href.startsWith("/")) return !/^\/[/\\]/.test(href);
-  if (!/^https?:\/\//i.test(href)) return false;
-  try {
-    const { protocol } = new URL(href);
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-const OPEN_KNOWN: ReadonlySet<string> = new Set(["href"]);
-const ROW_KNOWN: ReadonlySet<string> = new Set(["label", "value", "tone", "open"]);
-const DETAIL_KNOWN: ReadonlySet<string> = new Set(["title", "rows"]);
-const VALUE_KNOWN: ReadonlySet<string> = new Set([
-  "icon",
-  "label",
-  "tone",
-  "text",
-  "fraction",
-  "detail",
-  "open",
-]);
+const VALUE_KNOWN: ReadonlySet<string> = new Set(["icon", "label", "tone", "text", "fraction"]);
 const REGISTRATION_KNOWN: ReadonlySet<string> = new Set([
   "id",
   "name",
@@ -293,38 +244,6 @@ const REGISTRATION_KNOWN: ReadonlySet<string> = new Set([
   "sample",
   "onWanted",
 ]);
-
-function normalizeOpen(raw: unknown): ComplicationOpen | undefined {
-  if (!isRecord(raw) || typeof raw.href !== "string" || !isSafeHref(raw.href)) return undefined;
-  const next: Record<string, unknown> = { href: raw.href };
-  passThrough(raw, OPEN_KNOWN, next);
-  return next as unknown as ComplicationOpen;
-}
-
-function normalizeRow(raw: unknown): ComplicationDetailRow | undefined {
-  if (!isRecord(raw) || !isNonBlank(raw.label) || typeof raw.value !== "string") return undefined;
-  const next: Record<string, unknown> = { label: raw.label, value: raw.value };
-  const tone = normalizeTone(raw.tone);
-  if (tone !== undefined) next.tone = tone;
-  const open = normalizeOpen(raw.open);
-  if (open !== undefined) next.open = open;
-  passThrough(raw, ROW_KNOWN, next);
-  return next as unknown as ComplicationDetailRow;
-}
-
-function normalizeDetail(raw: unknown): ComplicationDetail | undefined {
-  if (!isRecord(raw) || !Array.isArray(raw.rows)) return undefined;
-  const rows: ComplicationDetailRow[] = [];
-  for (const candidate of raw.rows) {
-    if (rows.length === MAX_DETAIL_ROWS) break;
-    const row = normalizeRow(candidate);
-    if (row !== undefined) rows.push(row);
-  }
-  const next: Record<string, unknown> = { rows };
-  if (isNonBlank(raw.title)) next.title = raw.title;
-  passThrough(raw, DETAIL_KNOWN, next);
-  return next as unknown as ComplicationDetail;
-}
 
 /**
  * The value as the registry stores it, with its JSON for comparison, or
@@ -347,10 +266,6 @@ function normalize(value: unknown): { value: ComplicationValue; json: string } |
     if (typeof value.fraction === "number" && Number.isFinite(value.fraction)) {
       next.fraction = Math.min(1, Math.max(0, value.fraction));
     }
-    const detail = normalizeDetail(value.detail);
-    if (detail !== undefined) next.detail = detail;
-    const open = normalizeOpen(value.open);
-    if (open !== undefined) next.open = open;
     passThrough(value, VALUE_KNOWN, next);
     const json = JSON.stringify(next);
     if (json.length > MAX_VALUE_LENGTH) return undefined;

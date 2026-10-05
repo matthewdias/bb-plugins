@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { waitFor } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+// Loaded at the top, not inside a test, as in app.test.tsx: the first load pulls in
+// every hugeicons icon, which can outlast a test's timeout on a busy machine.
+import pluginApp from "../../app.tsx";
 import { ComplicationPublisher } from "../../src/complication-publisher.tsx";
 import { getComplications, type ComplicationSubject } from "../../lib/complications.ts";
 import { FOLLOW_UP_PROGRESS } from "../../lib/progress-complication.ts";
@@ -42,11 +45,10 @@ const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 80));
 
 describe("ComplicationPublisher", () => {
   it("is registered as an app overlay, so it outlives any one thread view", async () => {
-    const app = await loadPluginApp(() => import("../../app.tsx"));
+    const app = await loadPluginApp(pluginApp);
     const overlay = app.appOverlays.find((entry) => entry.id === "complications");
     expect(overlay?.component).toBe(ComplicationPublisher);
-    // Importing the whole app is the cost here, not anything under test.
-  }, 30_000);
+  });
 
   it("provides follow-up progress while mounted, and withdraws it on unmount", async () => {
     const a = freshThread();

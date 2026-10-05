@@ -3,6 +3,11 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPrefs, PREFS_CHANGED, type ComplicationPrefs } from "../../badges/complication-prefs";
 import { getComplications, type ComplicationProviderHandle } from "../../lib/complications";
+// Imported once here, at collection, though every test imports it afresh below. The
+// first load pulls in every hugeicons icon through the checkbox, which can outlast a
+// test's timeout on a busy machine; Node keeps that package cached, so the per-test
+// imports after vi.resetModules re-run only this plugin's own modules.
+import "../../badges/complication-settings";
 
 type Prefs = Record<string, ComplicationPrefs>;
 

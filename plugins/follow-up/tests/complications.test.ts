@@ -5,7 +5,6 @@ import {
   COMPLICATIONS_IMPLEMENTATION,
   createRegistry,
   getComplications,
-  MAX_DETAIL_ROWS,
   MAX_VALUE_LENGTH,
   normalizeValue,
   type ComplicationProviderRegistration,
@@ -294,56 +293,26 @@ test("a value that is not a complication is ignored, keeping the last good one",
   assert.equal(registry.read(ID, thread("a"))?.label, "good");
 });
 
-// Detail and tap-through
+// Reserved fields
 
-test("a detail keeps its first rows up to the cap, skipping bad ones", () => {
-  const rows = [
-    { label: "", value: "no label" },
-    { label: "no value" },
-    ...Array.from({ length: MAX_DETAIL_ROWS + 2 }, (_, i) => ({ label: `row ${i}`, value: String(i) })),
-  ];
-  const detail = normalizeValue({ icon: "Circle", label: "x", detail: { title: "PR #12", rows } })?.detail;
-  assert.equal(detail?.title, "PR #12");
-  assert.equal(detail?.rows.length, MAX_DETAIL_ROWS);
-  assert.equal(detail?.rows[0]?.label, "row 0");
-  assert.equal(normalizeValue({ icon: "Circle", label: "x", detail: { title: "no rows" } })?.detail, undefined);
+test("detail and open pass through untouched, for the first surface that draws them to define", () => {
+  const detail = {
+    title: "PR #12",
+    rows: [
+      ...Array.from({ length: 12 }, (_, i) => ({ label: `row ${i}`, value: String(i) })),
+      { label: "a row with no value" },
+    ],
+  };
+  const open = { command: "github/rerun-checks" };
+  const stored = normalizeValue({ icon: "Circle", label: "x", detail, open }) as unknown as Record<string, unknown>;
+  assert.deepEqual(stored.detail, detail, "no row cap, no required value");
+  assert.deepEqual(stored.open, open, "not limited to an href");
+  assert.ok(Object.isFrozen((stored.detail as { rows: object[] }).rows[12]));
 });
 
-test("a detail row carries its own tone, link and unknown fields", () => {
-  const row = normalizeValue({
-    icon: "Circle",
-    label: "x",
-    detail: { rows: [{ label: "Checks", value: "2 failing", tone: "error", open: { href: "/checks" }, glyph: "X" }] },
-  })?.detail?.rows[0] as Record<string, unknown> | undefined;
-  assert.deepEqual(row, {
-    label: "Checks",
-    value: "2 failing",
-    tone: "error",
-    open: { href: "/checks" },
-    glyph: "X",
-  });
-});
-
-test("tap-through opens http(s) and app paths, and nothing else", () => {
-  const href = (target: string) => normalizeValue({ icon: "Circle", label: "x", open: { href: target } })?.open?.href;
-  assert.equal(href("https://github.com/o/r/pull/12"), "https://github.com/o/r/pull/12");
-  assert.equal(href("http://localhost:5173/"), "http://localhost:5173/");
-  assert.equal(href("/projects/p/threads/t"), "/projects/p/threads/t");
-  for (const refused of [
-    "javascript:alert(1)",
-    "JAVASCRIPT:alert(1)",
-    "data:text/html,hi",
-    "//evil.example",
-    "/\\evil.example",
-    "/\t/evil.example",
-    " https://github.com",
-    "https://",
-    "https:github.com",
-    "relative/path",
-    "",
-  ]) {
-    assert.equal(href(refused), undefined, `refused: ${JSON.stringify(refused)}`);
-  }
+test("an href is not the registry's to vet: it arrives as sent, and a surface must check it", () => {
+  const stored = normalizeValue({ icon: "Circle", label: "x", open: { href: "javascript:alert(1)" } }) as unknown as Record<string, unknown>;
+  assert.deepEqual(stored.open, { href: "javascript:alert(1)" });
 });
 
 // Withdrawal and replacement
