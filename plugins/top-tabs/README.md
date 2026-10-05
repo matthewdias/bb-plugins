@@ -8,9 +8,10 @@ comes back where you left it.
 
 **Threads** is the first tab, and it never closes. It is bb as you know it: the
 sidebar, the thread list and the thread in view. Every other tab is a
-destination — a plugin panel, Plugins, Skills. While another tab is in view,
-the sidebar slides away and the destination gets the whole window. It returns
-when you go back to Threads.
+destination — a plugin panel, Plugins, Skills. Each tab keeps the sidebar as
+you left it there: it slides away on a destination, which gets the whole
+window, and returns when you go back to Threads. Open it on a tab and it stays
+open on that tab.
 
 ## Install
 
@@ -101,9 +102,9 @@ settings page you left it on.
 Two things set it apart:
 
 - **Its navigation is the sidebar.** On Settings, bb fills the sidebar with
-  Settings' own sections, so arriving on the tab opens the sidebar. Leaving
-  undoes that: another tab collapses it, and Threads gets back the sidebar
-  you keep there.
+  Settings' own sections, so the tab opens with the sidebar open. Collapse it
+  there and it stays collapsed on Settings. Leaving gives every other tab back
+  its own.
 - **It can't go in a split**, because bb doesn't put Settings in a pane.
 - **Leaving Settings closes it.** Escape, Back to app or the browser's back
   closes the tab, as if Settings were a dialog. Switching tabs in the strip
@@ -223,18 +224,18 @@ strip stays off them, with Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+Shift+T.
 
 ### The sidebar
 
-The sidebar belongs to Threads:
+Each tab keeps the sidebar as you left it:
 
-- **Leaving Threads** collapses the sidebar if it was open, and remembers that
-  it was.
-- **Returning to Threads** reopens it, but only if it was open when you left.
-  The same applies when the app loads straight onto a thread.
-- **Collapsing it yourself on Threads** keeps it collapsed there. The strip
-  only ever restores your own choice, and Threads never collapses it.
-- **Opening it by hand on another tab** keeps it open until you go back to
-  Threads.
-- **Settings** opens the sidebar for its own sections, and leaving it
-  undoes that. See [The Settings tab](#the-settings-tab).
+- **Leaving a tab** remembers whether the sidebar was open there.
+- **Arriving on a tab** opens or collapses the sidebar to match. The same
+  applies when the app loads straight onto a tab.
+- **Opening or collapsing it yourself** is remembered for the tab you're on.
+  Open it on GitHub and it's open whenever you're on GitHub, and collapsed
+  again on the tabs where you left it collapsed.
+- **A tab you haven't set** starts with the sidebar collapsed, so the
+  destination gets the whole window. Threads starts however it was the first
+  time the strip saw it, and Settings starts open for its own sections. See
+  [The Settings tab](#the-settings-tab).
 - **A split** pauses all of this until it closes.
 
 When the strip moves the sidebar as part of a switch, the space it takes
@@ -250,9 +251,10 @@ title moves with them. Coming back from a page with a sidebar of its own
 bb has the thread list ready, and the thread list is what slides in.
 Leaving Threads, the sidebar stays over the new page until bb has drawn it,
 then slides away as the page fades in; opening Settings, its sections slide
-in the same way. Only these changes of layout move: going between other
-tabs keeps the layout, and switches instantly, as a browser's tabs do.
-Opening or closing the sidebar yourself still slides as bb draws it. With reduced motion on, nothing animates.
+in the same way. Only these changes of layout move. Any other the strip
+makes, such as arriving on a tab where you keep the sidebar open, is instant,
+as a browser's tabs switch. Opening or closing the sidebar yourself still
+slides as bb draws it. With reduced motion on, nothing animates.
 
 Above the thread list, the sidebar keeps bb's own navigation, unchanged.
 Its rows, drag-to-reorder, options menu, More, customize editor and
@@ -274,12 +276,12 @@ rows, hidden ones behind **More**.
 
 | | Default |
 | --- | --- |
-| Collapse the sidebar on other tabs | on |
+| Remember the sidebar on each tab | on |
 | Close the Settings tab when you leave Settings | on |
 | After closing a tab, go back to the last one you used | off |
 | Tab labels | Always |
 
-**Collapse the sidebar** off keeps the sidebar wherever you leave it. The
+**Remember the sidebar** off keeps the sidebar wherever you leave it. The
 tabs work the same either way.
 
 **After closing a tab, go back to the last one you used** chooses where

@@ -18,6 +18,9 @@ export const SETTINGS = "__top-tabs__/settings";
 
 export type TabId = string;
 
+/** Whether the sidebar is open on each tab, Threads included. */
+export type SidebarMemory = Readonly<Record<string, boolean>>;
+
 export interface ClosedTab {
   id: string;
   /** Where the tab was when it closed, so reopening lands in the same place. */
@@ -48,12 +51,12 @@ export interface TabsState {
   /** Recently closed tabs, most recent first. */
   closed: readonly ClosedTab[];
   /**
-   * Whether the user keeps the sidebar open on Threads: what it was the last
-   * time they left Threads, or last set it to while there. It is the state to
-   * restore on the way back, so collapsing the sidebar on Threads keeps it
-   * collapsed there. Null until the strip has seen Threads once.
+   * Whether the user keeps the sidebar open on each tab: what it was the last
+   * time they left the tab, or last set it to while there. It is the state to
+   * restore on the way back, so collapsing the sidebar on a tab keeps it
+   * collapsed there. A tab is missing until the strip has seen it.
    */
-  threadsSidebarOpen: boolean | null;
+  sidebar: SidebarMemory;
   /**
    * Set once the strip has been filled from the sidebar's visible items, the
    * first time the plugin runs, so the destinations the user kept in the
@@ -71,7 +74,7 @@ export const EMPTY_STATE: TabsState = {
   pinned: [],
   paths: {},
   closed: [],
-  threadsSidebarOpen: null,
+  sidebar: {},
   seeded: false,
   recent: [],
   recentThreads: [],
@@ -145,8 +148,7 @@ export function parseState(raw: unknown): TabsState {
     pinned,
     paths,
     closed,
-    threadsSidebarOpen:
-      typeof record.threadsSidebarOpen === "boolean" ? record.threadsSidebarOpen : null,
+    sidebar: parseSidebar(record),
     seeded: record.seeded === true,
     recent: Array.isArray(record.recent)
       ? [...new Set(record.recent.filter(isTabId))].slice(0, RECENT_LIMIT)
@@ -155,6 +157,20 @@ export function parseState(raw: unknown): TabsState {
       ? [...new Set(record.recentThreads.filter(isTabId))].slice(0, RECENT_THREADS_LIMIT)
       : [],
   };
+}
+
+function parseSidebar(record: Record<string, unknown>): SidebarMemory {
+  const sidebar: Record<string, boolean> = {};
+  if (typeof record.sidebar === "object" && record.sidebar !== null) {
+    for (const [id, open] of Object.entries(record.sidebar)) {
+      if (isTabId(id) && typeof open === "boolean") sidebar[id] = open;
+    }
+  }
+  // Before each tab had its own, only Threads remembered the sidebar.
+  if (!(THREADS in sidebar) && typeof record.threadsSidebarOpen === "boolean") {
+    sidebar[THREADS] = record.threadsSidebarOpen;
+  }
+  return sidebar;
 }
 
 /**
@@ -613,51 +629,52 @@ export interface SidebarStepInput {
   previous: TabId | null | undefined;
   next: TabId | null;
   sidebarOpen: boolean;
-  threadsSidebarOpen: boolean | null;
+  /** Whether the sidebar was open on each tab when the user left it. */
+  sidebar: SidebarMemory;
 }
 
 export interface SidebarStep {
   action: "collapse" | "expand" | null;
-  threadsSidebarOpen: boolean | null;
+  sidebar: SidebarMemory;
+}
+
+/**
+ * Whether the sidebar is open on a tab the strip has no memory of. Settings
+ * opens it, because bb fills the sidebar with Settings' own sections there;
+ * any other destination collapses it, so the page gets the whole window.
+ * Threads has no default: the strip learns it from what it finds there.
+ */
+function sidebarDefault(tab: TabId): boolean | undefined {
+  if (tab === THREADS) return undefined;
+  return tab === SETTINGS;
+}
+
+/** `memory` with `tab` set to `open`, or `memory` itself if it already was. */
+export function rememberSidebar(memory: SidebarMemory, tab: TabId, open: boolean): SidebarMemory {
+  return memory[tab] === open ? memory : { ...memory, [tab]: open };
 }
 
 /**
  * What the sidebar should do when the tab in view changes.
  *
- * The sidebar belongs to Threads. Leaving Threads records whether it was open
- * and collapses it; arriving on Threads — by switching back, or by loading
- * the app there — reopens it if the user keeps it open there. Threads never
- * collapses it: a sidebar the user opened is theirs. Between two other tabs
- * nothing happens, so a sidebar opened by hand on a tab stays open until
- * Threads. A route that belongs to no tab leaves it alone.
- *
- * Settings is the exception among tabs. bb fills the sidebar with Settings'
- * own sections there, so arriving on Settings opens it. Since that was
- * Settings' doing, not the user's, leaving Settings undoes it: another tab
- * collapses it as usual, and Threads gets back the state the user keeps.
+ * Each tab keeps the sidebar as the user left it there. Leaving a tab records
+ * whether the sidebar was open; arriving on one — by switching, or by loading
+ * the app there — opens or collapses it to match. A tab never seen before
+ * starts from `sidebarDefault`. A route that belongs to no tab leaves the
+ * sidebar alone.
  */
 export function sidebarStep(input: SidebarStepInput): SidebarStep {
   const { previous, next, sidebarOpen } = input;
-  let { threadsSidebarOpen } = input;
-  if (previous === next || next === null) return { action: null, threadsSidebarOpen };
-  if (previous === THREADS) threadsSidebarOpen = sidebarOpen;
-
-  if (next === THREADS) {
-    // Never seen Threads: learn the preference instead of imposing one.
-    if (threadsSidebarOpen === null) return { action: null, threadsSidebarOpen: sidebarOpen };
-    if (threadsSidebarOpen && !sidebarOpen) return { action: "expand", threadsSidebarOpen };
-    // Back from Settings, which opened it: the user keeps it collapsed here.
-    if (previous === SETTINGS && !threadsSidebarOpen && sidebarOpen) {
-      return { action: "collapse", threadsSidebarOpen };
-    }
-    return { action: null, threadsSidebarOpen };
+  let { sidebar } = input;
+  if (previous === next || next === null) return { action: null, sidebar };
+  if (previous !== undefined && previous !== null) {
+    sidebar = rememberSidebar(sidebar, previous, sidebarOpen);
   }
-
-  if (next === SETTINGS) return { action: sidebarOpen ? null : "expand", threadsSidebarOpen };
-
-  const arrivingFromAfar =
-    previous === THREADS || previous === SETTINGS || previous === undefined || previous === null;
-  return { action: arrivingFromAfar && sidebarOpen ? "collapse" : null, threadsSidebarOpen };
+  const want = sidebar[next] ?? sidebarDefault(next);
+  // Never seen Threads: learn the preference instead of imposing one.
+  if (want === undefined) return { action: null, sidebar: rememberSidebar(sidebar, next, sidebarOpen) };
+  if (want === sidebarOpen) return { action: null, sidebar };
+  return { action: want ? "expand" : "collapse", sidebar };
 }
 
 // ---------------------------------------------------------------- splits

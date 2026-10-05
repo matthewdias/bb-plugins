@@ -17,9 +17,9 @@ export default async function plugin(bb: BbPluginApi) {
   bb.settings.define({
     collapseSidebar: {
       type: "boolean",
-      label: "Collapse the sidebar on other tabs",
+      label: "Remember the sidebar on each tab",
       description:
-        "The thread list belongs to the Threads tab. When on, it slides away while another tab is in view and comes back with Threads, as it was when you left.",
+        "Each tab keeps the sidebar open or collapsed as you left it there. A tab you haven't set starts collapsed, so it gets the whole window, and Settings starts open for its sections. When off, the sidebar stays wherever you leave it.",
       default: true,
     },
     closeSettingsOnExit: {
