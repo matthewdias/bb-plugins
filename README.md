@@ -20,21 +20,21 @@ is installed, and Workflow Stages needs
 One at a time, by subdirectory:
 
 ```sh
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/follow-up --tag-prefix follow-up/
 
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/thread-badges --tag-prefix thread-badges/
 
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/top-tabs --tag-prefix top-tabs/
 
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/workflow-stages --tag-prefix workflow-stages/
 ```
 
-Each plugin is released under its own tag prefix, so `semver:*` resolves to the
-newest release of that plugin alone and these lines never go stale. A caret
+Each plugin is released under its own tag prefix, so the range `*` resolves to
+the newest release of that plugin alone and these lines never go stale. A caret
 range would: on a `0.x` version `^0.1.0` cannot reach `0.2.0` at all, which is
 how this page came to offer a plugin two minor versions behind.
 `--plugin <name>` works instead of `--subdirectory` — the repository carries a

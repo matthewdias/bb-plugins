@@ -14,12 +14,13 @@ knows nothing about what any badge means.
 ## Install
 
 ```sh
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/thread-badges --tag-prefix thread-badges/
 ```
 
-`semver:*` resolves to the newest `thread-badges/vX.Y.Z` tag, so this line stays
-correct as the plugin releases and `bb plugin update` follows it.
+With `--tag-prefix`, the range `*` resolves to the newest `thread-badges/vX.Y.Z`
+tag, so this line stays correct as the plugin releases and `bb plugin update`
+follows it.
 
 ## What it does
 
