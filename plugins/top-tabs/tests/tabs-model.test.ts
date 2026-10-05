@@ -713,6 +713,22 @@ test("unpinning puts a tab first among the ordinary tabs", () => {
   assert.equal(unpin(s, "c"), s);
 });
 
+test("unpinning keeps the other pins in the order they were dragged to", () => {
+  let s = pin(pin(pin(state({ open: ["a", "b", "c", "x"] }), "a"), "b"), "c");
+  s = moveBefore(s, "c", "a"); // strip: c a b | x
+  const unpinned = unpin(s, "a");
+  assert.deepEqual(unpinned.open, ["c", "b", "a", "x"]);
+  assert.deepEqual(unpinned.pinned, ["c", "b"]);
+});
+
+test("pinning keeps the existing pins in the order they were dragged to", () => {
+  let s = pin(pin(state({ open: ["a", "b", "x"] }), "a"), "b");
+  s = moveBefore(s, "b", "a"); // strip: b a | x
+  const pinned = pin(s, "x");
+  assert.deepEqual(pinned.open, ["b", "a", "x"]);
+  assert.deepEqual(pinned.pinned, ["b", "a", "x"]);
+});
+
 test("pinned tabs survive every close", () => {
   const s = pin(state({ open: ["a", "b", "c"] }), "a");
   assert.deepEqual(close(s, ["a"]).open, ["a", "b", "c"]);

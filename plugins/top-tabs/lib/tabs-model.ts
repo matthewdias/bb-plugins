@@ -360,17 +360,22 @@ export function isPinned(state: TabsState, id: TabId): boolean {
 export function pin(state: TabsState, id: TabId): TabsState {
   if (id === THREADS || state.pinned.includes(id)) return state;
   const opened = adopt(state, id);
-  const pinned = [...opened.pinned, id];
+  // The pins in strip order, which dragging changes and `pinned` does not.
+  const before = opened.open.filter((other) => opened.pinned.includes(other));
+  const pinned = [...before, id];
   const others = opened.open.filter((other) => !pinned.includes(other));
   const path = opened.paths[id];
   const homes = path === undefined ? opened.homes : { ...opened.homes, [id]: path };
-  return { ...opened, pinned, homes, open: [...opened.pinned, id, ...others] };
+  return { ...opened, pinned, homes, open: [...pinned, ...others] };
 }
 
-/** Unpin a tab. It becomes the first ordinary tab, right where it was. */
+/**
+ * Unpin a tab. It becomes the first ordinary tab, right where it was, and
+ * the other pins keep the order they have in the strip.
+ */
 export function unpin(state: TabsState, id: TabId): TabsState {
   if (!state.pinned.includes(id)) return state;
-  const pinned = state.pinned.filter((other) => other !== id);
+  const pinned = state.open.filter((other) => other !== id && state.pinned.includes(other));
   const others = state.open.filter((other) => !state.pinned.includes(other));
   return { ...state, pinned, homes: withoutPath(state.homes, id), open: [...pinned, id, ...others] };
 }
