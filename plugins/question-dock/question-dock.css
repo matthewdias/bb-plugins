@@ -117,7 +117,9 @@ section[data-qd-mode="sheet"] {
   translate: 0 -100%;
   border-radius: 14px 14px 0 0 !important;
   border-bottom-width: 0 !important;
-  padding-bottom: env(safe-area-inset-bottom);
+  /* bb's shell inset for the home indicator, which the sheet reaches over;
+     0 while typing, when the keyboard covers it. */
+  padding-bottom: var(--qd-pad-b, 0px);
   /* The dimmed chat behind it: a shadow, so there is no second element to
      stack, and taps on it close the sheet (see the controller). */
   box-shadow:

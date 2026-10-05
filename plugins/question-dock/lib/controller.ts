@@ -52,7 +52,7 @@ const ANCHOR_ATTR = "data-qd-anchor";
 const FOOTER_ATTR = "data-qd-lifted";
 const HOST_ATTR = "data-qd-host";
 const DOCKED_ATTR = "data-qd-docked";
-const VARS = ["--qd-x", "--qd-y", "--qd-w", "--qd-h", "--qd-max-h", "--qd-cb-x", "--qd-cb-y"] as const;
+const VARS = ["--qd-x", "--qd-y", "--qd-w", "--qd-h", "--qd-max-h", "--qd-pad-b", "--qd-cb-x", "--qd-cb-y"] as const;
 
 /** When to look again after the keyboard moves: bb's refit, then the keyboard's animation. */
 const SETTLE_DELAYS_MS = [120, 400] as const;
@@ -399,15 +399,22 @@ export class DockController {
     } else {
       // The pane, not the window: bb fits the pane between its top bar and
       // the on-screen keyboard itself, so a sheet on the pane's bottom edge
-      // sits on the keyboard and never runs under the top bar.
+      // sits on the keyboard and never runs under the top bar. Below the pane
+      // bb's shell keeps the home indicator's inset; the sheet reaches over it
+      // and pads by the same amount, as bb's composer does, except while
+      // typing, when the keyboard hides the indicator anyway.
       const paneBox = entry.pane.getBoundingClientRect();
+      const inset = bottomInset(entry.pane);
+      const typing = typingIn(section);
+      const pad = typing ? 0 : inset;
       const drag = this.drag?.kind === "sheet" && this.drag.section === section ? this.drag : null;
       const detent = this.read(SHEET_KEY) === "full" ? "full" : "half";
-      maxHeight = sheetRoom(paneBox.height);
-      height = drag ? Math.min(drag.height, maxHeight) : sheetHeight(paneBox.height, detent, typingIn(section));
+      maxHeight = sheetRoom(paneBox.height) + pad;
+      height = drag ? Math.min(drag.height, maxHeight) : sheetHeight(paneBox.height, detent, typing) + pad;
       x = paneBox.left;
-      y = paneBox.bottom;
+      y = paneBox.bottom + inset;
       width = paneBox.width;
+      setVar(section, "--qd-pad-b", px(pad));
     }
 
     setVar(section, "--qd-x", px(x));
@@ -638,6 +645,18 @@ function setAttr(element: Element, name: string, value: string): void {
 
 function setVar(element: HTMLElement, name: string, value: string): void {
   if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value);
+}
+
+/**
+ * The home indicator's inset bb's content shell keeps below `pane`, or 0. The
+ * shell pads by it (bb's native app reports it; a browser uses env()), so it
+ * is read from the shell rather than assumed.
+ */
+function bottomInset(pane: HTMLElement): number {
+  const shell = pane.closest<HTMLElement>("[data-app-content-shell]");
+  const view = pane.ownerDocument.defaultView;
+  if (!shell || !view) return 0;
+  return parsePx(view.getComputedStyle(shell).paddingBottom);
 }
 
 function isTextEntry(element: Element | null): boolean {

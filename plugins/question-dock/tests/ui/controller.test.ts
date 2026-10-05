@@ -252,6 +252,29 @@ describe("on a phone", () => {
     expect(section.style.getPropertyValue("--qd-h")).toBe("398px");
   });
 
+  it("reaches over the home indicator's inset, except while typing", () => {
+    const { pane, section } = mountThread({ paneWidth: 390 });
+    const shell = document.createElement("div");
+    shell.setAttribute("data-app-content-shell", "");
+    shell.style.paddingBottom = "34px";
+    pane.replaceWith(shell);
+    shell.append(pane);
+    pane.getBoundingClientRect = () => new DOMRect(0, 48, 390, 762);
+    start();
+    // Down to the shell's bottom edge, padded by bb's inset.
+    expect(section.style.getPropertyValue("--qd-y")).toBe("844px");
+    expect(section.style.getPropertyValue("--qd-pad-b")).toBe("34px");
+    expect(section.style.getPropertyValue("--qd-h")).toBe(`${381 + 34}px`);
+
+    const other = document.createElement("textarea");
+    section.querySelector("#body")!.append(other);
+    other.focus();
+    controller.update();
+    // The keyboard hides the indicator: no padding under the buttons.
+    expect(section.style.getPropertyValue("--qd-pad-b")).toBe("0px");
+    expect(section.style.getPropertyValue("--qd-h")).toBe("754px");
+  });
+
   it("stays bb's card when the sheet is turned off", () => {
     const { section } = mountThread({ paneWidth: 390 });
     start({ desktopMode: "dock", mobileSheet: false });
