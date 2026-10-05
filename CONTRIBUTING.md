@@ -27,9 +27,11 @@ bb plugin dev plugins/thread-badges   # rebuild + reload on every save
 npm run release -- thread-badges   # this checkout -> the released tag
 ```
 
-`link all` and `release all` take every plugin at once. `npm run bb -- reload
-<slug>` is a one-shot build and reload for when you are not leaving the watcher
-running.
+`release` follows the newest tag, so `bb plugin update` keeps tracking it, and
+refuses — before removing anything — when the checkout's version has no tag
+yet. `link all` and `release all` take every plugin at once. `npm run bb --
+reload <slug>` is a one-shot build and reload for when you are not leaving the
+watcher running.
 
 What removal does *not* touch is the plugin's data directory under
 `~/.bb/plugins/<id>/`, so recorded follow-ups and the stage catalog survive a
