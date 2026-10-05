@@ -243,8 +243,9 @@ at its final width. Sliding that space open would make a long thread lay
 itself out again on every frame. What moves is drawn on top: going back to
 Threads, the sidebar slides in over the space it already has and the thread
 fades in, both animated without laying anything out again. Coming back from
-bb's own pages, such as Plugins and Skills, bb mounts a new sidebar partway
-through; it takes over the slide where it is rather than starting another.
+a page with a sidebar of its own (Plugins, Skills, Settings), that sidebar
+and page stay out of sight until bb has the thread list ready, and the
+thread list is what slides in.
 Leaving Threads is instant. Opening or closing the sidebar yourself still slides as bb
 draws it. With reduced motion on, nothing animates.
 

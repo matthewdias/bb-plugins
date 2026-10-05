@@ -149,35 +149,90 @@ const ENTRANCES = {
  * Leaving bb's own pages (Plugins, Skills) mounts a fresh sidebar and page
  * shell for the thread, a moment after the old ones are on screen.
  */
-const ADOPT_MS = 600;
+const ADOPT_MS = 1000;
+
+/**
+ * Longest another page's sidebar and content are held out of sight, waiting
+ * for bb to mount the thread. Going back to Threads always ends on the
+ * thread list, so this only bounds a render slower than bb ever is.
+ */
+const HOLD_MS = 3000;
+
+/**
+ * A page's own sidebar rather than the thread list. bb marks each sidebar's
+ * top row by its page: `app-sidebar-top-reserve-row` for the thread list,
+ * `skills-sidebar-top-reserve-row` on Skills. Matching every other page's
+ * mark, not the thread list's, means a rename leaves everything counted as
+ * the thread list, which is how this behaved before it knew the difference.
+ */
+const OTHER_PAGES_SIDEBAR =
+  '[data-side="left"] [data-testid$="-sidebar-top-reserve-row"]:not([data-testid="app-sidebar-top-reserve-row"])';
 
 const playing = new Map<keyof typeof ENTRANCES, () => void>();
 
 /**
  * Play one entrance from the next frame, on the elements there then and on
- * any bb mounts in their place shortly after. A replacement takes the
- * running animation's start time, so it carries on rather than starting
- * over: one slide, however many times bb swaps the element under it.
+ * any bb mounts in their place shortly after, so it plays once however many
+ * times bb swaps the element under it.
+ *
+ * On the way back from a page with its own sidebar, what is on screen at
+ * first is that page's sidebar and content, still up while bb renders the
+ * thread. Those are held at the entrance's first keyframe, out of sight,
+ * until that sidebar leaves; the entrance then starts on what is there, the
+ * thread list's sidebar and the page shell bb kept. Otherwise a replacement
+ * takes the running animation's start time and carries on rather than
+ * starting over.
  */
 export function playEntrance(kind: keyof typeof ENTRANCES): void {
   playing.get(kind)?.();
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const { selector, keyframes, timing } = ENTRANCES[kind];
+  const holds: Animation[] = [];
   const animations: Animation[] = [];
-  const animated = new WeakSet<Element>();
-  // The frame the entrance began on. A replacement can only mount after that
-  // frame was drawn, so it never starts its own slide: it takes the running
-  // animation's start time, or this frame's while bb's render is still
-  // holding that back, which errs toward arriving finished.
-  let firstFrame: number | null = null;
+  const seen = new WeakSet<Element>();
+  // When the first animation was first drawn. A replacement mounts after
+  // that, so it never starts its own entrance: it takes the first one's
+  // start time, or this while bb's render is still holding that back, which
+  // errs toward arriving finished.
+  let begun: number | null = null;
   const adopt = (element: Element) => {
-    if (animated.has(element)) return;
-    animated.add(element);
+    if (seen.has(element)) return;
+    seen.add(element);
     const animation = element.animate(keyframes, timing);
-    if (firstFrame !== null) animation.startTime = animations[0]?.startTime ?? firstFrame;
+    const lead = animations[0];
+    if (lead === undefined) requestAnimationFrame((now) => (begun ??= now));
+    else if ((lead.startTime ?? begun) !== null) animation.startTime = lead.startTime ?? begun;
     animations.push(animation);
   };
+  const held: Element[] = [];
+  const hold = (element: Element) => {
+    held.push(element);
+    holds.push(element.animate([keyframes[0]!, keyframes[0]!], { duration: HOLD_MS * 2 }));
+  };
+  const release = () => {
+    for (const animation of holds) animation.cancel();
+    holds.length = 0;
+  };
+  let timer: number | undefined;
+  /** Adopt replacements for a while from now, then let anything held show. */
+  const settle = (ms: number) => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      observer.disconnect();
+      release();
+    }, ms);
+  };
   const observer = new MutationObserver((records) => {
+    // Held: wait for the other page's sidebar to go, then start on whatever
+    // is there, new or kept.
+    if (holds.length > 0) {
+      if (document.querySelector(OTHER_PAGES_SIDEBAR) !== null) return;
+      release();
+      for (const element of held) if (element.isConnected) adopt(element);
+      document.querySelectorAll(selector).forEach(adopt);
+      settle(ADOPT_MS);
+      return;
+    }
     for (const record of records) {
       for (const node of Array.from(record.addedNodes)) {
         if (!(node instanceof Element)) continue;
@@ -186,20 +241,21 @@ export function playEntrance(kind: keyof typeof ENTRANCES): void {
       }
     }
   });
-  let timer: number | undefined;
   const frame = requestAnimationFrame((now) => {
-    document.querySelectorAll(selector).forEach(adopt);
-    // Set after: the elements there now start as this frame draws them.
-    firstFrame = now;
+    const otherPage = document.querySelector(OTHER_PAGES_SIDEBAR) !== null;
+    document.querySelectorAll(selector).forEach(otherPage ? hold : adopt);
+    // Drawn on this frame, so a replacement knows how far along it is.
+    if (!otherPage) begun = now;
     observer.observe(document.body, { childList: true, subtree: true });
     // Counted from the first frame, since the render that blocks before it
     // can last longer than the animation.
-    timer = window.setTimeout(() => observer.disconnect(), ADOPT_MS);
+    settle(otherPage ? HOLD_MS : ADOPT_MS);
   });
   playing.set(kind, () => {
     cancelAnimationFrame(frame);
     window.clearTimeout(timer);
     observer.disconnect();
+    release();
     for (const animation of animations) animation.cancel();
     playing.delete(kind);
   });
