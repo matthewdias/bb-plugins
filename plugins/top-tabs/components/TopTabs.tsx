@@ -814,7 +814,7 @@ export function TopTabs() {
                 >
                   <ThreadsGlyph className="bb-top-tab-icon" />
                   {threadsLabelled && (
-                    <ThreadsLabel active={selected === THREADS} savedPath={tabs.paths[THREADS]} />
+                    <ThreadsLabel active={active === THREADS} savedPath={tabs.paths[THREADS]} />
                   )}
                   <ThreadsStatus />
                   {threadsLabelled && <PaneMap screen={screen} tab={THREADS} />}

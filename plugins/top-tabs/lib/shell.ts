@@ -122,59 +122,87 @@ export function toggleSidebar(options: { instant?: boolean } = {}): boolean {
 }
 
 /**
- * The motion an instant switch keeps. Each one is a keyframe animation in
- * top-tabs.css keyed on a class on <html>, and animates only `translate` or
+ * The motion an instant switch keeps. Each animates only `translate` or
  * `opacity`, which the compositor runs without laying the page out again —
- * the page still lays out once, at its final width, as `instant` promises.
- * A class rather than an animation on an element, because the navigation it
- * covers may replace the element before the first frame.
+ * the page still lays out once, at its final width, as `instant` promises —
+ * and which keeps going while bb finishes rendering a long thread. Nothing
+ * here uses `transform` on the page, which would become the containing block
+ * of everything fixed inside it.
  */
 const ENTRANCES = {
   /** The sidebar slides back in over the space it already holds. */
-  sidebar: { className: "bb-top-tabs-sidebar-enter", animation: "bb-top-tabs-sidebar-in" },
+  sidebar: {
+    selector: '[data-side="left"] > [data-sidebar="panel"]',
+    keyframes: [{ translate: "-100% 0" }, { translate: "0 0" }],
+    timing: { duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+  },
   /** The page fades in, so a thread rendered afresh does not just appear. */
-  page: { className: "bb-top-tabs-page-enter", animation: "bb-top-tabs-page-in" },
-} as const;
+  page: {
+    selector: '[data-testid="app-layout-content-shell"]',
+    keyframes: [{ opacity: 0 }, { opacity: 1 }],
+    timing: { duration: 180, easing: "ease-out" },
+  },
+} satisfies Record<string, { selector: string; keyframes: Keyframe[]; timing: KeyframeAnimationOptions }>;
 
 /**
- * Longest an entrance class stays once a frame has drawn it: past its 200ms,
- * for an element that mounts a little late. The animation's own end removes
- * it sooner; this covers reduced motion, where nothing runs, and an element
- * that never appears.
+ * How long after its first frame an entrance adopts elements bb mounts.
+ * Leaving bb's own pages (Plugins, Skills) mounts a fresh sidebar and page
+ * shell for the thread, a moment after the old ones are on screen.
  */
-const ENTRANCE_MAX_MS = 600;
+const ADOPT_MS = 600;
 
-const playing = new Map<string, () => void>();
+const playing = new Map<keyof typeof ENTRANCES, () => void>();
 
 /**
- * Play one entrance from the next frame. One already running carries on
- * rather than starting over. Its end is the only signal listened for: a
- * cancel also fires when bb replaces the element mid-animation, and the
- * class has to stay for the element that replaces it.
+ * Play one entrance from the next frame, on the elements there then and on
+ * any bb mounts in their place shortly after. A replacement takes the
+ * running animation's start time, so it carries on rather than starting
+ * over: one slide, however many times bb swaps the element under it.
  */
 export function playEntrance(kind: keyof typeof ENTRANCES): void {
-  const { className, animation } = ENTRANCES[kind];
-  const root = document.documentElement;
-  playing.get(className)?.();
-  let timer: number | undefined;
-  const frame = requestAnimationFrame(() => {
-    // Counted from the first frame that applies the class, since the render
-    // that blocks before it can last longer than the animation.
-    timer = window.setTimeout(stop, ENTRANCE_MAX_MS);
-  });
-  const onEnd = (event: AnimationEvent) => {
-    if (event.animationName === animation) stop();
+  playing.get(kind)?.();
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const { selector, keyframes, timing } = ENTRANCES[kind];
+  const animations: Animation[] = [];
+  const animated = new WeakSet<Element>();
+  // The frame the entrance began on. A replacement can only mount after that
+  // frame was drawn, so it never starts its own slide: it takes the running
+  // animation's start time, or this frame's while bb's render is still
+  // holding that back, which errs toward arriving finished.
+  let firstFrame: number | null = null;
+  const adopt = (element: Element) => {
+    if (animated.has(element)) return;
+    animated.add(element);
+    const animation = element.animate(keyframes, timing);
+    if (firstFrame !== null) animation.startTime = animations[0]?.startTime ?? firstFrame;
+    animations.push(animation);
   };
-  function stop() {
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of Array.from(record.addedNodes)) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches(selector)) adopt(node);
+        else node.querySelectorAll(selector).forEach(adopt);
+      }
+    }
+  });
+  let timer: number | undefined;
+  const frame = requestAnimationFrame((now) => {
+    document.querySelectorAll(selector).forEach(adopt);
+    // Set after: the elements there now start as this frame draws them.
+    firstFrame = now;
+    observer.observe(document.body, { childList: true, subtree: true });
+    // Counted from the first frame, since the render that blocks before it
+    // can last longer than the animation.
+    timer = window.setTimeout(() => observer.disconnect(), ADOPT_MS);
+  });
+  playing.set(kind, () => {
     cancelAnimationFrame(frame);
     window.clearTimeout(timer);
-    document.removeEventListener("animationend", onEnd, true);
-    root.classList.remove(className);
-    playing.delete(className);
-  }
-  playing.set(className, stop);
-  document.addEventListener("animationend", onEnd, true);
-  root.classList.add(className);
+    observer.disconnect();
+    for (const animation of animations) animation.cancel();
+    playing.delete(kind);
+  });
 }
 
 /** Stop every entrance now, for a switch away before one has finished. */

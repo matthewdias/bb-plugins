@@ -1,22 +1,38 @@
 // The Threads tab's contents: its label, and what the hidden thread list
 // would tell you if you could see it.
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { experimental_useSidebarThreads } from "@get-bb/plugin-sdk/app";
 import { groupThreads, threadIdFromPath } from "../lib/tabs-model.ts";
 
 /**
  * "Threads", plus the thread it will return to while another tab is in view —
  * the strip's answer to a browser tab's page title.
+ *
+ * The title stays mounted and slides open and shut rather than appearing,
+ * so the tabs after it glide instead of jumping (see top-tabs.css). It keys
+ * on `active`, the tab the route is on, not the one drawn selected: the
+ * strip selects a tab before bb renders it, and a thread's render would
+ * freeze the slide halfway. Keyed on the route, it moves with the sidebar
+ * and the page. It keeps its last title while it closes.
  */
 export function ThreadsLabel({ active, savedPath }: { active: boolean; savedPath: string | undefined }) {
   const { threads } = experimental_useSidebarThreads();
-  const threadId = active ? null : threadIdFromPath(savedPath);
+  const threadId = threadIdFromPath(savedPath);
   const title =
     threadId === null ? null : (threads.find((t) => t.id === threadId)?.displayTitle ?? null);
+  const lastTitle = useRef(title);
+  if (title !== null) lastTitle.current = title;
+  const shown = !active && title !== null;
   return (
     <span className="bb-top-tab-label bb-top-tab-threads-label">
       <span className="bb-top-tab-name">Threads</span>
-      {title !== null && <span className="bb-top-tab-sublabel">{title}</span>}
+      {lastTitle.current !== null && (
+        <span className="bb-top-tab-sublabel-reveal" data-shown={shown ? "" : undefined} aria-hidden={!shown}>
+          <span className="bb-top-tab-sublabel-clip">
+            <span className="bb-top-tab-sublabel">{lastTitle.current}</span>
+          </span>
+        </span>
+      )}
     </span>
   );
 }

@@ -83,40 +83,6 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
   transition: none !important;
 }
 
-/* What an instant switch keeps of motion (playEntrance in lib/shell.ts).
-   Only `translate` and `opacity`, which the compositor animates without
-   laying the page out again, so the page still lays out once and the
-   animation stays smooth while bb finishes rendering a long thread. The
-   sidebar slides in over the space bb has already given it; the page
-   fades in rather than appearing. Neither uses `transform` on the page,
-   which would become the containing block of everything fixed inside it. */
-html.bb-top-tabs-sidebar-enter [data-side="left"][data-state="expanded"] > [data-sidebar="panel"] {
-  animation: bb-top-tabs-sidebar-in 200ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-html.bb-top-tabs-page-enter [data-testid="app-layout-content-shell"] {
-  animation: bb-top-tabs-page-in 180ms ease-out;
-}
-
-@keyframes bb-top-tabs-sidebar-in {
-  from {
-    translate: -100% 0;
-  }
-}
-
-@keyframes bb-top-tabs-page-in {
-  from {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html.bb-top-tabs-sidebar-enter [data-side="left"] > [data-sidebar="panel"],
-  html.bb-top-tabs-page-enter [data-testid="app-layout-content-shell"] {
-    animation: none;
-  }
-}
-
 /* ---------------------------------------------------------------- strip */
 
 .bb-top-tabs {
@@ -322,7 +288,39 @@ svg.bb-top-tab-icon,
   white-space: nowrap;
 }
 
+/* The Threads tab's thread title opens and shuts by its width, so the tabs
+   after it glide rather than jump. A one-column grid going from 0fr to 1fr
+   animates to the title's own width without measuring it. Only the strip
+   lays out, and it is small and fixed. The title inside keeps its full width
+   and is clipped, so it doesn't re-ellipsize on every frame. */
+.bb-top-tab-sublabel-reveal {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-columns 200ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 150ms ease-out;
+}
+
+.bb-top-tab-sublabel-reveal[data-shown] {
+  grid-template-columns: 1fr;
+  opacity: 1;
+}
+
+.bb-top-tab-sublabel-clip {
+  min-width: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-top-tab-sublabel-reveal {
+    transition: none;
+  }
+}
+
 .bb-top-tab-sublabel {
+  display: block;
+  width: max-content;
   min-width: 0;
   max-width: 200px;
   overflow: hidden;

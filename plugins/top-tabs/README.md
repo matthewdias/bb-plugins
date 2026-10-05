@@ -63,8 +63,9 @@ showed, so what you used is where you look for it.
 ### The Threads tab
 
 While another tab is in view, the Threads tab shows the thread it will return
-to beside its name. Clicking it returns to that thread, or to the compose
-screen if you were there.
+to beside its name. The name slides open as you leave and shut as you come
+back, so the tabs after it move rather than jump. Clicking it returns to that
+thread, or to the compose screen if you were there.
 
 It always shows three counts:
 
@@ -241,8 +242,10 @@ changes instantly, in the same step as the page, so the page lays out once,
 at its final width. Sliding that space open would make a long thread lay
 itself out again on every frame. What moves is drawn on top: going back to
 Threads, the sidebar slides in over the space it already has and the thread
-fades in, both animated without laying anything out again. Leaving Threads
-is instant. Opening or closing the sidebar yourself still slides as bb
+fades in, both animated without laying anything out again. Coming back from
+bb's own pages, such as Plugins and Skills, bb mounts a new sidebar partway
+through; it takes over the slide where it is rather than starting another.
+Leaving Threads is instant. Opening or closing the sidebar yourself still slides as bb
 draws it. With reduced motion on, nothing animates.
 
 Above the thread list, the sidebar keeps bb's own navigation, unchanged.
