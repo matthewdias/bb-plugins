@@ -11,7 +11,6 @@
 // — or that it will be visible, since the cap may hide it.
 import type { ComponentType } from "react";
 import type { BadgeSettings } from "./catalog";
-import { FollowUpsBadge } from "./follow-ups";
 import { PortsBadge } from "./ports";
 import { PrChecksBadge } from "./pr-checks";
 import { PullRequestBadge } from "./pull-request";
@@ -30,7 +29,6 @@ export interface BadgeProps {
 }
 
 export const BADGE_COMPONENTS: Readonly<Record<string, ComponentType<BadgeProps>>> = {
-  followUps: FollowUpsBadge,
   ports: PortsBadge,
   prChecks: PrChecksBadge,
   pullRequest: PullRequestBadge,

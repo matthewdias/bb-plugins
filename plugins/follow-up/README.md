@@ -170,8 +170,9 @@ plugin drawing progress, and a batch call for one that only needs to ask.
 
 Each thread's progress is published as a *complication*: a small value any
 plugin can draw, kept in a registry that every plugin bundle in a bb window
-shares. It is what lets [Thread Badges](../thread-badges)' ring move the moment
-a follow-up changes. The counts call below cannot do that, because a plugin
+shares. [Thread Badges](../thread-badges) 0.4 draws it as a ring that moves the
+moment a follow-up changes, once you turn it on under *Badges from other
+plugins* in its settings. The counts call below cannot do that, because a plugin
 hears only its own realtime signals; this plugin hears `followups-changed`, so
 it publishes again on every one.
 

@@ -1,9 +1,8 @@
 // Reading a complication another plugin provides.
 //
 // The consumer side of ../lib/complications: a row says it is showing a thread,
-// and re-renders when the provider publishes for it. `provided` lets a badge
-// keep an older path for when the provider is absent or predates the registry —
-// the follow-ups ring falls back to polling `getFollowUpCountsV1`.
+// and re-renders when the provider publishes for it. Only enabled complications
+// mount a badge, so a provider is never asked about one you have switched off.
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import {
   getComplications,

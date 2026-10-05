@@ -3,6 +3,11 @@
 // Kept free of React so the backend can read it too: the settings a badge type
 // contributes are derived from this catalog rather than written out twice.
 // Adding a type is an entry here plus a component in ./components.tsx.
+//
+// These are the badges this plugin computes itself. Anything another plugin
+// publishes as a complication — Follow Up's progress ring, for one — is not
+// listed here: it is discovered in the app and drawn by ./complication-badge,
+// with its settings in ./complication-prefs.
 
 export interface BadgeSetting {
   /** Unique across the plugin; prefix it with the badge id. */
@@ -72,25 +77,6 @@ export const BADGE_TYPES: readonly BadgeType[] = [
     ],
   },
   {
-    id: "followUps",
-    name: "follow-ups",
-    description:
-      "A ring showing how much of this thread's follow-up list is done. Needs the Follow-ups plugin.",
-    defaultEnabled: true,
-    settings: [
-      {
-        key: "followUps_showOpenCount",
-        label: "Follow-ups: show how many are still open",
-        default: false,
-      },
-      {
-        key: "followUps_hideWhenComplete",
-        label: "Follow-ups: hide the ring once every follow-up is done",
-        default: false,
-      },
-    ],
-  },
-  {
     id: "ports",
     name: "ports",
     description:
@@ -133,8 +119,12 @@ export type BadgeSettings = Readonly<Record<string, string | number | boolean>>;
  */
 export const MAX_BADGES_KEY = "max_badges";
 export const DEFAULT_MAX_BADGES = 2;
-/** Above this the cap stops meaning anything: every type could show at once. */
-export const MAX_BADGES_LIMIT = BADGE_TYPES.length;
+/**
+ * The highest cap you can set. Not the number of badge types: complications
+ * from other plugins are badge types too, and how many exist is only known in
+ * the app. Six is already more than a row has room for.
+ */
+export const MAX_BADGES_LIMIT = 6;
 
 /** Its catalog position, so untouched settings keep the order written here. */
 export function defaultPriority(id: string): number {
@@ -150,24 +140,9 @@ export function maxBadges(values: BadgeSettings | undefined): number {
   return Math.min(Math.max(Math.round(value), 1), MAX_BADGES_LIMIT);
 }
 
-function priorityOf(values: BadgeSettings | undefined, id: string): number {
+export function priorityOf(values: BadgeSettings | undefined, id: string): number {
   const value = values?.[priorityKey(id)];
   return typeof value === "number" && Number.isFinite(value) ? value : defaultPriority(id);
-}
-
-/**
- * The enabled badge types, most wanted first.
- *
- * This is the whole of "which badge wins": a row renders them in this order
- * and the cap hides whatever falls past it, so the badge dropped from a busy
- * row is the last one here. Ties keep catalog order, which is what makes a
- * half-configured set of priorities stable rather than arbitrary.
- */
-export function orderedBadgeTypes(values: BadgeSettings | undefined): readonly BadgeType[] {
-  return BADGE_TYPES.filter((type) => isEnabled(values, type.id))
-    .map((type, index) => ({ index, priority: priorityOf(values, type.id), type }))
-    .sort((a, b) => a.priority - b.priority || a.index - b.index)
-    .map((entry) => entry.type);
 }
 
 export function isEnabled(values: BadgeSettings | undefined, id: string): boolean {

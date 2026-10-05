@@ -5,23 +5,20 @@
 // already carries the `environment → threads` mapping a badge needs. So this
 // module reads, and nothing here scans.
 //
-// The store lives at module scope for the same reason ./follow-up-counts does:
-// badges are portaled into sidebar rows one subtree at a time, so there is no
-// common ancestor to hang a provider on.
+// The store lives at module scope because badges are portaled into sidebar
+// rows one subtree at a time, so there is no common ancestor to hang a provider
+// on.
 //
-// Two things differ from the follow-ups store, both because the shape of the
-// source differs:
+// Two things it deliberately does not do, both because of the source's shape:
 //
-//   - No batching. Follow-ups answers about the threads you name, so rows have
-//     to collect ids before asking. The ports snapshot is the whole picture in
-//     one document, so a single request already answers for every row and the
-//     ids only decide who gets notified.
-//   - No version latch. Follow-ups stamps `protocolVersion` and this code stops
-//     asking when it reads one it does not understand. The snapshot carries no
-//     such stamp, so there is no such signal to act on: every failure here is
-//     treated as transient and retried, because "Worktree Ports is not
-//     installed" and "Worktree Ports changed shape" are indistinguishable from
-//     the outside and only one of them is worth giving up over.
+//   - No batching. The snapshot is the whole picture in one document, so a
+//     single request already answers for every row and the ids only decide who
+//     gets notified.
+//   - No version latch. The snapshot carries no version stamp, so there is no
+//     signal that it changed shape: every failure here is treated as transient
+//     and retried, because "Worktree Ports is not installed" and "Worktree
+//     Ports changed shape" are indistinguishable from the outside and only one
+//     of them is worth giving up over.
 
 /** Worktree Ports' plugin id, and the route its own thread-row script reads. */
 const PORTS_PLUGIN = "worktree-ports";

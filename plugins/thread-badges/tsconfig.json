@@ -25,6 +25,9 @@
     "app.tsx",
     "components",
     "lib",
-    "hooks"
+    "hooks",
+    "badges",
+    "tests",
+    "vitest.config.ts"
   ]
 }

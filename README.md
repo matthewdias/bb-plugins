@@ -5,14 +5,14 @@ Four plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
 | Plugin | |
 | --- | --- |
 | **[Follow Up](plugins/follow-up)** | Keeps the work an agent noticed but skipped, so nothing is lost when a turn ends. Triage what a thread accumulated above the composer. |
-| **[Thread Badges](plugins/thread-badges)** | Shows pull-request state, CI attention, follow-up progress and listening ports on sidebar rows, so you see what needs you without opening a thread. |
+| **[Thread Badges](plugins/thread-badges)** | Shows pull-request state, CI attention, listening ports and badges other plugins publish, like Follow Up's progress, on sidebar rows, so you see what needs you without opening a thread. |
 | **[Top Tabs](plugins/top-tabs)** | Opens destinations as tabs across the top of the window, beside a permanent Threads tab, so you can keep several open and switch without losing your place. |
 | **[Workflow Stages](plugins/workflow-stages)** | Files every thread under a workflow stage you define, and moves it as the work progresses. Requires the Ribbon sidebar. |
 
 Each is independent. Three soft connections exist and none is required: Thread
-Badges draws a follow-up ring when Follow Up is installed and a ports plug when
-[Worktree Ports](https://github.com/to-infinity-labs/bb-plugin-worktree-ports)
-is, and Workflow Stages needs
+Badges draws Follow Up's progress ring once you turn it on, and a ports plug
+when [Worktree Ports](https://github.com/to-infinity-labs/bb-plugin-worktree-ports)
+is installed, and Workflow Stages needs
 [Ribbon sidebar](https://github.com/ariofrio/ribbon) to have anywhere to draw.
 
 ## Install
