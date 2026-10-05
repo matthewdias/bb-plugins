@@ -117,19 +117,26 @@ Two things set it apart:
 A pinned tab is one you always want in the strip:
 
 - It sits next to Threads, left of the divider, drawn as an icon. Hover it
-  for its name.
+  for its name. **Show names on pinned tabs** names it like any other tab,
+  and **Show badges on pinned tabs** puts its panel's badge beside the icon.
+- It has a home: where it was when you pinned it, or the panel's start if
+  you pinned it before opening it. Once you move away from there, a dot
+  appears on its icon. Hovering it tells you where it was pinned, unless that
+  was the panel's start.
 - It has no ×, and middle-click, close-others and close-to-the-right all
   leave it alone.
 - bb's Close at the top right of the page, or **Top Tabs: Close tab**,
-  resets it instead, as Arc does. It stays pinned, forgets where it was
-  left, so it next opens at the panel's start, and the strip moves on past
+  resets it instead, as Arc does. It stays pinned and goes back to its home,
+  so it next opens where you pinned it, and the strip moves on past
   the other pins: to the first ordinary tab, or Threads if there is none. With **After closing a tab, go back to the last
   one you used** on, it goes to the ordinary tab you used last instead. So
   pressing the shortcut again closes that tab rather than stepping through
   the pins. ⌃⇧T undoes a reset and takes the tab back to where it was, until
   you go back to the tab yourself: then the reset is taken as it is.
 - Unpin it from its context menu (or with **Top Tabs: Pin or unpin tab**) to
-  make it an ordinary tab again. It lands first among the ordinary tabs.
+  make it an ordinary tab again. It lands first among the ordinary tabs and
+  forgets its home. To give a pin a new home, unpin it there and pin it
+  again.
 
 The **+** menu doubles as the pin list. Pinned rows show a filled pin, and
 the pin on any row toggles it. The menu stays open, so a set of default pins
@@ -164,7 +171,11 @@ doesn't do it.
 ### Where tabs return to
 
 Each tab remembers the exact URL it was left at: the pull request inside
-GitHub, not just GitHub. Switching back navigates there. Closing a tab forgets
+GitHub, not just GitHub. Switching back navigates there. Hover a tab to see
+where inside its panel it is (`pulls/4`), under its name if the tab doesn't
+show all of it. That's the panel's own address,
+because a panel has no way to give bb a title for the page it's on, so how
+readable it is depends on the panel. Closing a tab forgets
 the location; reopening it with Ctrl+Shift+T brings it back.
 
 A panel is still a bb page, so switching away unmounts it. A tab keeps its
@@ -280,6 +291,8 @@ rows, hidden ones behind **More**.
 | Close the Settings tab when you leave Settings | on |
 | After closing a tab, go back to the last one you used | off |
 | Tab labels | Always |
+| Show names on pinned tabs | off |
+| Show badges on pinned tabs | off |
 
 **Remember the sidebar** off keeps the sidebar wherever you leave it. The
 tabs work the same either way.
@@ -299,7 +312,14 @@ the other pins.
 - *Never* draws every tab as an icon, Threads included. Its "needs you" count
   stays beside the icon.
 
-Pinned tabs are icons whatever this says. Hover any icon for its name.
+Pinned tabs are icons whatever this says, unless **Show names on pinned
+tabs** is on: then they follow it like the rest. Hover any icon for its name.
+
+**Show badges on pinned tabs** draws the badge a panel shows beside its name
+in the sidebar (Pokédex's "11/1025", say) next to its pinned icon too. Named
+tabs always show it. A badge is something the panel draws, not a number Top
+Tabs can read, so it can't be shrunk to a dot, and it disappears on pages
+where bb hides its sidebar header, such as Settings.
 
 ## Commands
 

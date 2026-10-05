@@ -48,6 +48,12 @@ export interface TabsState {
   pinned: readonly string[];
   /** The last in-app location seen on each tab, Threads included. */
   paths: Readonly<Record<string, string>>;
+  /**
+   * Where each pinned tab was when it was pinned, which resetting it returns
+   * to, as Arc's pinned tabs do. A pin made before the tab had a location has
+   * none, and resets to the panel's start. Keys are always pinned tabs.
+   */
+  homes: Readonly<Record<string, string>>;
   /** Recently closed tabs, most recent first. */
   closed: readonly ClosedTab[];
   /**
@@ -73,6 +79,7 @@ export const EMPTY_STATE: TabsState = {
   open: [],
   pinned: [],
   paths: {},
+  homes: {},
   closed: [],
   sidebar: {},
   seeded: false,
@@ -143,10 +150,18 @@ export function parseState(raw: unknown): TabsState {
     ? open.filter((id) => (record.pinned as unknown[]).includes(id))
     : [];
 
+  const homes: Record<string, string> = {};
+  if (typeof record.homes === "object" && record.homes !== null) {
+    for (const [id, path] of Object.entries(record.homes)) {
+      if (pinned.includes(id) && isAppPath(path)) homes[id] = path;
+    }
+  }
+
   return {
     open: pinnedFirst(open, pinned),
     pinned,
     paths,
+    homes,
     closed,
     sidebar: parseSidebar(record),
     seeded: record.seeded === true,
@@ -287,6 +302,20 @@ export function defaultPathFor(target: RouteTarget): string | null {
   return null;
 }
 
+/**
+ * The start of a destination, as seen from `path`, a place on it. A panel's
+ * route segment is its `path`, which bb does not expose and need not be its
+ * id, so a panel's start is read off the place itself where it can be.
+ */
+export function rootFor(target: RouteTarget, path: string | undefined): string | null {
+  const panel = path === undefined ? null : PLUGIN_PANEL_PATH.exec(path.split(/[?#]/, 1)[0] ?? path);
+  if (target.pluginId !== null && panel !== null) {
+    const [root, pluginId] = panel;
+    if (pluginId === encodeURIComponent(target.pluginId)) return root;
+  }
+  return defaultPathFor(target);
+}
+
 /** The thread a Threads location shows, or null for compose and project pages. */
 export function threadIdFromPath(path: string | undefined): string | null {
   if (path === undefined) return null;
@@ -324,13 +353,18 @@ export function isPinned(state: TabsState, id: TabId): boolean {
   return state.pinned.includes(id);
 }
 
-/** Pin a tab, opening it if needed. It joins the end of the pinned group. */
+/**
+ * Pin a tab, opening it if needed. It joins the end of the pinned group, and
+ * where it is now becomes its home, the place resetting it returns to.
+ */
 export function pin(state: TabsState, id: TabId): TabsState {
   if (id === THREADS || state.pinned.includes(id)) return state;
   const opened = adopt(state, id);
   const pinned = [...opened.pinned, id];
   const others = opened.open.filter((other) => !pinned.includes(other));
-  return { ...opened, pinned, open: [...opened.pinned, id, ...others] };
+  const path = opened.paths[id];
+  const homes = path === undefined ? opened.homes : { ...opened.homes, [id]: path };
+  return { ...opened, pinned, homes, open: [...opened.pinned, id, ...others] };
 }
 
 /** Unpin a tab. It becomes the first ordinary tab, right where it was. */
@@ -338,7 +372,45 @@ export function unpin(state: TabsState, id: TabId): TabsState {
   if (!state.pinned.includes(id)) return state;
   const pinned = state.pinned.filter((other) => other !== id);
   const others = state.open.filter((other) => !state.pinned.includes(other));
-  return { ...state, pinned, open: [...pinned, id, ...others] };
+  return { ...state, pinned, homes: withoutPath(state.homes, id), open: [...pinned, id, ...others] };
+}
+
+/** A path's pathname without a trailing slash, so `/a/` and `/a` match. */
+function placeOf(path: string): string {
+  const [pathname = path] = path.split(/[?#]/, 1);
+  const rest = path.slice(pathname.length);
+  return (pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname) + rest;
+}
+
+/**
+ * Whether the pinned tab `id` has been taken away from its home: the place
+ * it was pinned at, or `root`, the panel's start, for a pin that has none.
+ * False for a tab that is not pinned, or has no location yet.
+ */
+export function awayFromHome(state: TabsState, id: TabId, root: string | null): boolean {
+  if (!state.pinned.includes(id)) return false;
+  const path = state.paths[id];
+  const home = state.homes[id] ?? root;
+  if (path === undefined || home === null) return false;
+  return placeOf(path) !== placeOf(home);
+}
+
+/**
+ * The part of `path` past the destination's root, for showing where a tab
+ * is: `pulls/4` for `/plugins/gh/gh/pulls/4`. Null at the root itself, or
+ * for a path outside it.
+ */
+export function subPathOf(path: string | undefined, root: string | null): string | null {
+  if (path === undefined || root === null || !path.startsWith(root)) return null;
+  const rest = path.slice(root.length);
+  if (rest !== "" && !/^[/?#]/.test(rest)) return null;
+  const trimmed = rest.replace(/^\/+/, "").replace(/\/+(?=[?#]|$)/, "");
+  if (trimmed === "") return null;
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed;
+  }
 }
 
 /**
@@ -346,10 +418,12 @@ export function unpin(state: TabsState, id: TabId): TabsState {
  * as it is, so ⌃⇧T no longer gives back the location it forgot.
  */
 export function recordPath(state: TabsState, id: TabId, path: string): TabsState {
-  if (!isAppPath(path) || state.paths[id] === path) return state;
-  const closed = state.closed.some((c) => c.id === id && c.reset)
-    ? state.closed.filter((c) => c.id !== id)
-    : state.closed;
+  if (!isAppPath(path)) return state;
+  // Checked even when the path has not changed: a reset pin comes back at
+  // its home, which is already its path.
+  const taken = state.closed.some((c) => c.id === id && c.reset);
+  if (state.paths[id] === path && !taken) return state;
+  const closed = taken ? state.closed.filter((c) => c.id !== id) : state.closed;
   return { ...state, paths: { ...state.paths, [id]: path }, closed };
 }
 
@@ -446,16 +520,18 @@ export function successorAfterPinClose(
 
 /**
  * Close a pinned tab without unpinning it, as Arc does: it stays in the
- * strip and forgets where it was left, so it next opens at its start. The
+ * strip and goes back to its home, the place it was pinned at, or with no
+ * home forgets where it was left, so it next opens at its start. The
  * location goes on the closed list, so ⌃⇧T can give it back.
  */
 export function resetPinned(state: TabsState, id: TabId): TabsState {
   const path = state.paths[id];
-  if (!state.pinned.includes(id) || path === undefined) return state;
+  const home = state.homes[id];
+  if (!state.pinned.includes(id) || path === undefined || path === home) return state;
   const entry: ClosedTab = { id, path, index: state.open.indexOf(id), reset: true };
   return {
     ...state,
-    paths: withoutPath(state.paths, id),
+    paths: home === undefined ? withoutPath(state.paths, id) : { ...state.paths, [id]: home },
     closed: remember(state.closed, [entry]),
   };
 }

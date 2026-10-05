@@ -8,6 +8,7 @@ import {
   activeTabFor,
   ago,
   adopt,
+  awayFromHome,
   close,
   closeCommandAction,
   closeOrderOf,
@@ -34,9 +35,11 @@ import {
   reopen,
   reopenable,
   resetPinned,
+  rootFor,
   seed,
   sidebarStep,
   splitPartner,
+  subPathOf,
   pageCloseAction,
   successorAfterClose,
   successorAfterPinClose,
@@ -323,6 +326,90 @@ test("a reset is undoable only while its tab is open", () => {
   assert.equal(reopenable(state({ open: ["a"], closed: [{ id: "a", path: null, index: 0 }] }), () => true), undefined);
 });
 
+test("pinning makes where a tab is its home, and unpinning forgets it", () => {
+  const s = state({ open: ["a", "b"], paths: { a: "/plugins/a/a/deep" } });
+  const pinned = pin(s, "a");
+  assert.deepEqual(pinned.homes, { a: "/plugins/a/a/deep" });
+  // A tab with no location yet has no home: it resets to its start.
+  assert.deepEqual(pin(s, "b").homes, {});
+  assert.deepEqual(pin(state({ open: [] }), "x").homes, {});
+  assert.deepEqual(unpin(pinned, "a").homes, {});
+  // Moving on does not move the home.
+  assert.deepEqual(recordPath(pinned, "a", "/plugins/a/a/elsewhere").homes, { a: "/plugins/a/a/deep" });
+});
+
+test("resetting a pin with a home goes back to its home", () => {
+  const s = pin(state({ open: ["p"], paths: { p: "/plugins/p/p/home" } }), "p");
+  const moved = recordPath(s, "p", "/plugins/p/p/away");
+  const reset = resetPinned(moved, "p");
+  assert.equal(reset.paths.p, "/plugins/p/p/home");
+  assert.deepEqual(reset.closed, [{ id: "p", path: "/plugins/p/p/away", index: 0, reset: true }]);
+  // Already home: nothing to reset or undo.
+  assert.equal(resetPinned(s, "p"), s);
+  // ⌃⇧T gives back where it was.
+  assert.equal(reopen(reset, () => true).state.paths.p, "/plugins/p/p/away");
+});
+
+test("going back to a reset pin at its home takes the reset", () => {
+  const s = pin(state({ open: ["p"], paths: { p: "/plugins/p/p/home" } }), "p");
+  const reset = resetPinned(recordPath(s, "p", "/plugins/p/p/away"), "p");
+  const visited = recordPath(reset, "p", "/plugins/p/p/home");
+  assert.deepEqual(visited.closed, []);
+  assert.equal(reopenable(visited, () => true), undefined);
+});
+
+test("a pin is away from home once it leaves the place it was pinned at", () => {
+  const root = "/plugins/p/p";
+  const homed = pin(state({ open: ["p", "a"], paths: { p: "/plugins/p/p/home", a: "/plugins/a/a/x" } }), "p");
+  assert.equal(awayFromHome(homed, "p", root), false);
+  assert.equal(awayFromHome(recordPath(homed, "p", "/plugins/p/p/home/"), "p", root), false);
+  assert.equal(awayFromHome(recordPath(homed, "p", "/plugins/p/p/other"), "p", root), true);
+  assert.equal(awayFromHome(recordPath(homed, "p", "/plugins/p/p/home?q=1"), "p", root), true);
+  // Without a home, the panel's start is home.
+  const bare = pin(state({ open: ["p"] }), "p");
+  assert.equal(awayFromHome(bare, "p", root), false);
+  assert.equal(awayFromHome(recordPath(bare, "p", "/plugins/p/p/"), "p", root), false);
+  assert.equal(awayFromHome(recordPath(bare, "p", "/plugins/p/p/deep"), "p", root), true);
+  // Only pinned tabs have a home to be away from.
+  assert.equal(awayFromHome(homed, "a", "/plugins/a/a"), false);
+});
+
+test("subPathOf is the part of a location past the destination's start", () => {
+  const root = "/plugins/gh/gh";
+  assert.equal(subPathOf("/plugins/gh/gh/pulls/4", root), "pulls/4");
+  assert.equal(subPathOf("/plugins/gh/gh/pulls/4/", root), "pulls/4");
+  assert.equal(subPathOf("/plugins/gh/gh?tab=open", root), "?tab=open");
+  assert.equal(subPathOf("/plugins/notes/notes/work/my%20ideas.md", "/plugins/notes/notes"), "work/my ideas.md");
+  assert.equal(subPathOf("/plugins/gh/gh/%E0%A4%A", root), "%E0%A4%A");
+  assert.equal(subPathOf("/plugins/gh/gh", root), null);
+  assert.equal(subPathOf("/plugins/gh/gh/", root), null);
+  assert.equal(subPathOf("/plugins/gh/ghx/a", root), null);
+  assert.equal(subPathOf("/plugins/other/x", root), null);
+  assert.equal(subPathOf(undefined, root), null);
+  assert.equal(subPathOf("/plugins/gh/gh/a", null), null);
+});
+
+test("rootFor reads a panel's start off the place it is at", () => {
+  const panel: RouteTarget = { id: "gh/main", kind: "open-plugin-panel", pluginId: "gh", panelId: "main" };
+  // The route segment is the panel's path, which need not be its id.
+  assert.equal(rootFor(panel, "/plugins/gh/github/pulls/4"), "/plugins/gh/github");
+  assert.equal(rootFor(panel, "/plugins/gh/github?x=1"), "/plugins/gh/github");
+  assert.equal(rootFor(panel, undefined), "/plugins/gh/main");
+  assert.equal(rootFor(panel, "/plugins/other/github"), "/plugins/gh/main");
+  const skills: RouteTarget = { id: "__bb__/skills", kind: "open-skills", pluginId: null, panelId: null };
+  assert.equal(rootFor(skills, "/skills/x"), "/skills");
+});
+
+test("parseState keeps homes only for pinned tabs", () => {
+  const parsed = parseState({
+    open: ["a", "b"],
+    pinned: ["a"],
+    homes: { a: "/plugins/a/a/home", b: "/plugins/b/b/home", c: "/x" },
+  });
+  assert.deepEqual(parsed.homes, { a: "/plugins/a/a/home" });
+  assert.deepEqual(parseState({ open: ["a"], pinned: ["a"], homes: { a: "//evil" } }).homes, {});
+});
+
 test("a reset survives a reload", () => {
   const entry = { id: "p", path: "/plugins/p/p/deep", index: 0, reset: true };
   const parsed = parseState({ open: ["p"], pinned: ["p"], closed: [entry, { id: "b", path: null, index: 1, reset: "yes" }] });
@@ -519,6 +606,7 @@ test("parseState keeps the well-formed parts of hostile input", () => {
     open: ["a", "b"],
     pinned: [],
     paths: { a: "/plugins/a/a" },
+    homes: {},
     closed: [{ id: "c", path: null, index: 0 }],
     sidebar: { a: true, [THREADS]: false },
     seeded: true,
