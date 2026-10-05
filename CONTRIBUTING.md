@@ -27,9 +27,11 @@ bb plugin dev plugins/thread-badges   # rebuild + reload on every save
 npm run release -- thread-badges   # this checkout -> the released tag
 ```
 
-`link all` and `release all` take every plugin at once. `npm run bb -- reload
-<slug>` is a one-shot build and reload for when you are not leaving the watcher
-running.
+`release` follows the newest tag, so `bb plugin update` keeps tracking it, and
+refuses — before removing anything — when the checkout's version has no tag
+yet. `link all` and `release all` take every plugin at once. `npm run bb --
+reload <slug>` is a one-shot build and reload for when you are not leaving the
+watcher running.
 
 What removal does *not* touch is the plugin's data directory under
 `~/.bb/plugins/<id>/`, so recorded follow-ups and the stage catalog survive a
@@ -100,8 +102,10 @@ Bump the version in the plugin's `package.json` in the same commit, and update
 its `PLUGIN_OVERVIEW.md` whenever `bb.description` or a surface changes — the
 store shows the two together and they must not disagree.
 
-A README's install snippet needs no attention: it names `@semver:*`, which
-resolves to the newest tag under that plugin's prefix. Do not put a version in
-one. Every snippet that named a range went stale, and a caret range on a `0.x`
-version goes stale on the very next release — `^0.1.0` cannot reach `0.2.0` at
-all, so readers were installing a plugin two minor versions behind.
+A README's install snippet needs no attention: it names the bare range `@*`,
+which `--tag-prefix` resolves to the newest tag under that plugin's prefix.
+Don't spell it `@semver:*` — bb rejects an explicit `semver:` spec alongside
+`--tag-prefix`. Do not put a version in one either. Every snippet that named a
+range went stale, and a caret range on a `0.x` version goes stale on the very
+next release — `^0.1.0` cannot reach `0.2.0` at all, so readers were installing
+a plugin two minor versions behind.

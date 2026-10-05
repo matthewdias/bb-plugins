@@ -44,8 +44,8 @@ function plugin(slug) {
     dir,
     id,
     version: manifest.version,
-    range: `^${manifest.version}`,
     tagPrefix: `${id}/`,
+    tag: `${id}/v${manifest.version}`,
     subdir: `plugins/${slug}`,
   };
 }
@@ -70,15 +70,20 @@ function fail(message) {
   process.exit(1);
 }
 
-/** The installed source line, or null when the plugin is not installed. */
-function currentSource(id) {
+/**
+ * One line of `bb plugin source` — "requested" is what was asked for, "resolved"
+ * the tag and commit it landed on — or null when the plugin is not installed.
+ */
+function sourceLine(id, field) {
   try {
     const out = bb(["plugin", "source", id], { capture: true });
-    return out.match(/^\s*requested:\s*(.+)$/m)?.[1]?.trim() ?? null;
+    return out.match(new RegExp(`^\\s*${field}:\\s*(.+)$`, "m"))?.[1]?.trim() ?? null;
   } catch {
     return null;
   }
 }
+
+const currentSource = (id) => sourceLine(id, "requested");
 
 /**
  * Only the values that differ from their declared default are worth carrying
@@ -128,18 +133,51 @@ function swap(p, source, label) {
 const link = (p) =>
   swap(p, [`path:${REPO}`, "--plugin", p.id], "released tag -> this checkout");
 
-const release = (p) =>
+/**
+ * `@*` resolves to whatever the newest tag is, so a checkout whose bumped
+ * version was never tagged would quietly get the previous release. Refuse it
+ * here, before anything is removed — every plugin, so `release all` cannot stop
+ * halfway with some swapped.
+ */
+function assertTagged(ps) {
+  const missing = ps.filter((p) => {
+    const out = execFileSync(
+      "git",
+      ["ls-remote", "--tags", REMOTE, `refs/tags/${p.tag}`],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+    );
+    return out.trim() === "";
+  });
+  if (missing.length > 0) {
+    fail(
+      `Not tagged on ${REMOTE}: ${missing.map((p) => p.tag).join(", ")}.\n` +
+        "Push the tag first, or release from a checkout whose version is tagged. " +
+        "Nothing was changed.",
+    );
+  }
+}
+
+// A bare range, not a pinned `^X.Y.Z`: on a 0.x version a caret cannot reach
+// the next minor, so `bb plugin update` would stop following the plugin. bb
+// rejects `@semver:*` alongside --tag-prefix, which is why it is spelled `@*`.
+function release(p) {
   swap(
     p,
-    [
-      `git:${REMOTE}@${p.range}`,
-      "--subdirectory",
-      p.subdir,
-      "--tag-prefix",
-      p.tagPrefix,
-    ],
-    `this checkout -> ${p.tagPrefix}v${p.version}`,
+    [`git:${REMOTE}@*`, "--subdirectory", p.subdir, "--tag-prefix", p.tagPrefix],
+    `this checkout -> newest ${p.tagPrefix} tag`,
   );
+  const resolved = sourceLine(p.id, "resolved");
+  if (resolved === null) {
+    console.warn("  note: could not read which tag was installed");
+    return;
+  }
+  console.log(`  resolved: ${resolved}`);
+  // Not necessarily a newer one: `@*` skips pre-releases, so a checkout at
+  // 0.8.0-beta.1 gets the newest stable release, which is older.
+  if (!resolved.includes(`@${p.tag} `)) {
+    console.warn(`  note: this checkout is ${p.tag}; a different tag was installed`);
+  }
+}
 
 function reload(p) {
   const started = Date.now();
@@ -175,9 +213,12 @@ switch (command) {
   case "link":
     targets().forEach(link);
     break;
-  case "release":
-    targets().forEach(release);
+  case "release": {
+    const ps = targets();
+    assertTagged(ps);
+    ps.forEach(release);
     break;
+  }
   case "reload":
     targets().forEach(reload);
     break;

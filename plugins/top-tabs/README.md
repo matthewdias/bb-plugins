@@ -16,7 +16,7 @@ open on that tab.
 ## Install
 
 ```sh
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/top-tabs --tag-prefix top-tabs/
 ```
 
