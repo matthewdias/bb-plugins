@@ -33,10 +33,13 @@ import {
   interceptPageClose,
   isSidebarOpen,
   observeSidebar,
+  pageGone,
   playEntrance,
   playSidebarExit,
+  sidebarOf,
   stopEntrances,
   toggleSidebar,
+  type Ready,
 } from "../lib/shell.ts";
 import { useBridgedSplits } from "../lib/split-bridge.ts";
 import { getState, initStore, update, useTabsState } from "../lib/store.ts";
@@ -250,9 +253,10 @@ export function TopTabs() {
    * instead of the page rendering at one width and then reflowing to
    * another; navigation from anywhere else is caught by the effect below.
    * Either way it runs once per move, because it records `next` as where
-   * the strip now is.
+   * the strip now is. `pageLeft`, from a tab click, holds the sidebar's exit
+   * until the page being left has gone.
    */
-  const syncSidebar = useCallback((next: TabId | null) => {
+  const syncSidebar = useCallback((next: TabId | null, pageLeft?: Ready) => {
     const before = previous.current;
     previous.current = next;
     // An entrance left running would carry on over the page being left for.
@@ -280,8 +284,8 @@ export function TopTabs() {
     // playSidebarExit. Not on load, where there is nothing to move from.
     if (before !== undefined) {
       if (step.action === "expand" && next === THREADS) playEntrance("sidebar");
-      if (step.action === "expand" && next === SETTINGS) playEntrance("sidebar", "page");
-      if (step.action === "collapse" && before === THREADS) playSidebarExit();
+      if (step.action === "expand" && next === SETTINGS) playEntrance("sidebar", sidebarOf("page"));
+      if (step.action === "collapse" && before === THREADS) playSidebarExit(pageLeft);
     }
     toggleSidebar({ instant: true });
   }, []);
@@ -354,7 +358,18 @@ export function TopTabs() {
     const item = byId.get(id);
     if (id === active || item === undefined) return;
     markMove();
-    syncSidebar(id);
+    // The page being left, before navigating away from it: the sidebar's
+    // exit and the new page's entrance both wait for it to go.
+    const pageLeft = pageGone();
+    syncSidebar(id, pageLeft);
+    // A change of layout fades the new page in, as the return to Threads
+    // does: leaving Threads, and going to or from Settings, whose sidebar is
+    // its own. Tab to tab keeps the layout and switches instantly, as a
+    // browser's tabs do. It waits for the page being left to go, so it never
+    // fades that one back in.
+    if (!live.current.inSplit && (active === THREADS || active === SETTINGS || id === SETTINGS)) {
+      playEntrance("page", pageLeft);
+    }
     update((s) => adopt(s, id));
     if (saved !== undefined && navigateToPath(saved)) return;
     // Settings is the strip's own entry; bb's actions do not know it.
