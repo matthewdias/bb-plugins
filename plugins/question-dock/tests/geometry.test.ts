@@ -13,6 +13,7 @@ import {
   placeFloat,
   fromFraction,
   inDockZone,
+  sheetHeight,
   snapSheet,
   toFraction,
   type ModeInput,
@@ -88,7 +89,7 @@ test("the dock zone is the right edge of a pane wide enough to dock", () => {
 test("a released sheet snaps to the nearer height, or collapses when short", () => {
   assert.equal(snapSheet(100, 800), "collapse");
   assert.equal(snapSheet(420, 800), "half");
-  assert.equal(snapSheet(600, 800), "full");
+  assert.equal(snapSheet(700, 800), "full");
   assert.equal(snapSheet(0, 0), "collapse");
 });
 
@@ -122,4 +123,12 @@ test("a float that grows is pushed back inside the room", () => {
   assert.equal(placeFloat(bounds, { width: 380, height: 500 }, { x: 0, y: 0.5, anchor: "top" }).edge, 100);
   // Anchored by its bottom near the top: the bottom moves down to fit it.
   assert.equal(placeFloat(bounds, { width: 380, height: 500 }, { x: 0, y: 0.9, anchor: "bottom" }).edge, 500);
+});
+
+test("a sheet fits under the top of the pane, and takes all of it while typing", () => {
+  assert.equal(sheetHeight(796, "half", false), 398);
+  assert.equal(sheetHeight(796, "full", false), 788);
+  // The keyboard is up and bb has shrunk the pane to what is visible.
+  assert.equal(sheetHeight(300, "half", true), 292);
+  assert.equal(sheetHeight(4, "full", false), 0);
 });

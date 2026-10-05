@@ -30,10 +30,11 @@ export const FLOAT_MAX_SHARE = 0.7;
 export const DOCK_ZONE = 48;
 /** Below this much room above the composer, a float may cover the composer. */
 export const FLOAT_MIN_ROOM = 200;
-/** Sheet heights as fractions of the window. */
+/** A half sheet, as a share of the thread's pane. */
 export const SHEET_HALF = 0.5;
-export const SHEET_FULL = 0.9;
-/** A sheet released shorter than this collapses back into bb's bar. */
+/** Room a full sheet leaves under the top of the pane, below bb's top bar. */
+export const SHEET_TOP_GAP = 8;
+/** A sheet released shorter than this share of the pane collapses back into bb's bar. */
 export const SHEET_COLLAPSE = 0.35;
 
 /**
@@ -156,11 +157,31 @@ export function inDockZone(pane: Rect, pointerX: number): boolean {
   return canDock(pane.width) && pointerX >= pane.left + pane.width - DOCK_ZONE;
 }
 
-/** Where a sheet released at `height` settles, out of `windowHeight`. */
-export function snapSheet(height: number, windowHeight: number): "collapse" | "half" | "full" {
-  const share = windowHeight > 0 ? height / windowHeight : 0;
+/**
+ * The tallest a sheet gets: the thread's pane, less a gap. bb keeps the pane
+ * between its top bar and the on-screen keyboard, so this is all the room
+ * there is to see.
+ */
+export function sheetRoom(paneHeight: number): number {
+  return Math.max(0, paneHeight - SHEET_TOP_GAP);
+}
+
+/**
+ * A sheet's height in a pane `paneHeight` tall. While its text box has the
+ * keyboard, it takes all the room, so what you type is not hidden under the
+ * question.
+ */
+export function sheetHeight(paneHeight: number, detent: "half" | "full", typing: boolean): number {
+  const room = sheetRoom(paneHeight);
+  if (typing || detent === "full") return room;
+  return Math.min(room, Math.round(paneHeight * SHEET_HALF));
+}
+
+/** Where a sheet released at `height` settles, in a pane `paneHeight` tall. */
+export function snapSheet(height: number, paneHeight: number): "collapse" | "half" | "full" {
+  const share = paneHeight > 0 ? height / paneHeight : 0;
   if (share < SHEET_COLLAPSE) return "collapse";
-  return Math.abs(share - SHEET_HALF) <= Math.abs(share - SHEET_FULL) ? "half" : "full";
+  return Math.abs(share - SHEET_HALF) <= Math.abs(share - 1) ? "half" : "full";
 }
 
 export function isFloatPosition(value: unknown): value is FloatPosition {

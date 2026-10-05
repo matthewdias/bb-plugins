@@ -228,33 +228,28 @@ describe("on a phone", () => {
     expect(section.getAttribute("data-qd-mode")).toBe("sheet");
   });
 
-  it("keeps the sheet above an on-screen keyboard", () => {
-    // A 844px phone with the keyboard up: 500px of it still visible.
-    const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 500 });
-    const saved = ["visualViewport", "innerHeight"].map((name) => [name, Object.getOwnPropertyDescriptor(win, name)] as const);
-    Object.defineProperty(win, "visualViewport", { configurable: true, value: viewport });
-    Object.defineProperty(win, "innerHeight", { configurable: true, value: 844 });
-    try {
-      const { section } = mountThread({ paneWidth: 390 });
-      localStorage.setItem("question-dock:sheet", "full");
-      start();
-      // Bottom edge at the top of the keyboard, and never taller than what is visible.
-      expect(section.style.getPropertyValue("--qd-y")).toBe("500px");
-      expect(section.style.getPropertyValue("--qd-max-h")).toBe("484px");
-      expect(section.style.getPropertyValue("--qd-h")).toBe("484px");
+  it("sits on the pane bb fits above the keyboard, and fills it while typing", () => {
+    const { pane, section } = mountThread({ paneWidth: 390 });
+    // bb's top bar is 48px; the keyboard is up and bb has fitted the pane above it.
+    let bottom = 500;
+    pane.getBoundingClientRect = () => new DOMRect(0, 48, 390, bottom - 48);
+    start();
+    expect(section.style.getPropertyValue("--qd-y")).toBe("500px");
+    expect(section.style.getPropertyValue("--qd-max-h")).toBe("444px");
+    expect(section.style.getPropertyValue("--qd-h")).toBe("226px");
 
-      // The keyboard goes away: the sheet follows the visible viewport back down.
-      viewport.height = 844;
-      viewport.dispatchEvent(new Event("resize"));
-      controller.update();
-      expect(section.style.getPropertyValue("--qd-y")).toBe("844px");
-      expect(section.style.getPropertyValue("--qd-h")).toBe("759.6px");
-    } finally {
-      for (const [name, descriptor] of saved) {
-        if (descriptor) Object.defineProperty(win, name, descriptor);
-        else Reflect.deleteProperty(win, name);
-      }
-    }
+    const other = document.createElement("textarea");
+    section.querySelector("#body")!.append(other);
+    other.focus();
+    controller.update();
+    expect(section.style.getPropertyValue("--qd-h")).toBe("444px");
+
+    // The keyboard goes away and bb gives the pane back.
+    other.blur();
+    bottom = 844;
+    controller.update();
+    expect(section.style.getPropertyValue("--qd-y")).toBe("844px");
+    expect(section.style.getPropertyValue("--qd-h")).toBe("398px");
   });
 
   it("stays bb's card when the sheet is turned off", () => {

@@ -14,8 +14,6 @@
 // the card is not lifted and bb lays it out as it always does.
 import {
   DEFAULT_FLOAT,
-  SHEET_FULL,
-  SHEET_HALF,
   canDock,
   chooseMode,
   dockPlacement,
@@ -27,6 +25,8 @@ import {
   floatPositionOf,
   isFloatPosition,
   placeFloat,
+  sheetHeight,
+  sheetRoom,
   snapSheet,
   toFraction,
   type DesktopMode,
@@ -53,6 +53,9 @@ const FOOTER_ATTR = "data-qd-lifted";
 const HOST_ATTR = "data-qd-host";
 const DOCKED_ATTR = "data-qd-docked";
 const VARS = ["--qd-x", "--qd-y", "--qd-w", "--qd-h", "--qd-max-h", "--qd-cb-x", "--qd-cb-y"] as const;
+
+/** When to look again after the keyboard moves: bb's refit, then the keyboard's animation. */
+const SETTLE_DELAYS_MS = [120, 400] as const;
 
 const DESKTOP_KEY = "question-dock:desktop";
 const FLOAT_KEY = "question-dock:float";
@@ -88,6 +91,7 @@ export class DockController {
   private teardown: Array<() => void> = [];
   private resizeObserver: ResizeObserver | null = null;
   private readonly observed = new Set<Element>();
+  private readonly timers = new Set<number>();
 
   constructor(
     private readonly win: Window & typeof globalThis,
@@ -121,15 +125,25 @@ export class DockController {
 
     this.win.addEventListener("resize", schedule);
     this.teardown.push(() => this.win.removeEventListener("resize", schedule));
+    // The on-screen keyboard: bb refits its shell to what stays visible, on
+    // a frame of its own, so look again once the keyboard has settled too.
     const viewport = this.win.visualViewport;
     if (viewport) {
-      viewport.addEventListener("resize", schedule);
-      viewport.addEventListener("scroll", schedule);
+      const settle = () => this.scheduleSettled();
+      viewport.addEventListener("resize", settle);
+      viewport.addEventListener("scroll", settle);
       this.teardown.push(() => {
-        viewport.removeEventListener("resize", schedule);
-        viewport.removeEventListener("scroll", schedule);
+        viewport.removeEventListener("resize", settle);
+        viewport.removeEventListener("scroll", settle);
       });
     }
+    const onFocusIn = (event: FocusEvent) => this.onFocusIn(event);
+    this.doc.addEventListener("focusin", onFocusIn, true);
+    this.doc.addEventListener("focusout", schedule, true);
+    this.teardown.push(() => {
+      this.doc.removeEventListener("focusin", onFocusIn, true);
+      this.doc.removeEventListener("focusout", schedule, true);
+    });
     // An ancestor's entrance animation moves the box the card is placed in.
     this.doc.addEventListener("animationend", schedule, true);
     this.doc.addEventListener("transitionend", schedule, true);
@@ -155,6 +169,8 @@ export class DockController {
 
   stop(): void {
     for (const dispose of this.teardown.splice(0)) dispose();
+    for (const timer of this.timers) this.win.clearTimeout(timer);
+    this.timers.clear();
     if (this.frame !== null) {
       this.cancelFrame(this.frame);
       this.frame = null;
@@ -242,6 +258,33 @@ export class DockController {
       this.lift(entry);
       this.place(entry);
     }
+  }
+
+  /** Lay out now-ish, and again after a keyboard or bb's refit has settled. */
+  private scheduleSettled(): void {
+    this.schedule();
+    for (const delay of SETTLE_DELAYS_MS) {
+      const timer = this.win.setTimeout(() => {
+        this.timers.delete(timer);
+        this.schedule();
+      }, delay);
+      this.timers.add(timer);
+    }
+  }
+
+  /** Typing into a sheet grows it to the whole room, and keeps the text box in view. */
+  private onFocusIn(event: FocusEvent): void {
+    this.schedule();
+    const target = event.target;
+    if (!(target instanceof this.win.HTMLElement) || !isTextEntry(target)) return;
+    const section = target.closest<HTMLElement>(`section[${MODE_ATTR}="sheet"]`);
+    if (!section) return;
+    this.scheduleSettled();
+    const timer = this.win.setTimeout(() => {
+      this.timers.delete(timer);
+      if (this.doc.activeElement === target) target.scrollIntoView?.({ block: "nearest" });
+    }, SETTLE_DELAYS_MS[SETTLE_DELAYS_MS.length - 1]);
+    this.timers.add(timer);
   }
 
   private schedule(): void {
@@ -354,16 +397,17 @@ export class DockController {
         anchor = position.anchor;
       }
     } else {
-      const viewport = this.win.visualViewport;
-      const visibleTop = viewport?.offsetTop ?? 0;
-      const visibleHeight = viewport?.height ?? this.win.innerHeight;
+      // The pane, not the window: bb fits the pane between its top bar and
+      // the on-screen keyboard itself, so a sheet on the pane's bottom edge
+      // sits on the keyboard and never runs under the top bar.
+      const paneBox = entry.pane.getBoundingClientRect();
       const drag = this.drag?.kind === "sheet" && this.drag.section === section ? this.drag : null;
-      const detent = this.read(SHEET_KEY) === "full" ? SHEET_FULL : SHEET_HALF;
-      maxHeight = Math.max(0, visibleHeight - 16);
-      height = Math.min(drag ? drag.height : detent * this.win.innerHeight, maxHeight);
-      x = 0;
-      y = visibleTop + visibleHeight;
-      width = this.doc.documentElement.clientWidth || this.win.innerWidth;
+      const detent = this.read(SHEET_KEY) === "full" ? "full" : "half";
+      maxHeight = sheetRoom(paneBox.height);
+      height = drag ? Math.min(drag.height, maxHeight) : sheetHeight(paneBox.height, detent, typingIn(section));
+      x = paneBox.left;
+      y = paneBox.bottom;
+      width = paneBox.width;
     }
 
     setVar(section, "--qd-x", px(x));
@@ -448,7 +492,7 @@ export class DockController {
           this.drag = null;
           section.removeAttribute(DRAGGING_ATTR);
           if (drag && !cancelled) {
-            const snap = snapSheet(drag.height, this.win.innerHeight);
+            const snap = snapSheet(drag.height, entry.pane.getBoundingClientRect().height);
             if (snap === "collapse") this.collapse(section);
             else this.write(SHEET_KEY, snap);
           }
@@ -594,6 +638,19 @@ function setAttr(element: Element, name: string, value: string): void {
 
 function setVar(element: HTMLElement, name: string, value: string): void {
   if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value);
+}
+
+function isTextEntry(element: Element | null): boolean {
+  if (!element) return false;
+  if (element.tagName === "TEXTAREA") return true;
+  if (element.tagName === "INPUT") return !["checkbox", "radio", "button", "submit"].includes((element as HTMLInputElement).type);
+  return (element as HTMLElement).isContentEditable === true;
+}
+
+/** Whether the person is typing into `section`, so the keyboard is (or is about to be) up. */
+function typingIn(section: HTMLElement): boolean {
+  const active = section.ownerDocument.activeElement;
+  return active !== null && section.contains(active) && isTextEntry(active);
 }
 
 function parsePx(value: string): number {
