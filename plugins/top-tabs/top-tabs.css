@@ -265,12 +265,25 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
 }
 
 .bb-top-tab-icon {
+  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
   width: 16px;
   height: 16px;
+}
+
+/* A pinned tab taken away from where it was pinned, as Arc marks one. In the
+   tab's own text colour, so it is as loud as the tab and no louder. */
+.bb-top-tab-moved {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .bb-top-tab-icon svg,
@@ -408,9 +421,9 @@ svg.bb-top-tab-icon,
   height: 12px;
 }
 
-/* Icon-only tabs: every pinned tab, and the rest when the Tab labels setting
-   says so. Square, never shrinking, the close button over the icon as on a
-   labelled tab. */
+/* Icon-only tabs: pinned tabs, unless they show their names, and the rest
+   when the Tab labels setting says so. Square, never shrinking, the close
+   button over the icon as on a labelled tab. */
 .bb-top-tab[data-icon-only] {
   flex: none;
   min-width: 0;
@@ -422,6 +435,12 @@ svg.bb-top-tab-icon,
 
 .bb-top-tab[data-icon-only] .bb-top-tab-close {
   left: 4px;
+}
+
+/* A pinned icon showing its badge keeps it close, as Threads keeps its
+   status. */
+.bb-top-tab[data-icon-only]:has(.bb-top-tab-accessory) .bb-top-tab-main {
+  gap: 4px;
 }
 
 /* Threads keeps its status beside the icon. */
@@ -772,4 +791,38 @@ svg.bb-top-tab-icon,
   font-size: 12px;
   font-weight: 600;
   pointer-events: none;
+}
+
+/* -------------------------------------------------------------- tooltip */
+
+/* A destination tab's name, where inside its panel it is, and where a pin
+   was pinned. */
+.bb-top-tabs-tooltip {
+  z-index: 50;
+  box-sizing: border-box;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--bui-radius-control, 8px);
+  background: var(--popover, var(--background));
+  color: var(--popover-foreground, var(--foreground));
+  box-shadow: 0 4px 12px color-mix(in oklch, black 18%, transparent);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.bb-top-tabs-tooltip-name {
+  font-weight: 500;
+}
+
+.bb-top-tabs-tooltip-where {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.bb-top-tabs-tooltip-where,
+.bb-top-tabs-tooltip-pin {
+  color: var(--muted-foreground);
 }

@@ -40,9 +40,23 @@ export default async function plugin(bb: BbPluginApi) {
       type: "select",
       label: "Tab labels",
       description:
-        "Show every tab's name, only the name of the tab in view, or icons alone. Pinned tabs are always icons; hover any icon for its name.",
+        "Show every tab's name, only the name of the tab in view, or icons alone. Pinned tabs are icons unless Show names on pinned tabs is on; hover any icon for its name.",
       options: ["Always", "Active tab only", "Never"],
       default: "Always",
+    },
+    pinnedLabels: {
+      type: "boolean",
+      label: "Show names on pinned tabs",
+      description:
+        "Pinned tabs show their names as the other tabs do, following Tab labels. When off, they're icons.",
+      default: false,
+    },
+    pinnedBadges: {
+      type: "boolean",
+      label: "Show badges on pinned tabs",
+      description:
+        "A pinned icon shows the badge its panel draws beside its name in the sidebar, such as a count. Pinned tabs that show their names always show it.",
+      default: false,
     },
   });
 
