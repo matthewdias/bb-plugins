@@ -40,7 +40,7 @@ schedules, and there is no read API to save those first. None of these four
 declares either. Background services are safe — they are declared in code, so
 they re-register on install.
 
-## Two rules that are not obvious
+## Three rules that are not obvious
 
 **Every runtime dependency belongs in the plugin's own `package.json`, under
 `dependencies`.** bb installs a single subdirectory out of this repository and
@@ -65,6 +65,21 @@ rm -rf node_modules dist && npm install --omit=dev && bb plugin build .
 governs the workspace; the nested ones are what a subdirectory install resolves
 against. After changing a plugin's dependencies, regenerate its lock from a copy
 of that directory alone, so workspace hoisting does not leak into it.
+
+**A module two plugins share is copied.** A workspace package would not
+install, because a plugin installs alone. A published npm package would, but it
+runs the same way, because bb bundles each plugin's dependencies into that
+plugin. Until something outside this repository needs it, copying one file is
+cheaper than a publish pipeline. So `lib/complications.ts` lives in every plugin
+that provides or draws a complication, byte for byte. Edit one copy, copy it
+over the others, and `npm run check` fails first thing if you forget: the copies
+are listed in `scripts/check-vendored.mjs`.
+
+Released copies can still disagree at runtime, because whichever bundle loads
+first creates the registry every other plugin uses. Bump
+`COMPLICATIONS_IMPLEMENTATION` with any change in its behaviour, fixes included,
+so that a newer copy can tell, in the console, when an older one is in charge.
+The module's header says what that freezes.
 
 ## Releasing
 
