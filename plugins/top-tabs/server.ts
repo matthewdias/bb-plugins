@@ -17,9 +17,9 @@ export default async function plugin(bb: BbPluginApi) {
   bb.settings.define({
     collapseSidebar: {
       type: "boolean",
-      label: "Collapse the sidebar on other tabs",
+      label: "Remember the sidebar on each tab",
       description:
-        "The thread list belongs to the Threads tab. When on, it slides away while another tab is in view and comes back with Threads, as it was when you left.",
+        "Each tab keeps the sidebar open or collapsed as you left it there. A tab you haven't set starts collapsed, so it gets the whole window, and Settings starts open for its sections. When off, the sidebar stays wherever you leave it.",
       default: true,
     },
     closeSettingsOnExit: {
@@ -28,6 +28,13 @@ export default async function plugin(bb: BbPluginApi) {
       description:
         "Escape, Back to app or going back closes the tab, as if Settings were a dialog. Switching tabs in the strip leaves it open, and a pinned Settings tab never closes.",
       default: true,
+    },
+    recentAfterClose: {
+      type: "boolean",
+      label: "After closing a tab, go back to the last one you used",
+      description:
+        "When off, closing the tab in view moves to its right-hand neighbour, as a browser does. When on, it returns to the tab you were on before it, as VS Code does.",
+      default: false,
     },
     tabLabels: {
       type: "select",

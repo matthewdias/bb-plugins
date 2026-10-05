@@ -11,6 +11,19 @@ export const REASONS = [
 
 export type Reason = (typeof REASONS)[number];
 
+/** The one action a banner row shows inline; the rest are in its ⋯ menu. */
+export type RowMainAction = "insert" | "handoff";
+
+/**
+ * A guess at a row's likely next step, from why it was skipped. Out-of-scope
+ * work belongs in another thread, so it leads with Hand off. Everything else
+ * leads with putting it in the composer, cleanup included until there is a
+ * "queue it after this turn" action for it to lead with instead.
+ */
+export function mainActionFor(reason: Reason | null): RowMainAction {
+  return reason === "out-of-scope" ? "handoff" : "insert";
+}
+
 export type HandoffState = "running" | "finished" | "failed";
 
 export interface FollowUp {

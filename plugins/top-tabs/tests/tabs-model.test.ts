@@ -10,6 +10,7 @@ import {
   adopt,
   close,
   closeCommandAction,
+  closeOrderOf,
   closeOthers,
   closeToRight,
   cycle,
@@ -29,12 +30,16 @@ import {
   recordPath,
   recordRecent,
   recordRecentThread,
+  rememberSidebar,
   reopen,
+  reopenable,
+  resetPinned,
   seed,
   sidebarStep,
   splitPartner,
-  stripTakesPageClose,
+  pageCloseAction,
   successorAfterClose,
+  successorAfterPinClose,
   threadGroup,
   threadIdFromPath,
   threadPaneFor,
@@ -228,25 +233,128 @@ test("closing the tab in view moves right, then left, then to Threads", () => {
 test("closing a background tab keeps the tab in view", () => {
   assert.equal(successorAfterClose(["a", "b"], "a", "b"), "b");
   assert.equal(successorAfterClose(["a", "b"], "a", THREADS), THREADS);
+  assert.equal(successorAfterClose(["a", "b"], "a", "b", "recent", ["b", "a"]), "b");
+});
+
+test("in recent order, closing the tab in view goes back to the one before it", () => {
+  const open = ["a", "b", "c"];
+  assert.equal(successorAfterClose(open, "b", "b", "recent", ["b", "a", "c"]), "a");
+  assert.equal(successorAfterClose(open, "b", "b", "recent", ["b", THREADS, "c"]), THREADS);
+  // Tabs that have since closed, or whose plugin is not loaded, are passed over.
+  assert.equal(successorAfterClose(open, "b", "b", "recent", ["b", "gone", "c"]), "c");
+  // With nothing remembered still open, it falls back to the neighbour.
+  assert.equal(successorAfterClose(open, "b", "b", "recent", ["b", "gone"]), "c");
+  assert.equal(successorAfterClose(open, "c", "c", "recent", []), "b");
+});
+
+test("the recentAfterClose setting picks the close order", () => {
+  assert.equal(closeOrderOf(true), "recent");
+  assert.equal(closeOrderOf(false), "position");
+  assert.equal(closeOrderOf(undefined), "position");
+  assert.equal(closeOrderOf("yes"), "position");
+});
+
+test("leaving a pinned tab moves past the other pins", () => {
+  const open = ["p", "q", "a", "b"];
+  const pinned = ["p", "q"];
+  assert.equal(successorAfterPinClose(open, pinned, "p"), "a");
+  assert.equal(successorAfterPinClose(open, pinned, "q"), "a");
+  assert.equal(successorAfterPinClose(["p", "q"], pinned, "p"), THREADS);
+});
+
+test("in recent order, leaving a pinned tab goes to the ordinary tab used last", () => {
+  const open = ["p", "q", "a", "b"];
+  const pinned = ["p", "q"];
+  assert.equal(successorAfterPinClose(open, pinned, "p", "recent", ["p", "q", "b", "a"]), "b");
+  assert.equal(successorAfterPinClose(open, pinned, "p", "recent", ["p", "q", THREADS, "a"]), THREADS);
+  assert.equal(successorAfterPinClose(open, pinned, "p", "recent", ["p", "q", "gone"]), "a");
+});
+
+test("resetting a pinned tab forgets its location and keeps it pinned", () => {
+  const s = state({ open: ["p", "a"], pinned: ["p"], paths: { p: "/plugins/p/p/deep", a: "/x" } });
+  const reset = resetPinned(s, "p");
+  assert.deepEqual(reset.open, ["p", "a"]);
+  assert.deepEqual(reset.pinned, ["p"]);
+  assert.deepEqual(reset.paths, { a: "/x" });
+  assert.deepEqual(reset.closed, [{ id: "p", path: "/plugins/p/p/deep", index: 0, reset: true }]);
+  // Only pinned tabs reset, and a pin already at its start is left alone.
+  assert.equal(resetPinned(s, "a"), s);
+  assert.equal(resetPinned(reset, "p"), reset);
+});
+
+test("reopening after a reset gives the pin back its location", () => {
+  const s = state({
+    open: ["p", "a"],
+    pinned: ["p"],
+    paths: { p: "/plugins/p/p/deep" },
+    closed: [{ id: "b", path: null, index: 2 }],
+  });
+  const { state: back, tab } = reopen(resetPinned(s, "p"), () => true);
+  assert.equal(tab?.id, "p");
+  assert.equal(back.paths.p, "/plugins/p/p/deep");
+  assert.deepEqual(back.open, ["p", "a"]);
+  assert.deepEqual(back.pinned, ["p"]);
+  // The tab closed before the reset is next.
+  assert.deepEqual(back.closed, [{ id: "b", path: null, index: 2 }]);
+  assert.equal(reopen(back, () => true).tab?.id, "b");
+});
+
+test("going back to a reset pin takes the reset, so reopening skips it", () => {
+  const s = state({
+    open: ["p", "a"],
+    pinned: ["p"],
+    paths: { p: "/plugins/p/p/deep" },
+    closed: [{ id: "b", path: null, index: 2 }],
+  });
+  const visited = recordPath(resetPinned(s, "p"), "p", "/plugins/p/p");
+  assert.deepEqual(visited.closed, [{ id: "b", path: null, index: 2 }]);
+  assert.equal(reopen(visited, () => true).tab?.id, "b");
+  // Recording another tab's location leaves the reset to undo.
+  const elsewhere = recordPath(resetPinned(s, "p"), "a", "/plugins/a/a");
+  assert.equal(reopenable(elsewhere, () => true)?.id, "p");
+});
+
+test("a reset is undoable only while its tab is open", () => {
+  const entry = { id: "p", path: "/plugins/p/p/deep", index: 0, reset: true as const };
+  assert.equal(reopenable(state({ open: ["p"], pinned: ["p"], closed: [entry] }), () => true), entry);
+  assert.equal(reopenable(state({ open: [], closed: [entry] }), () => true), undefined);
+  assert.equal(reopenable(state({ open: ["p"], pinned: ["p"], closed: [entry] }), () => false), undefined);
+  // A closed tab opened again another way is still passed over.
+  assert.equal(reopenable(state({ open: ["a"], closed: [{ id: "a", path: null, index: 0 }] }), () => true), undefined);
+});
+
+test("a reset survives a reload", () => {
+  const entry = { id: "p", path: "/plugins/p/p/deep", index: 0, reset: true };
+  const parsed = parseState({ open: ["p"], pinned: ["p"], closed: [entry, { id: "b", path: null, index: 1, reset: "yes" }] });
+  assert.deepEqual(parsed.closed, [entry, { id: "b", path: null, index: 1 }]);
 });
 
 test("bb's Close on a lone page closes the tab in view", () => {
-  assert.equal(stripTakesPageClose("gh/gh", []), true);
-  assert.equal(stripTakesPageClose(SETTINGS, []), true);
+  assert.equal(pageCloseAction("gh/gh", []), "tab");
+  assert.equal(pageCloseAction(SETTINGS, []), "tab");
 });
 
-test("bb keeps its own Close on Threads, pinned tabs and pages no tab holds", () => {
+test("bb's Close on a pinned tab resets it, as the close-tab command does", () => {
+  assert.equal(pageCloseAction("gh/gh", ["gh/gh"]), "pin");
+  assert.equal(pageCloseAction(SETTINGS, [SETTINGS]), "pin");
+  assert.equal(pageCloseAction("gh/gh", ["gh/gh"]), closeCommandAction("gh/gh", ["gh/gh"], true));
+});
+
+test("bb keeps its own Close on Threads and pages no tab holds", () => {
   // bb opens New Thread, which is where Threads should go anyway.
-  assert.equal(stripTakesPageClose(THREADS, []), false);
-  // A pinned tab never closes; bb leaves the page and the tab stays.
-  assert.equal(stripTakesPageClose("gh/gh", ["gh/gh"]), false);
-  assert.equal(stripTakesPageClose(null, []), false);
+  assert.equal(pageCloseAction(THREADS, []), null);
+  assert.equal(pageCloseAction(null, []), null);
 });
 
 test("the close-tab command closes a destination tab", () => {
   assert.equal(closeCommandAction("gh/gh", [], false), "tab");
   assert.equal(closeCommandAction("gh/gh", [], true), "tab");
-  assert.equal(closeCommandAction("gh/gh", ["gh/gh"], true), null);
+});
+
+test("on a pinned tab, the close-tab command resets it instead", () => {
+  assert.equal(closeCommandAction("gh/gh", ["gh/gh"], true), "pin");
+  assert.equal(closeCommandAction("gh/gh", ["gh/gh"], false), "pin");
+  assert.equal(closeCommandAction(SETTINGS, [SETTINGS], false), "pin");
 });
 
 test("on Threads, the close-tab command closes the thread page instead", () => {
@@ -330,93 +438,69 @@ test("cycle wraps in both directions", () => {
   assert.equal(cycle(order, null, -1), "b");
 });
 
-test("leaving Threads collapses an open sidebar and remembers it was open", () => {
-  assert.deepEqual(
-    sidebarStep({ previous: THREADS, next: "a", sidebarOpen: true, threadsSidebarOpen: false }),
-    { action: "collapse", threadsSidebarOpen: true },
-  );
+const step = (
+  previous: string | null | undefined,
+  next: string | null,
+  sidebarOpen: boolean,
+  sidebar: Record<string, boolean> = {},
+) => sidebarStep({ previous, next, sidebarOpen, sidebar });
+
+test("leaving a tab remembers whether the sidebar was open there", () => {
+  assert.deepEqual(step(THREADS, "a", true).sidebar, { [THREADS]: true });
+  assert.deepEqual(step(THREADS, "a", false, { [THREADS]: true }).sidebar, { [THREADS]: false });
+  assert.deepEqual(step("a", "b", true).sidebar, { a: true });
 });
 
-test("leaving Threads with the sidebar collapsed remembers that too", () => {
-  assert.deepEqual(
-    sidebarStep({ previous: THREADS, next: "a", sidebarOpen: false, threadsSidebarOpen: true }),
-    { action: null, threadsSidebarOpen: false },
-  );
+test("arriving on a tab restores the sidebar it had there", () => {
+  assert.equal(step("a", THREADS, false, { [THREADS]: true }).action, "expand");
+  assert.equal(step("a", THREADS, true, { [THREADS]: false }).action, "collapse");
+  assert.equal(step(THREADS, "a", false, { a: true }).action, "expand");
+  assert.equal(step(THREADS, "a", true, { a: false }).action, "collapse");
+  assert.equal(step("a", THREADS, true, { [THREADS]: true }).action, null);
 });
 
-test("returning to Threads reopens the sidebar only if it was open", () => {
-  assert.equal(
-    sidebarStep({ previous: "a", next: THREADS, sidebarOpen: false, threadsSidebarOpen: true })
-      .action,
-    "expand",
-  );
-  assert.equal(
-    sidebarStep({ previous: "a", next: THREADS, sidebarOpen: false, threadsSidebarOpen: false })
-      .action,
-    null,
-  );
-  assert.equal(
-    sidebarStep({ previous: "a", next: THREADS, sidebarOpen: true, threadsSidebarOpen: true })
-      .action,
-    null,
-  );
+test("each tab keeps its own sidebar", () => {
+  // Opened by hand on a, then off to b, which keeps its own collapsed.
+  const memory = { [THREADS]: true, b: false };
+  const toB = step("a", "b", true, memory);
+  assert.deepEqual(toB, { action: "collapse", sidebar: { [THREADS]: true, a: true, b: false } });
+  // And back on a, it opens again.
+  assert.equal(step("b", "a", false, toB.sidebar).action, "expand");
 });
 
-test("moving between two tabs leaves a hand-opened sidebar alone", () => {
-  assert.deepEqual(
-    sidebarStep({ previous: "a", next: "b", sidebarOpen: true, threadsSidebarOpen: true }),
-    { action: null, threadsSidebarOpen: true },
-  );
+test("a tab the strip has not seen collapses the sidebar", () => {
+  assert.equal(step(THREADS, "a", true).action, "collapse");
+  assert.equal(step(undefined, "a", true).action, "collapse");
+  assert.equal(step("b", "a", false).action, null);
 });
 
-test("the first look collapses on a tab", () => {
-  assert.equal(
-    sidebarStep({ previous: undefined, next: "a", sidebarOpen: true, threadsSidebarOpen: true })
-      .action,
-    "collapse",
-  );
-});
-
-test("loading the app on Threads restores the sidebar the user keeps there", () => {
+test("loading the app on a tab restores its sidebar, recording nothing", () => {
   // Reloaded on a thread after a tab had collapsed the sidebar.
-  assert.equal(
-    sidebarStep({ previous: undefined, next: THREADS, sidebarOpen: false, threadsSidebarOpen: true })
-      .action,
-    "expand",
-  );
-  assert.equal(
-    sidebarStep({ previous: undefined, next: THREADS, sidebarOpen: false, threadsSidebarOpen: false })
-      .action,
-    null,
-  );
-});
-
-test("Threads never collapses the sidebar", () => {
-  for (const previous of [undefined, null, "a"]) {
-    assert.equal(
-      sidebarStep({ previous, next: THREADS, sidebarOpen: true, threadsSidebarOpen: false }).action,
-      null,
-    );
-  }
+  assert.deepEqual(step(undefined, THREADS, false, { [THREADS]: true }), {
+    action: "expand",
+    sidebar: { [THREADS]: true },
+  });
+  assert.equal(step(undefined, THREADS, false, { [THREADS]: false }).action, null);
+  assert.equal(step(undefined, "a", false, { a: true }).action, "expand");
+  assert.deepEqual(step(null, "a", true, {}).sidebar, {});
 });
 
 test("the first sight of Threads learns the preference instead of imposing one", () => {
-  assert.deepEqual(
-    sidebarStep({ previous: undefined, next: THREADS, sidebarOpen: false, threadsSidebarOpen: null }),
-    { action: null, threadsSidebarOpen: false },
-  );
-  assert.deepEqual(
-    sidebarStep({ previous: "a", next: THREADS, sidebarOpen: true, threadsSidebarOpen: null }),
-    { action: null, threadsSidebarOpen: true },
-  );
+  assert.deepEqual(step(undefined, THREADS, false), { action: null, sidebar: { [THREADS]: false } });
+  assert.deepEqual(step("a", THREADS, true), { action: null, sidebar: { a: true, [THREADS]: true } });
 });
 
-test("settings leaves the sidebar alone", () => {
-  assert.equal(
-    sidebarStep({ previous: THREADS, next: null, sidebarOpen: true, threadsSidebarOpen: true })
-      .action,
-    null,
-  );
+test("a route no tab holds, or the same tab, leaves the sidebar alone", () => {
+  const memory = { [THREADS]: false };
+  assert.deepEqual(step(THREADS, null, true, memory), { action: null, sidebar: memory });
+  assert.deepEqual(step("a", "a", true, { a: false }), { action: null, sidebar: { a: false } });
+});
+
+test("rememberSidebar keeps the same object when nothing changes", () => {
+  const memory = { a: true };
+  assert.equal(rememberSidebar(memory, "a", true), memory);
+  assert.deepEqual(rememberSidebar(memory, "a", false), { a: false });
+  assert.deepEqual(rememberSidebar(memory, "b", false), { a: true, b: false });
 });
 
 test("parseState keeps the well-formed parts of hostile input", () => {
@@ -426,7 +510,8 @@ test("parseState keeps the well-formed parts of hostile input", () => {
     open: ["a", "a", THREADS, 4, "", "b"],
     paths: { a: "/plugins/a/a", b: "//evil", c: 3 },
     closed: [{ id: "c", path: "https://x", index: -1 }, { id: THREADS }, "junk"],
-    threadsSidebarOpen: "yes",
+    sidebar: { a: true, b: "yes", [""]: false },
+    threadsSidebarOpen: false,
     seeded: true,
     recent: ["a", "a", 3, "b"],
   });
@@ -435,7 +520,7 @@ test("parseState keeps the well-formed parts of hostile input", () => {
     pinned: [],
     paths: { a: "/plugins/a/a" },
     closed: [{ id: "c", path: null, index: 0 }],
-    threadsSidebarOpen: null,
+    sidebar: { a: true, [THREADS]: false },
     seeded: true,
     recent: ["a", "b"],
     recentThreads: [],
@@ -581,38 +666,17 @@ test("moveBefore places a tab in front of another in its group, or at the group'
   assert.deepEqual(moveBefore(two, "p", null).open, ["a", "p", "b", "c"]);
 });
 
-test("arriving on Settings opens the sidebar its sections live in", () => {
-  assert.deepEqual(
-    sidebarStep({ previous: "a", next: SETTINGS, sidebarOpen: false, threadsSidebarOpen: true }),
-    { action: "expand", threadsSidebarOpen: true },
-  );
-  assert.equal(
-    sidebarStep({ previous: undefined, next: SETTINGS, sidebarOpen: true, threadsSidebarOpen: true })
-      .action,
-    null,
-  );
-  // From Threads it records the preference on the way out, as any tab does.
-  assert.deepEqual(
-    sidebarStep({ previous: THREADS, next: SETTINGS, sidebarOpen: false, threadsSidebarOpen: true }),
-    { action: "expand", threadsSidebarOpen: false },
-  );
+test("Settings opens the sidebar its sections live in, until told otherwise", () => {
+  assert.equal(step("a", SETTINGS, false).action, "expand");
+  assert.equal(step(undefined, SETTINGS, true).action, null);
+  // Collapsed there by hand, it stays collapsed there.
+  assert.equal(step("a", SETTINGS, true, { [SETTINGS]: false }).action, "collapse");
 });
 
-test("leaving Settings undoes what Settings did", () => {
-  assert.equal(
-    sidebarStep({ previous: SETTINGS, next: "a", sidebarOpen: true, threadsSidebarOpen: true }).action,
-    "collapse",
-  );
-  assert.equal(
-    sidebarStep({ previous: SETTINGS, next: THREADS, sidebarOpen: true, threadsSidebarOpen: false })
-      .action,
-    "collapse",
-  );
-  assert.equal(
-    sidebarStep({ previous: SETTINGS, next: THREADS, sidebarOpen: true, threadsSidebarOpen: true })
-      .action,
-    null,
-  );
+test("leaving Settings gives the next tab back its own sidebar", () => {
+  assert.deepEqual(step(SETTINGS, "a", true), { action: "collapse", sidebar: { [SETTINGS]: true } });
+  assert.equal(step(SETTINGS, THREADS, true, { [THREADS]: false }).action, "collapse");
+  assert.equal(step(SETTINGS, THREADS, true, { [THREADS]: true }).action, null);
 });
 
 test("leaving Settings by bb's own way out closes its tab; a tab switch does not", () => {
@@ -686,4 +750,14 @@ test("ago is brief", () => {
   assert.equal(ago(now - 3 * 3_600_000, now), "3h");
   assert.equal(ago(now - 2 * 24 * 3_600_000, now), "2d");
   assert.equal(ago(now + 60_000, now), "now");
+});
+
+test("a Threads-only sidebar from before carries over", () => {
+  assert.deepEqual(parseState({ threadsSidebarOpen: true }).sidebar, { [THREADS]: true });
+  assert.deepEqual(parseState({ threadsSidebarOpen: "yes" }).sidebar, {});
+  // The per-tab record wins over the old field.
+  assert.deepEqual(
+    parseState({ threadsSidebarOpen: true, sidebar: { [THREADS]: false } }).sidebar,
+    { [THREADS]: false },
+  );
 });

@@ -8,9 +8,10 @@ comes back where you left it.
 
 **Threads** is the first tab, and it never closes. It is bb as you know it: the
 sidebar, the thread list and the thread in view. Every other tab is a
-destination — a plugin panel, Plugins, Skills. While another tab is in view,
-the sidebar slides away and the destination gets the whole window. It returns
-when you go back to Threads.
+destination — a plugin panel, Plugins, Skills. Each tab keeps the sidebar as
+you left it there: it slides away on a destination, which gets the whole
+window, and returns when you go back to Threads. Open it on a tab and it stays
+open on that tab.
 
 ## Install
 
@@ -42,11 +43,13 @@ header, the strip keeps working from the last list it saw.
   **+** menu, to keep it. See [Pinned tabs](#pinned-tabs).
 - **Close a tab** with the × that replaces its icon on hover, a middle-click,
   its context menu, or bb's own Close at the top right of the page. Pinned
-  tabs don't close. Closing the tab in view moves to its right-hand
-  neighbour, then its left, then Threads.
+  tabs don't close; bb's Close and **Top Tabs: Close tab** reset one instead. Closing the
+  tab in view moves to its right-hand neighbour, then its left, then
+  Threads, or, with **After closing a tab, go back to the last one you
+  used**, to the tab you were on before it.
 - **Reopen a closed tab** with Ctrl+Shift+T, the context menu, or the **+**
   menu. It comes back in the same position, at the same place inside the
-  panel.
+  panel. It also undoes a pinned tab's reset.
 - **Reorder** by dragging a tab sideways, within its group: pinned tabs among
   pinned, the rest among the rest. Drag it down into the page instead to open
   it in a split.
@@ -61,8 +64,9 @@ showed, so what you used is where you look for it.
 ### The Threads tab
 
 While another tab is in view, the Threads tab shows the thread it will return
-to beside its name. Clicking it returns to that thread, or to the compose
-screen if you were there.
+to beside its name. The name slides open as you leave and shut as you come
+back, so the tabs after it move rather than jump. Clicking it returns to that
+thread, or to the compose screen if you were there.
 
 It always shows three counts:
 
@@ -98,9 +102,9 @@ settings page you left it on.
 Two things set it apart:
 
 - **Its navigation is the sidebar.** On Settings, bb fills the sidebar with
-  Settings' own sections, so arriving on the tab opens the sidebar. Leaving
-  undoes that: another tab collapses it, and Threads gets back the sidebar
-  you keep there.
+  Settings' own sections, so the tab opens with the sidebar open. Collapse it
+  there and it stays collapsed on Settings. Leaving gives every other tab back
+  its own.
 - **It can't go in a split**, because bb doesn't put Settings in a pane.
 - **Leaving Settings closes it.** Escape, Back to app or the browser's back
   closes the tab, as if Settings were a dialog. Switching tabs in the strip
@@ -116,6 +120,14 @@ A pinned tab is one you always want in the strip:
   for its name.
 - It has no ×, and middle-click, close-others and close-to-the-right all
   leave it alone.
+- bb's Close at the top right of the page, or **Top Tabs: Close tab**,
+  resets it instead, as Arc does. It stays pinned, forgets where it was
+  left, so it next opens at the panel's start, and the strip moves on past
+  the other pins: to the first ordinary tab, or Threads if there is none. With **After closing a tab, go back to the last
+  one you used** on, it goes to the ordinary tab you used last instead. So
+  pressing the shortcut again closes that tab rather than stepping through
+  the pins. ⌃⇧T undoes a reset and takes the tab back to where it was, until
+  you go back to the tab yourself: then the reset is taken as it is.
 - Unpin it from its context menu (or with **Top Tabs: Pin or unpin tab**) to
   make it an ordinary tab again. It lands first among the ordinary tabs.
 
@@ -212,24 +224,37 @@ strip stays off them, with Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+Shift+T.
 
 ### The sidebar
 
-The sidebar belongs to Threads:
+Each tab keeps the sidebar as you left it:
 
-- **Leaving Threads** collapses the sidebar if it was open, and remembers that
-  it was.
-- **Returning to Threads** reopens it, but only if it was open when you left.
-  The same applies when the app loads straight onto a thread.
-- **Collapsing it yourself on Threads** keeps it collapsed there. The strip
-  only ever restores your own choice, and Threads never collapses it.
-- **Opening it by hand on another tab** keeps it open until you go back to
-  Threads.
-- **Settings** opens the sidebar for its own sections, and leaving it
-  undoes that. See [The Settings tab](#the-settings-tab).
+- **Leaving a tab** remembers whether the sidebar was open there.
+- **Arriving on a tab** opens or collapses the sidebar to match. The same
+  applies when the app loads straight onto a tab.
+- **Opening or collapsing it yourself** is remembered for the tab you're on.
+  Open it on GitHub and it's open whenever you're on GitHub, and collapsed
+  again on the tabs where you left it collapsed.
+- **A tab you haven't set** starts with the sidebar collapsed, so the
+  destination gets the whole window. Threads starts however it was the first
+  time the strip saw it, and Settings starts open for its own sections. See
+  [The Settings tab](#the-settings-tab).
 - **A split** pauses all of this until it closes.
 
-When the strip moves the sidebar as part of a switch, it does so instantly.
-The sidebar changes in the same step as the page, so the page lays out once,
-at its final width. A slide would make a long thread lay itself out again on
-every frame. Opening or closing the sidebar yourself still slides.
+When the strip moves the sidebar as part of a switch, the space it takes
+changes instantly, in the same step as the page, so the page lays out once,
+at its final width. Sliding that space open would make a long thread lay
+itself out again on every frame. What moves is drawn on top: going back to
+Threads, the sidebar slides in over the space it already has and the thread
+fades in, both animated without laying anything out again. They wait until
+bb has finished drawing the thread, so the motion plays from start to end
+instead of freezing partway or appearing half done, and the Threads tab's
+title moves with them. Coming back from a page with a sidebar of its own
+(Plugins, Skills, Settings), that sidebar and page stay out of sight until
+bb has the thread list ready, and the thread list is what slides in.
+Leaving Threads, the sidebar stays over the new page until bb has drawn it,
+then slides away as the page fades in; opening Settings, its sections slide
+in the same way. Only these changes of layout move. Any other the strip
+makes, such as arriving on a tab where you keep the sidebar open, is instant,
+as a browser's tabs switch. Opening or closing the sidebar yourself still
+slides as bb draws it. With reduced motion on, nothing animates.
 
 Above the thread list, the sidebar keeps bb's own navigation, unchanged.
 Its rows, drag-to-reorder, options menu, More, customize editor and
@@ -251,12 +276,20 @@ rows, hidden ones behind **More**.
 
 | | Default |
 | --- | --- |
-| Collapse the sidebar on other tabs | on |
+| Remember the sidebar on each tab | on |
 | Close the Settings tab when you leave Settings | on |
+| After closing a tab, go back to the last one you used | off |
 | Tab labels | Always |
 
-**Collapse the sidebar** off keeps the sidebar wherever you leave it. The
+**Remember the sidebar** off keeps the sidebar wherever you leave it. The
 tabs work the same either way.
+
+**After closing a tab, go back to the last one you used** chooses where
+closing the tab in view goes. Off, it moves to the tab on its right, as a
+browser does. On, it returns to the tab you were on before it, as VS Code
+does, Threads included, and to the tab on its right once none of the tabs you
+used recently is still open. Closing a pinned tab follows it too, skipping
+the other pins.
 
 **Tab labels** chooses how much of the strip is words:
 
@@ -281,7 +314,7 @@ All are in bb's command palette, and every shortcut can be rebound under
 | Top Tabs: Go to Threads | — |
 | Top Tabs: Switch thread… | — |
 | Top Tabs: Open a tab… | — |
-| Top Tabs: Close tab (on Threads: close the thread in view) | — |
+| Top Tabs: Close tab (on Threads: close the thread in view; on a pinned tab: reset it) | — |
 | Top Tabs: Pin or unpin tab | — |
 
 In a web browser, the browser keeps Ctrl+Tab and Ctrl+Shift+T for itself.

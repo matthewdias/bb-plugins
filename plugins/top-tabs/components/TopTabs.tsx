@@ -33,7 +33,13 @@ import {
   interceptPageClose,
   isSidebarOpen,
   observeSidebar,
+  pageGone,
+  playEntrance,
+  playSidebarExit,
+  sidebarOf,
+  stopEntrances,
   toggleSidebar,
+  type Ready,
 } from "../lib/shell.ts";
 import { useBridgedSplits } from "../lib/split-bridge.ts";
 import { getState, initStore, update, useTabsState } from "../lib/store.ts";
@@ -43,6 +49,7 @@ import {
   activeTabFor,
   adopt,
   close,
+  closeOrderOf,
   closeOthers,
   closeToRight,
   cycle,
@@ -55,12 +62,16 @@ import {
   recordPath,
   recordRecent,
   recordRecentThread,
+  rememberSidebar,
   reopen,
+  reopenable,
+  resetPinned,
   seed,
   sidebarStep,
   splitPartner,
-  stripTakesPageClose,
+  pageCloseAction,
   successorAfterClose,
+  successorAfterPinClose,
   threadIdFromPath,
   threadPaneFor,
   unpin,
@@ -154,6 +165,7 @@ export function TopTabs() {
   const collapseSidebar = values?.collapseSidebar !== false;
   const closeSettingsOnExit = values?.closeSettingsOnExit !== false;
   const labelMode = labelModeOf(values?.tabLabels);
+  const closeOrder = closeOrderOf(values?.recentAfterClose);
   const compact = useMediaQuery(COMPACT_QUERY);
   const trafficLights = useReservesTrafficLights();
   const path = useSyncExternalStore(subscribeLocation, currentPath);
@@ -187,8 +199,8 @@ export function TopTabs() {
 
   // Callbacks below read the latest of these rather than closing over them,
   // so the controller and window listeners never act on a stale strip.
-  const live = useRef({ active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit });
-  live.current = { active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit };
+  const live = useRef({ active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit, closeOrder });
+  live.current = { active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit, closeOrder };
 
   // First run: the destinations the sidebar showed become the open tabs.
   // Wait for the list to settle, since plugin panels register as their
@@ -207,10 +219,15 @@ export function TopTabs() {
     return () => window.clearTimeout(timer);
   }, [tabs.seeded, visibleKey]);
 
+  // A pinned tab the close-tab command reset, until the strip has left it:
+  // its location must not be recorded again on the way out.
+  const resetting = useRef<TabId | null>(null);
+
   // A destination reached any other way — the palette, a shortcut, a link —
   // gets a tab, and every tab remembers where it was left.
   useEffect(() => {
     if (active === null) return;
+    if (resetting.current !== active) resetting.current = null;
     // Read the location now rather than from the render: it is the one
     // source that cannot lag behind.
     const here = currentPath();
@@ -220,13 +237,16 @@ export function TopTabs() {
     update((s) => {
       let next = recordRecent(adopt(s, active), active);
       if (threadId !== null) next = recordRecentThread(next, threadId);
+      if (resetting.current === active) return next;
       return pathFits(active, target, pathnameOf(here)) ? recordPath(next, active, here) : next;
     });
   }, [active, path, byId]);
 
-  // The sidebar belongs to Threads; see sidebarStep for the rules. A split is
-  // the user's own arrangement, and the sidebar is where they drag threads
-  // into it from, so while one is up the strip leaves the sidebar alone.
+  // Each tab keeps the sidebar as the user left it; see sidebarStep for the
+  // rules. A split is the user's own arrangement, and the sidebar is where
+  // they drag threads into it from, so while one is up the strip leaves the
+  // sidebar alone. `previous` is the tab the strip has brought the sidebar
+  // in line with, which a tab click sets before the route catches up.
   const previous = useRef<TabId | null | undefined>(undefined);
   const wasInSplit = useRef(false);
 
@@ -236,45 +256,56 @@ export function TopTabs() {
    * instead of the page rendering at one width and then reflowing to
    * another; navigation from anywhere else is caught by the effect below.
    * Either way it runs once per move, because it records `next` as where
-   * the strip now is.
+   * the strip now is. `pageLeft`, from a tab click, holds the sidebar's exit
+   * until the page being left has gone.
    */
-  const syncSidebar = useCallback((next: TabId | null) => {
+  const syncSidebar = useCallback((next: TabId | null, pageLeft?: Ready) => {
     const before = previous.current;
     previous.current = next;
+    // An entrance left running would carry on over the page being left for.
+    // Only on a real move: this runs again once bb has rendered the page,
+    // and the exit started on the way out has to survive that.
+    if (next !== before && next !== THREADS) stopEntrances();
     const { compact, collapseSidebar, inSplit } = live.current;
     if (compact || !collapseSidebar || inSplit) return;
     const sidebarOpen = isSidebarOpen();
     if (sidebarOpen === null) return;
-    const step = sidebarStep({
-      previous: before,
-      next,
-      sidebarOpen,
-      threadsSidebarOpen: getState().threadsSidebarOpen,
-    });
-    update((s) =>
-      s.threadsSidebarOpen === step.threadsSidebarOpen
-        ? s
-        : { ...s, threadsSidebarOpen: step.threadsSidebarOpen },
-    );
-    if (step.action !== null) toggleSidebar({ instant: true });
+    const step = sidebarStep({ previous: before, next, sidebarOpen, sidebar: getState().sidebar });
+    update((s) => (s.sidebar === step.sidebar ? s : { ...s, sidebar: step.sidebar }));
+    if (step.action === null) return;
+    // The sidebar slides in coming back to Threads or opening Settings, and
+    // out leaving Threads, on the compositor; see playEntrance and
+    // playSidebarExit. Not on load, where there is nothing to move from.
+    if (before !== undefined) {
+      if (step.action === "expand" && next === THREADS) playEntrance("sidebar");
+      if (step.action === "expand" && next === SETTINGS) playEntrance("sidebar", sidebarOf("page"));
+      if (step.action === "collapse" && before === THREADS) playSidebarExit(pageLeft);
+    }
+    toggleSidebar({ instant: true });
   }, []);
 
   useEffect(() => {
     // When a split closes, look at what is left afresh, as on first load: the
-    // sidebar comes back on Threads and slides away on any other tab.
+    // tab in view gets back the sidebar it keeps.
     if (wasInSplit.current && !inSplit) previous.current = undefined;
     wasInSplit.current = inSplit;
     syncSidebar(active);
   }, [active, compact, collapseSidebar, inSplit, syncSidebar]);
 
-  // While Threads is in view, the user's own toggling is their preference.
-  // The strip's toggles happen once another tab is already active, or set
-  // the preference they restore, so they never record anything wrong.
+  // The user's own toggling is the preference of the tab they are on. It is
+  // filed under `previous`, not the route: a tab click toggles the sidebar
+  // before it navigates, and the route still names the tab being left. The
+  // strip's own toggles set the state the tab already wants, so recording
+  // them changes nothing.
   useEffect(() => {
-    if (active !== THREADS || compact || !collapseSidebar) return;
+    if (compact || !collapseSidebar) return;
     return observeSidebar((open) => {
-      if (live.current.active !== THREADS) return;
-      update((s) => (s.threadsSidebarOpen === open ? s : { ...s, threadsSidebarOpen: open }));
+      const tab = previous.current;
+      if (tab === undefined || tab === null || live.current.inSplit) return;
+      update((s) => {
+        const sidebar = rememberSidebar(s.sidebar, tab, open);
+        return sidebar === s.sidebar ? s : { ...s, sidebar };
+      });
     });
   }, [active, compact, collapseSidebar]);
 
@@ -317,14 +348,28 @@ export function TopTabs() {
       }
       // No early return for Threads: navigating to the saved location is a
       // no-op when already there, and anywhere else it is the way back.
-      if (active !== THREADS) syncSidebar(THREADS);
+      if (active !== THREADS) {
+        syncSidebar(THREADS);
+        if (!live.current.inSplit) playEntrance("page");
+      }
       if (saved === undefined || !navigateToPath(saved)) bbNavigate.toCompose();
       return;
     }
     const item = byId.get(id);
     if (id === active || item === undefined) return;
     markMove();
-    syncSidebar(id);
+    // The page being left, before navigating away from it: the sidebar's
+    // exit and the new page's entrance both wait for it to go.
+    const pageLeft = pageGone();
+    syncSidebar(id, pageLeft);
+    // A change of layout fades the new page in, as the return to Threads
+    // does: leaving Threads, and going to or from Settings, whose sidebar is
+    // its own. Tab to tab keeps the layout and switches instantly, as a
+    // browser's tabs do. It waits for the page being left to go, so it never
+    // fades that one back in.
+    if (!live.current.inSplit && (active === THREADS || active === SETTINGS || id === SETTINGS)) {
+      playEntrance("page", pageLeft);
+    }
     update((s) => adopt(s, id));
     if (saved !== undefined && navigateToPath(saved)) return;
     // Settings is the strip's own entry; bb's actions do not know it.
@@ -368,7 +413,10 @@ export function TopTabs() {
       const { active, threadActions } = live.current;
       setSwitcher(null);
       stripMove.current = { to: THREADS, at: performance.now() };
-      if (active !== THREADS) syncSidebar(THREADS);
+      if (active !== THREADS) {
+        syncSidebar(THREADS);
+        if (!live.current.inSplit) playEntrance("page");
+      }
       // bb's own open: it focuses the thread's pane if a split shows it.
       threadActions.open(thread.id);
     },
@@ -379,8 +427,8 @@ export function TopTabs() {
     (id: TabId) => {
       // Threads and pinned tabs stay; a pinned tab has to be unpinned first.
       if (id === THREADS || getState().pinned.includes(id)) return;
-      const { active, shown, screen } = live.current;
-      const next = successorAfterClose(shown, id, active);
+      const { active, shown, screen, closeOrder } = live.current;
+      const next = successorAfterClose(shown, id, active, closeOrder, getState().recent);
       update((s) => close(s, [id]));
       // A tab on screen in a split closes with its pane, and bb chooses which
       // pane takes focus; there is no neighbour to switch to.
@@ -390,17 +438,39 @@ export function TopTabs() {
     [activateSoon],
   );
 
+  /**
+   * Close a pinned tab with the close-tab command or bb's Close, as Arc does:
+   * it stays pinned, forgets where it was left, and the strip moves past the
+   * other pins. The tab's ×, a middle-click and the batch closes still leave
+   * pinned tabs alone.
+   */
+  const closePinned = useCallback(
+    (id: TabId) => {
+      const { pinned, recent } = getState();
+      if (!pinned.includes(id)) return;
+      const { active, shown, screen, closeOrder } = live.current;
+      update((s) => resetPinned(s, id));
+      if (id !== active) return;
+      resetting.current = id;
+      if (closePanesOf(screen, [id])) return;
+      activateSoon(successorAfterPinClose(shown, pinned, id, closeOrder, recent));
+    },
+    [activateSoon],
+  );
+
   // bb's Close on a lone plugin page would open New Thread and leave the tab
-  // open behind Threads; it closes the tab instead, as the tab's own × does.
+  // open behind Threads; it closes the tab instead, as the tab's own × does,
+  // or resets a pinned one, as the close-tab command does.
   useEffect(
     () =>
       interceptPageClose(() => {
         const { active } = live.current;
-        if (!stripTakesPageClose(active, getState().pinned)) return false;
-        closeTab(active!);
-        return true;
+        const action = pageCloseAction(active, getState().pinned);
+        if (action === "tab") closeTab(active!);
+        else if (action === "pin") closePinned(active!);
+        return action !== null;
       }),
-    [closeTab],
+    [closeTab, closePinned],
   );
 
   /**
@@ -528,6 +598,7 @@ export function TopTabs() {
         active: () => live.current.active,
         activate: activateSoon,
         close: closeTab,
+        closePinned,
         cycle: (direction) => {
           const { active, shown } = live.current;
           activateSoon(cycle([THREADS, ...shown], active, direction));
@@ -538,7 +609,7 @@ export function TopTabs() {
         togglePin,
         openSwitcher: () => setSwitcher({ keyboard: true }),
       }),
-    [activateSoon, closeTab, reopenTab, togglePin],
+    [activateSoon, closeTab, closePinned, reopenTab, togglePin],
   );
 
   // Keep the tab in view visible when the strip scrolls.
@@ -617,7 +688,7 @@ export function TopTabs() {
       id === THREADS
         ? closable.length > 0
         : shown.slice(shown.indexOf(id) + 1).some((other) => closable.includes(other)),
-    canReopen: tabs.closed.some((c) => byId.has(c.id) && !tabs.open.includes(c.id)),
+    canReopen: reopenable(tabs, (id) => byId.has(id)) !== undefined,
     onClose: () => closeTab(id),
     onTogglePin: () => togglePin(id),
     onCloseOthers: () => closeOtherTabs(id),
@@ -764,7 +835,7 @@ export function TopTabs() {
                 >
                   <ThreadsGlyph className="bb-top-tab-icon" />
                   {threadsLabelled && (
-                    <ThreadsLabel active={selected === THREADS} savedPath={tabs.paths[THREADS]} />
+                    <ThreadsLabel active={active === THREADS} savedPath={tabs.paths[THREADS]} />
                   )}
                   <ThreadsStatus />
                   {threadsLabelled && <PaneMap screen={screen} tab={THREADS} />}
@@ -789,7 +860,7 @@ export function TopTabs() {
         openIds={shown}
         pinnedIds={tabs.pinned}
         active={active}
-        canReopen={tabs.closed.some((c) => byId.has(c.id) && !tabs.open.includes(c.id))}
+        canReopen={reopenable(tabs, (id) => byId.has(id)) !== undefined}
         splitFor={splitActionFor}
         onPick={activateSoon}
         onTogglePin={togglePin}

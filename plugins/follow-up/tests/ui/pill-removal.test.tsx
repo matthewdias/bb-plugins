@@ -73,12 +73,21 @@ function renderBanner(threadId: string, rows: FollowUp[]) {
 const pillIds = (slot: ReturnType<typeof renderSlot>) =>
   slot.inspection.composer.draft.mentions.map((mention) => (mention as { id: string }).id);
 
+/** The banner keeps Done and Dismiss in each row's ⋯ menu. */
+const menuTrigger = (slot: ReturnType<typeof renderSlot>, text: string) =>
+  slot.findByRole("button", { name: `More actions for "${text}"` });
+
+async function pickFromRowMenu(slot: ReturnType<typeof renderSlot>, text: string, item: string) {
+  fireEvent.keyDown(await menuTrigger(slot, text), { key: "Enter" });
+  fireEvent.click(await slot.findByRole("menuitem", { name: item }));
+}
+
 describe("the banner's own done and dismiss", () => {
   it("marking a row done removes its pill and leaves the others", async () => {
     const first = row("r1", "Fix the flaky test");
     const second = row("r2", "Update the docs");
     const { slot } = renderBanner("thr_done", [first, second]);
-    fireEvent.click(await slot.findByRole("button", { name: `Mark "${first.text}" done` }));
+    await pickFromRowMenu(slot, first.text, `Mark "${first.text}" done`);
     await waitFor(() => expect(pillIds(slot)).toEqual(["thr_done.r2"]));
     expect(slot.inspection.composer.text).toBe(`please ${second.text} today`);
   });
@@ -86,10 +95,10 @@ describe("the banner's own done and dismiss", () => {
   it("dismissing a row removes its pill", async () => {
     const only = row("r1", "Fix the flaky test");
     const { slot } = renderBanner("thr_dismiss", [only]);
-    fireEvent.click(
-      await slot.findByRole("button", {
-        name: `Dismiss "${only.text}" — it will not be recorded again on this thread`,
-      }),
+    await pickFromRowMenu(
+      slot,
+      only.text,
+      `Dismiss "${only.text}" — it will not be recorded again on this thread`,
     );
     await waitFor(() => expect(pillIds(slot)).toEqual([]));
     expect(slot.inspection.composer.text).toBe("please today");
@@ -98,14 +107,14 @@ describe("the banner's own done and dismiss", () => {
   it("a row that leaves through realtime keeps its pill in the draft", async () => {
     const only = row("r1", "Fix the flaky test");
     const { slot, backend } = renderBanner("thr_realtime", [only]);
-    await slot.findByRole("button", { name: `Mark "${only.text}" done` });
+    await menuTrigger(slot, only.text);
     // An agent's complete_follow_up, the CLI or another window: the server
     // moves the row and announces it; this banner did nothing itself.
     backend.state.done = [{ ...only, doneAt: "2026-10-02T00:00:00.000Z" }];
     backend.state.open = [];
     await slot.behavior.emitRealtime("followups-changed", { threadId: "thr_realtime" });
     await waitFor(() =>
-      expect(slot.queryByRole("button", { name: `Mark "${only.text}" done` })).toBeNull(),
+      expect(slot.queryByRole("button", { name: `More actions for "${only.text}"` })).toBeNull(),
     );
     expect(pillIds(slot)).toEqual(["thr_realtime.r1"]);
   });

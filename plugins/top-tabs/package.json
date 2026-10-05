@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-top-tabs",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -28,7 +28,7 @@
     "name": "Top Tabs",
     "description": "Opens bb destinations as tabs across the top of the window, beside a permanent Threads tab, so you can keep several open and switch without losing your place.",
     "branding": {
-      "icon": "Columns"
+      "icon": "AppWindow"
     },
     "server": "./server.ts",
     "app": "./app.tsx"

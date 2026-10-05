@@ -15,6 +15,8 @@ import {
   isExpanding,
   expansionGaveUp,
   isFollowUpInDraft,
+  mainActionFor,
+  TEXT_MAX,
   type FollowUp,
   type Reason,
 } from "../lib/followups.ts";
@@ -31,9 +33,19 @@ import { threadIdFromScope } from "./scope.ts";
 import { stripPill } from "./insert-pill.ts";
 import { commitOrder as commitRowOrder, insertRow } from "./reorder.ts";
 import { useFollowUps } from "./use-follow-ups.ts";
-import { HandoffAction } from "./handoff.tsx";
+import { HandoffAction, useHandoff } from "./handoff.tsx";
 import { EmptyState } from "./empty-state.tsx";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowLeftRightIcon } from "@hugeicons/core-free-icons";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
 import { usePortalScopeProps } from "@/lib/portal-scope";
@@ -50,6 +62,14 @@ const REASON_ICON: Record<Reason, IconName> = {
   deferred: "Clock",
   risk: "AlertTriangle",
   cleanup: "Clean",
+};
+
+/** Why an inline edit did not take, for the outcomes that are refusals. */
+const AMEND_REFUSAL: Partial<Record<string, string>> = {
+  duplicate: "Another follow-up on this thread already says that.",
+  dismissed: "You dismissed that wording earlier, so it cannot come back.",
+  "not-found": "That follow-up no longer exists.",
+  forbidden: "That follow-up cannot be edited.",
 };
 
 /**
@@ -99,6 +119,75 @@ function PeekCard({
   );
 }
 
+function growToFit(field: HTMLTextAreaElement): void {
+  field.style.height = "auto";
+  field.style.height = `${field.scrollHeight}px`;
+}
+
+/**
+ * A row's text, edited in place the way bb's Queue card edits a queued
+ * message. Enter or leaving the field saves; Escape puts the text back. Text
+ * only: the detail, file and reason have no room on a row, so ⋯ → Open in the
+ * panel is where those are edited.
+ */
+function RowTextEditor({
+  text,
+  onSave,
+  onCancel,
+}: {
+  text: string;
+  onSave: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(text);
+  const field = useRef<HTMLTextAreaElement>(null);
+  // Enter saves and the blur that follows must not save a second time.
+  const settled = useRef(false);
+
+  useEffect(() => {
+    const node = field.current;
+    if (node === null) return;
+    node.focus();
+    node.setSelectionRange(node.value.length, node.value.length);
+    growToFit(node);
+  }, []);
+
+  const finish = (save: boolean) => {
+    if (settled.current) return;
+    settled.current = true;
+    const next = value.trim();
+    if (save && next !== "") onSave(next);
+    else onCancel();
+  };
+
+  return (
+    <textarea
+      ref={field}
+      value={value}
+      rows={1}
+      maxLength={TEXT_MAX}
+      // A follow-up is one line, so a pasted newline becomes a space.
+      onChange={(event) => {
+        setValue(event.target.value.replace(/\r?\n/g, " "));
+        growToFit(event.target);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          finish(true);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          finish(false);
+        }
+      }}
+      onBlur={() => finish(true)}
+      aria-label={`Edit "${text}"`}
+      className="min-w-0 flex-1 resize-none rounded border border-border bg-background px-1.5 py-0.5 text-sm leading-[1.4] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    />
+  );
+}
+
 function FollowUpRow({
   row,
   threadId,
@@ -113,7 +202,8 @@ function FollowUpRow({
   active,
   onEnter,
   onPeek,
-  onEdit,
+  onOpenInPanel,
+  onAmend,
   onCancelExpand,
   onExpand,
 }: {
@@ -124,6 +214,8 @@ function FollowUpRow({
   onInsert: () => void;
   onDismiss: () => void;
   onDone: () => void;
+  /** Save new text for the row; the banner reports any refusal. */
+  onAmend: (text: string) => Promise<void>;
   busy: boolean;
   inserted: boolean;
   /** True for one beat after this row becomes in progress. */
@@ -133,11 +225,19 @@ function FollowUpRow({
   active: boolean;
   onEnter: (id: string | null) => void;
   onPeek: (row: FollowUp | null) => void;
-  onEdit: () => void;
+  onOpenInPanel: () => void;
 }) {
   const { setNodeRef, style, handleProps, isDragging, anyDragging } = useSortableRow(
     row.id,
   );
+  const handoff = useHandoff();
+  const main = mainActionFor(row.reason);
+  const [editing, setEditing] = useState(false);
+  // A detail tooltip scheduled before editing began would still open over the
+  // field; clearing it on entry cancels that timer too.
+  useEffect(() => {
+    if (editing) onPeek(null);
+  }, [editing, onPeek]);
   // Null unless this row was recorded on a child thread and carried up.
   const inheritedFrom = row.inheritedFrom ?? null;
   const expanding = isExpanding(row);
@@ -151,7 +251,8 @@ function FollowUpRow({
   // No detail tooltip mid-drag: the rows are moving, so it would describe
   // whichever row happened to slide under the cursor.
   const hasDetail =
-    showDetail && !anyDragging && row.detail !== null && row.detail !== "";
+    showDetail && !anyDragging && !editing && row.detail !== null && row.detail !== "";
+  const canDescribe = offerDescribe && !expanding && (row.detail === null || row.detail === "");
 
   return (
     <li
@@ -310,146 +411,195 @@ function FollowUpRow({
           )}
         </span>
       )}
-      <span
-        className={cn(
-          "min-w-0 flex-1 break-words text-sm leading-[1.4]",
-          inserted && "text-muted-foreground",
-          hasDetail && "cursor-help",
-        )}
-        tabIndex={hasDetail ? 0 : undefined}
-      >
-        {row.text}
-        {row.file !== null && (
-          <span className="ml-1.5 break-words text-xs text-muted-foreground">
-            {row.file}
-          </span>
-        )}
-      </span>
+      {editing ? (
+        <RowTextEditor
+          text={row.text}
+          onCancel={() => setEditing(false)}
+          onSave={(text) => {
+            setEditing(false);
+            if (text !== row.text) void onAmend(text);
+          }}
+        />
+      ) : (
+        <span
+          className={cn(
+            "min-w-0 flex-1 break-words text-sm leading-[1.4]",
+            inserted && "text-muted-foreground",
+            hasDetail && "cursor-help",
+          )}
+          tabIndex={hasDetail ? 0 : undefined}
+        >
+          {row.text}
+          {row.file !== null && (
+            <span className="ml-1.5 break-words text-xs text-muted-foreground">
+              {row.file}
+            </span>
+          )}
+        </span>
+      )}
       {/* Driven by a single hovered-row state rather than CSS `group-hover`.
           With group-hover several rows kept their actions up at once and then
           cleared together on the next render — the browser was holding stale
           :hover on rows the pointer had left. One state value cannot describe
           two rows, so that cannot happen. `focus-within` still covers keyboard,
           and touch keeps them permanently visible. */}
-      <span
-        className={cn(
-          "flex shrink-0 items-center gap-0.5 focus-within:opacity-100",
-          hoverActions ? (active ? "opacity-100" : "opacity-0") : "opacity-60",
-        )}
-      >
-        {/* Button deliberately omits `title`, so the native tooltip lives on a
-            wrapper. The glyph says what happens — the row joins the message
-            being written — rather than which way it travels to get there. */}
-        {/* One slot, two states: describe this, or stop describing it. Offered
-            only on a row with no detail — that is what an expansion is for, and
-            a sixth permanent action on every row would cost more than it
-            returns. A row a helper gave up on has no detail by definition, so
-            it keeps the button and can be asked again. */}
-        {offerDescribe && !expanding && (row.detail === null || row.detail === "") && (
-          <span title="Describe this in more detail" className="inline-flex">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-6 text-muted-foreground"
-              disabled={busy}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onExpand();
-              }}
-              aria-label={`Describe "${row.text}" in more detail`}
-            >
-              <Icon name="Brain" className="size-3.5" />
-            </Button>
-          </span>
-        )}
-        {expanding && (
-          <span title="Stop describing this" className="inline-flex">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-6 text-muted-foreground hover:text-destructive"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onCancelExpand();
-              }}
-              aria-label={`Stop describing "${row.text}"`}
-            >
-              <Icon name="Square" className="size-3.5" />
-            </Button>
-          </span>
-        )}
+      {/* One verb on the row and the rest behind ⋯, the way bb's own Queue card
+          lays out its rows: six icons per row read as a toolbar, not a list.
+          Which verb stays is `mainActionFor`'s guess from the reason. */}
+      {!editing && (
         <span
-          title={
-            inserted
-              ? "Already in the composer — send to hand it to the agent"
-              : "Put this in the composer"
-          }
-          className="inline-flex"
+          className={cn(
+            "flex shrink-0 items-center gap-0.5 focus-within:opacity-100",
+            hoverActions ? (active ? "opacity-100" : "opacity-0") : "opacity-60",
+          )}
         >
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            disabled={busy || inserted}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={onInsert}
-            aria-label={
-              inserted
-                ? `"${row.text}" is already in the composer`
-                : `Put "${row.text}" in the composer`
-            }
+          {/* Stopping a running helper stays inline: it is the way out of
+              something already happening, not one more option. */}
+          {expanding && (
+            <span title="Stop describing this" className="inline-flex">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6 text-muted-foreground hover:text-destructive"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCancelExpand();
+                }}
+                aria-label={`Stop describing "${row.text}"`}
+              >
+                <Icon name="Square" className="size-3.5" />
+              </Button>
+            </span>
+          )}
+          {main === "handoff" ? (
+            <HandoffAction row={row} />
+          ) : (
+            <span
+              title={
+                inserted
+                  ? "Already in the composer — send to hand it to the agent"
+                  : "Put this in the composer"
+              }
+              className="inline-flex"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                disabled={busy || inserted}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={onInsert}
+                aria-label={
+                  inserted
+                    ? `"${row.text}" is already in the composer`
+                    : `Put "${row.text}" in the composer`
+                }
+              >
+                <Icon name="MessageSquarePlus" className="size-3.5" />
+              </Button>
+            </span>
+          )}
+          <DropdownMenu
+            modal={false}
+            // The detail tooltip would otherwise sit over the timeline for as
+            // long as the menu is open, since the pointer never left the row.
+            onOpenChange={(open) => open && onPeek(null)}
           >
-            <Icon name="MessageSquarePlus" className="size-3.5" />
-          </Button>
+            <span title="More actions" className="inline-flex">
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 text-muted-foreground"
+                  onMouseDown={(event) => event.preventDefault()}
+                  aria-label={`More actions for "${row.text}"`}
+                >
+                  <Icon name="MoreHorizontal" className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+            </span>
+            <DropdownMenuContent
+              align="end"
+              // Focus goes to the text editor when Edit is picked; Radix
+              // would otherwise pull it back to this trigger as it closes.
+              onCloseAutoFocus={(event) => event.preventDefault()}
+            >
+              {main !== "insert" && (
+                <DropdownMenuItem
+                  disabled={busy || inserted}
+                  onSelect={onInsert}
+                  aria-label={
+                    inserted
+                      ? `"${row.text}" is already in the composer`
+                      : `Put "${row.text}" in the composer`
+                  }
+                >
+                  <Icon name="MessageSquarePlus" className="size-3.5" aria-hidden />
+                  Put in composer
+                </DropdownMenuItem>
+              )}
+              {main !== "handoff" && (
+                <DropdownMenuItem
+                  onSelect={() => handoff(row)}
+                  aria-label={`Hand off "${row.text}" in a new thread`}
+                >
+                  <HugeiconsIcon icon={ArrowLeftRightIcon} className="size-3.5" aria-hidden />
+                  Hand off…
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                disabled={busy}
+                onSelect={() => setEditing(true)}
+                aria-label={`Edit "${row.text}"`}
+              >
+                <Icon name="Edit" className="size-3.5" aria-hidden />
+                Edit
+              </DropdownMenuItem>
+              {/* Offered only on a row with no detail — that is what describing
+                  is for. A row a helper gave up on has none by definition, so it
+                  can be asked again. */}
+              {canDescribe && (
+                <DropdownMenuItem
+                  disabled={busy}
+                  onSelect={onExpand}
+                  aria-label={`Describe "${row.text}" in more detail`}
+                >
+                  <Icon name="Brain" className="size-3.5" aria-hidden />
+                  Describe in more detail
+                </DropdownMenuItem>
+              )}
+              {/* The full editor, for the detail, file and reason a row this
+                  size has no room for. */}
+              <DropdownMenuItem
+                onSelect={onOpenInPanel}
+                aria-label={`Open "${row.text}" in the panel`}
+              >
+                <Icon name="ArrowUpRight" className="size-3.5" aria-hidden />
+                Open in the panel
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={busy}
+                onSelect={onDone}
+                aria-label={`Mark "${row.text}" done`}
+              >
+                <Icon name="Check" className="size-3.5" aria-hidden />
+                Mark done
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                destructive
+                disabled={busy}
+                onSelect={onDismiss}
+                aria-label={`Dismiss "${row.text}" — it will not be recorded again on this thread`}
+              >
+                <Icon name="X" className="size-3.5" aria-hidden />
+                Dismiss
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </span>
-        <HandoffAction row={row} />
-        {/* Editing happens in the panel: a 240-character text and its detail
-            do not fit a row this size, and the panel already renders both. */}
-        <span title="Edit in the panel" className="inline-flex">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            disabled={busy}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={onEdit}
-            aria-label={`Edit "${row.text}" in the panel`}
-          >
-            <Icon name="Edit" className="size-3.5" />
-          </Button>
-        </span>
-        <span title="Mark done" className="inline-flex">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            disabled={busy}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={onDone}
-            aria-label={`Mark "${row.text}" done`}
-          >
-            <Icon name="Check" className="size-3.5" />
-          </Button>
-        </span>
-        <span
-          title="Dismiss — it will not be recorded again on this thread"
-          className="inline-flex"
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6 text-muted-foreground"
-            disabled={busy}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={onDismiss}
-            aria-label={`Dismiss "${row.text}" — it will not be recorded again on this thread`}
-          >
-            <Icon name="X" className="size-3.5" />
-          </Button>
-        </span>
-      </span>
+      )}
     </li>
   );
 }
@@ -862,6 +1012,32 @@ export function FollowUpBanner() {
     [reload, composer],
   );
 
+  // Inline edits change the text only. A refusal is reported in a toast, since
+  // the editor has already closed by the time the answer arrives.
+  const amend = useCallback(
+    async (row: FollowUp, text: string) => {
+      const target = threadIdRef.current;
+      if (target === null) return;
+      setBusy(true);
+      try {
+        const result = await rpcRef.current.call("followups_amend", {
+          threadId: target,
+          id: row.id,
+          text,
+        });
+        if (threadIdRef.current === target) setRows(target, result.followUps, result.done);
+        const refusal = AMEND_REFUSAL[result.outcome];
+        if (refusal !== undefined) toast.error(refusal);
+      } catch {
+        toast.error("The edit was not saved. Try again.");
+        reload();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [reload],
+  );
+
   const clearDone = useCallback(async () => {
     const target = threadIdRef.current;
     if (target === null) return;
@@ -932,52 +1108,27 @@ export function FollowUpBanner() {
             hover that is keeping it open — and, now that it sits above the whole
             card, from swallowing clicks meant for the timeline behind it. */}
         {peeked !== null && <PeekCard peek={peeked} portalProps={portalProps} />}
-        {/* Siblings, not nested: a Button inside the header button would be
-            invalid HTML. The summary text stays clickable, and the chevron is the
-            explicit affordance. */}
+        {/* Laid out like bb's Queue card, which stacks right under this one:
+            a label and a count on the left, the disclosure on the right. The
+            summary text is the toggle, with the chevron as its explicit
+            affordance; siblings rather than nested, since a button inside the
+            header button would be invalid HTML. */}
         <div className="flex w-full min-w-0 shrink-0 items-center gap-1.5 px-1">
-          {/* Leading, before the plugin's own glyph: this is a disclosure
-              triangle, and a disclosure triangle sits at the start of the row it
-              opens. Trailing, among the action buttons, it read as one more
-              action rather than the row's own state. Right when closed, down
-              when open — the same pair the done section below already uses, and
-              the reason it is no longer up/down is that there is nothing above
-              to point at. */}
-          <span title={collapsed ? "Show" : "Collapse"} className="inline-flex shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-5"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => {
-                event.stopPropagation();
-                // Expanding needs the screen the keyboard is occupying.
-                if (isCompact && collapsed) dismissKeyboard();
-                toggleCollapsed(threadId);
-              }}
-              aria-expanded={!collapsed}
-              aria-label={`${collapsed ? "Show" : "Hide"} the follow-up list`}
-            >
-              <Icon
-                name={collapsed ? "ChevronRight" : "ChevronDown"}
-                className="size-3.5 text-muted-foreground"
-              />
-            </Button>
-          </span>
-          <Icon name="TextWrap" className="size-3 shrink-0 text-muted-foreground" />
           <button
             type="button"
             onMouseDown={(event) => event.preventDefault()}
             onClick={(event) => {
               event.stopPropagation();
+              // Expanding needs the screen the keyboard is occupying.
               if (isCompact && collapsed) dismissKeyboard();
               toggleCollapsed(threadId);
             }}
             className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
             aria-label={`${collapsed ? "Show" : "Hide"} the follow-up list`}
           >
-            <span className="shrink-0 text-xs font-medium text-muted-foreground">
-              {rows.length} follow-up{rows.length === 1 ? "" : "s"}
+            <span className="shrink-0 text-xs font-medium text-foreground">Follow-ups</span>
+            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+              {rows.length}
             </span>
             {/* The rollup was a `title` on the old composer pill: invisible until
                 hover, and unreachable on touch. A full-width summary line has the
@@ -1059,6 +1210,28 @@ export function FollowUpBanner() {
               <Icon name="ArrowUpRight" className="size-3.5 text-muted-foreground" />
             </Button>
           </span>
+          {/* Up to grow the list over the timeline, down to fold it back toward
+              the composer, as on bb's Queue card. */}
+          <span title={collapsed ? "Show" : "Collapse"} className="inline-flex shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (isCompact && collapsed) dismissKeyboard();
+                toggleCollapsed(threadId);
+              }}
+              aria-expanded={!collapsed}
+              aria-label={`${collapsed ? "Show" : "Hide"} the follow-up list`}
+            >
+              <Icon
+                name={collapsed ? "ChevronUp" : "ChevronDown"}
+                className="size-3.5 text-muted-foreground"
+              />
+            </Button>
+          </span>
         </div>
         {/* Collapse animates as a grid row going 1fr → 0fr, not as height going
             to auto: `height: auto` is not interpolable without `interpolate-size`,
@@ -1120,7 +1293,8 @@ export function FollowUpBanner() {
               onPeek={schedulePeek}
               onCancelExpand={() => void cancelExpand(row)}
               onExpand={() => void expandRow(row)}
-              onEdit={() => {
+              onAmend={(text) => amend(row, text)}
+              onOpenInPanel={() => {
                 dismissKeyboard();
                 // Same reasoning as the header's panel button: every route from
                 // this banner into the panel hands the list over to it.

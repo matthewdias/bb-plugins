@@ -18,12 +18,20 @@ export const SETTINGS = "__top-tabs__/settings";
 
 export type TabId = string;
 
+/** Whether the sidebar is open on each tab, Threads included. */
+export type SidebarMemory = Readonly<Record<string, boolean>>;
+
 export interface ClosedTab {
   id: string;
   /** Where the tab was when it closed, so reopening lands in the same place. */
   path: string | null;
   /** Its position in `open`, so reopening puts it back where it was. */
   index: number;
+  /**
+   * A pinned tab that was reset rather than closed. It is still open, so
+   * reopening it gives back its location instead of a slot in the strip.
+   */
+  reset?: true;
 }
 
 export interface TabsState {
@@ -43,12 +51,12 @@ export interface TabsState {
   /** Recently closed tabs, most recent first. */
   closed: readonly ClosedTab[];
   /**
-   * Whether the user keeps the sidebar open on Threads: what it was the last
-   * time they left Threads, or last set it to while there. It is the state to
-   * restore on the way back, so collapsing the sidebar on Threads keeps it
-   * collapsed there. Null until the strip has seen Threads once.
+   * Whether the user keeps the sidebar open on each tab: what it was the last
+   * time they left the tab, or last set it to while there. It is the state to
+   * restore on the way back, so collapsing the sidebar on a tab keeps it
+   * collapsed there. A tab is missing until the strip has seen it.
    */
-  threadsSidebarOpen: boolean | null;
+  sidebar: SidebarMemory;
   /**
    * Set once the strip has been filled from the sidebar's visible items, the
    * first time the plugin runs, so the destinations the user kept in the
@@ -66,7 +74,7 @@ export const EMPTY_STATE: TabsState = {
   pinned: [],
   paths: {},
   closed: [],
-  threadsSidebarOpen: null,
+  sidebar: {},
   seeded: false,
   recent: [],
   recentThreads: [],
@@ -119,12 +127,13 @@ export function parseState(raw: unknown): TabsState {
   if (Array.isArray(record.closed)) {
     for (const entry of record.closed) {
       if (typeof entry !== "object" || entry === null) continue;
-      const { id, path, index } = entry as Record<string, unknown>;
+      const { id, path, index, reset } = entry as Record<string, unknown>;
       if (!isTabId(id) || id === THREADS) continue;
       closed.push({
         id,
         path: isAppPath(path) ? path : null,
         index: typeof index === "number" && Number.isInteger(index) && index >= 0 ? index : 0,
+        ...(reset === true ? { reset: true as const } : {}),
       });
       if (closed.length === CLOSED_LIMIT) break;
     }
@@ -139,8 +148,7 @@ export function parseState(raw: unknown): TabsState {
     pinned,
     paths,
     closed,
-    threadsSidebarOpen:
-      typeof record.threadsSidebarOpen === "boolean" ? record.threadsSidebarOpen : null,
+    sidebar: parseSidebar(record),
     seeded: record.seeded === true,
     recent: Array.isArray(record.recent)
       ? [...new Set(record.recent.filter(isTabId))].slice(0, RECENT_LIMIT)
@@ -149,6 +157,20 @@ export function parseState(raw: unknown): TabsState {
       ? [...new Set(record.recentThreads.filter(isTabId))].slice(0, RECENT_THREADS_LIMIT)
       : [],
   };
+}
+
+function parseSidebar(record: Record<string, unknown>): SidebarMemory {
+  const sidebar: Record<string, boolean> = {};
+  if (typeof record.sidebar === "object" && record.sidebar !== null) {
+    for (const [id, open] of Object.entries(record.sidebar)) {
+      if (isTabId(id) && typeof open === "boolean") sidebar[id] = open;
+    }
+  }
+  // Before each tab had its own, only Threads remembered the sidebar.
+  if (!(THREADS in sidebar) && typeof record.threadsSidebarOpen === "boolean") {
+    sidebar[THREADS] = record.threadsSidebarOpen;
+  }
+  return sidebar;
 }
 
 /**
@@ -319,9 +341,16 @@ export function unpin(state: TabsState, id: TabId): TabsState {
   return { ...state, pinned, open: [...pinned, id, ...others] };
 }
 
+/**
+ * Note where `id` is. A reset pin the user has gone back to has been taken
+ * as it is, so ⌃⇧T no longer gives back the location it forgot.
+ */
 export function recordPath(state: TabsState, id: TabId, path: string): TabsState {
   if (!isAppPath(path) || state.paths[id] === path) return state;
-  return { ...state, paths: { ...state.paths, [id]: path } };
+  const closed = state.closed.some((c) => c.id === id && c.reset)
+    ? state.closed.filter((c) => c.id !== id)
+    : state.closed;
+  return { ...state, paths: { ...state.paths, [id]: path }, closed };
 }
 
 /** Fill an empty strip once, from the destinations the sidebar showed. */
@@ -346,48 +375,122 @@ function remember(closed: readonly ClosedTab[], entries: readonly ClosedTab[]): 
 }
 
 /**
+ * Where closing the tab in view goes: to its right-hand neighbour, as a
+ * browser does, or back to the tab in view before it, as VS Code does.
+ */
+export type CloseOrder = "position" | "recent";
+
+/** The `recentAfterClose` setting. */
+export function closeOrderOf(value: unknown): CloseOrder {
+  return value === true ? "recent" : "position";
+}
+
+/** The tab most recently in view that is still open, other than `id`. */
+function lastInView(
+  open: readonly string[],
+  recent: readonly TabId[],
+  id: string,
+  skip: readonly string[] = [],
+): TabId | undefined {
+  return recent.find(
+    (other) => other !== id && !skip.includes(other) && (other === THREADS || open.includes(other)),
+  );
+}
+
+/**
  * The tab to show after closing `id` while `active` is in view.
  *
  * Closing a background tab changes nothing. Closing the one in view moves to
  * its right-hand neighbour, as a browser does, then its left, then Threads.
+ * In recent order it goes back to the tab in view before it instead, and to
+ * the neighbour once no tab it remembers is still open.
  */
 export function successorAfterClose(
   open: readonly string[],
   id: string,
   active: TabId | null,
+  order: CloseOrder = "position",
+  recent: readonly TabId[] = [],
 ): TabId | null {
   if (id !== active) return active;
   const index = open.indexOf(id);
   if (index === -1) return active;
+  if (order === "recent") {
+    const last = lastInView(open, recent, id);
+    if (last !== undefined) return last;
+  }
   return open[index + 1] ?? open[index - 1] ?? THREADS;
 }
 
 /**
- * Whether the strip answers bb's Close on a page shown on its own (bb 0.45+).
+ * The tab to show after the close-tab command leaves the pinned tab `id`.
  *
- * bb opens New Thread there. For a destination tab that would leave the tab
- * open behind Threads, so the strip closes it instead, as the tab's own ×
- * does. Threads keeps bb's behaviour, and so does a pinned tab, which never
- * closes: bb leaves the page and the tab stays.
+ * It moves past the other pins, as VS Code skips its pinned editors, so
+ * pressing the shortcut again closes an ordinary tab rather than stepping
+ * through every pin: the first ordinary tab, or in recent order the one most
+ * recently in view, and Threads when there is none.
  */
-export function stripTakesPageClose(active: TabId | null, pinned: readonly string[]): boolean {
-  return active !== null && active !== THREADS && !pinned.includes(active);
+export function successorAfterPinClose(
+  open: readonly string[],
+  pinned: readonly string[],
+  id: string,
+  order: CloseOrder = "position",
+  recent: readonly TabId[] = [],
+): TabId {
+  if (order === "recent") {
+    const last = lastInView(open, recent, id, pinned);
+    if (last !== undefined) return last;
+  }
+  return open.find((other) => !pinned.includes(other)) ?? THREADS;
 }
 
 /**
- * What the close-tab command does: close the destination tab in view, or, on
- * Threads, which cannot close, press bb's Close on the lone thread page so it
- * opens New Thread. Null when there is nothing to close: a pinned tab, or
- * Threads with no Close on screen (a split, or the compose screen itself).
+ * Close a pinned tab without unpinning it, as Arc does: it stays in the
+ * strip and forgets where it was left, so it next opens at its start. The
+ * location goes on the closed list, so ⌃⇧T can give it back.
+ */
+export function resetPinned(state: TabsState, id: TabId): TabsState {
+  const path = state.paths[id];
+  if (!state.pinned.includes(id) || path === undefined) return state;
+  const entry: ClosedTab = { id, path, index: state.open.indexOf(id), reset: true };
+  return {
+    ...state,
+    paths: withoutPath(state.paths, id),
+    closed: remember(state.closed, [entry]),
+  };
+}
+
+/**
+ * What the strip does with bb's Close on a page shown on its own (bb 0.45+).
+ *
+ * bb opens New Thread there. For a destination tab that would leave the tab
+ * open behind Threads, so the strip answers it as the close-tab command does:
+ * it closes the tab, or resets a pinned one and leaves it, pinned. Null when
+ * bb keeps its own behaviour: on Threads, where New Thread is where it should
+ * go anyway, and on pages no tab holds.
+ */
+export function pageCloseAction(
+  active: TabId | null,
+  pinned: readonly string[],
+): "tab" | "pin" | null {
+  if (active === null || active === THREADS) return null;
+  return pinned.includes(active) ? "pin" : "tab";
+}
+
+/**
+ * What the close-tab command does: what bb's Close does on a destination tab
+ * (see pageCloseAction), or, on Threads, which cannot close, press bb's Close
+ * on the lone thread page so it opens New Thread. Null when there is nothing
+ * to close: Threads with no Close on screen (a split, or the compose screen
+ * itself).
  */
 export function closeCommandAction(
   active: TabId | null,
   pinned: readonly string[],
   hasPageClose: boolean,
-): "tab" | "page" | null {
-  if (active === null) return null;
+): "tab" | "pin" | "page" | null {
   if (active === THREADS) return hasPageClose ? "page" : null;
-  return pinned.includes(active) ? null : "tab";
+  return pageCloseAction(active, pinned);
 }
 
 /** Close tabs. Pinned tabs are skipped: unpin a tab to close it. */
@@ -424,15 +527,39 @@ export function closeToRight(state: TabsState, of: TabId): TabsState {
 }
 
 /**
- * Reopen the most recently closed tab that can still open.
- * `isAvailable` filters out destinations whose plugin has since gone away.
+ * The most recently closed tab that can still open, or reset pin that is
+ * still open. `isAvailable` filters out destinations whose plugin has since
+ * gone away. A closed tab reopened another way since is passed over.
+ */
+export function reopenable(
+  state: TabsState,
+  isAvailable: (id: string) => boolean,
+): ClosedTab | undefined {
+  return state.closed.find(
+    (c) => isAvailable(c.id) && state.open.includes(c.id) === (c.reset === true),
+  );
+}
+
+/**
+ * Reopen the most recently closed tab, or give a reset pin back its
+ * location. See `reopenable`.
  */
 export function reopen(
   state: TabsState,
   isAvailable: (id: string) => boolean,
 ): { state: TabsState; tab: ClosedTab | null } {
-  const tab = state.closed.find((c) => isAvailable(c.id) && !state.open.includes(c.id));
+  const tab = reopenable(state, isAvailable);
   if (tab === undefined) return { state, tab: null };
+  if (tab.reset) {
+    return {
+      state: {
+        ...state,
+        paths: tab.path === null ? state.paths : { ...state.paths, [tab.id]: tab.path },
+        closed: state.closed.filter((c) => c !== tab),
+      },
+      tab,
+    };
+  }
   const open = [...state.open];
   // Back in its old slot, but never among the pinned tabs.
   const index = Math.max(state.pinned.length, Math.min(tab.index, open.length));
@@ -502,51 +629,52 @@ export interface SidebarStepInput {
   previous: TabId | null | undefined;
   next: TabId | null;
   sidebarOpen: boolean;
-  threadsSidebarOpen: boolean | null;
+  /** Whether the sidebar was open on each tab when the user left it. */
+  sidebar: SidebarMemory;
 }
 
 export interface SidebarStep {
   action: "collapse" | "expand" | null;
-  threadsSidebarOpen: boolean | null;
+  sidebar: SidebarMemory;
+}
+
+/**
+ * Whether the sidebar is open on a tab the strip has no memory of. Settings
+ * opens it, because bb fills the sidebar with Settings' own sections there;
+ * any other destination collapses it, so the page gets the whole window.
+ * Threads has no default: the strip learns it from what it finds there.
+ */
+function sidebarDefault(tab: TabId): boolean | undefined {
+  if (tab === THREADS) return undefined;
+  return tab === SETTINGS;
+}
+
+/** `memory` with `tab` set to `open`, or `memory` itself if it already was. */
+export function rememberSidebar(memory: SidebarMemory, tab: TabId, open: boolean): SidebarMemory {
+  return memory[tab] === open ? memory : { ...memory, [tab]: open };
 }
 
 /**
  * What the sidebar should do when the tab in view changes.
  *
- * The sidebar belongs to Threads. Leaving Threads records whether it was open
- * and collapses it; arriving on Threads — by switching back, or by loading
- * the app there — reopens it if the user keeps it open there. Threads never
- * collapses it: a sidebar the user opened is theirs. Between two other tabs
- * nothing happens, so a sidebar opened by hand on a tab stays open until
- * Threads. A route that belongs to no tab leaves it alone.
- *
- * Settings is the exception among tabs. bb fills the sidebar with Settings'
- * own sections there, so arriving on Settings opens it. Since that was
- * Settings' doing, not the user's, leaving Settings undoes it: another tab
- * collapses it as usual, and Threads gets back the state the user keeps.
+ * Each tab keeps the sidebar as the user left it there. Leaving a tab records
+ * whether the sidebar was open; arriving on one — by switching, or by loading
+ * the app there — opens or collapses it to match. A tab never seen before
+ * starts from `sidebarDefault`. A route that belongs to no tab leaves the
+ * sidebar alone.
  */
 export function sidebarStep(input: SidebarStepInput): SidebarStep {
   const { previous, next, sidebarOpen } = input;
-  let { threadsSidebarOpen } = input;
-  if (previous === next || next === null) return { action: null, threadsSidebarOpen };
-  if (previous === THREADS) threadsSidebarOpen = sidebarOpen;
-
-  if (next === THREADS) {
-    // Never seen Threads: learn the preference instead of imposing one.
-    if (threadsSidebarOpen === null) return { action: null, threadsSidebarOpen: sidebarOpen };
-    if (threadsSidebarOpen && !sidebarOpen) return { action: "expand", threadsSidebarOpen };
-    // Back from Settings, which opened it: the user keeps it collapsed here.
-    if (previous === SETTINGS && !threadsSidebarOpen && sidebarOpen) {
-      return { action: "collapse", threadsSidebarOpen };
-    }
-    return { action: null, threadsSidebarOpen };
+  let { sidebar } = input;
+  if (previous === next || next === null) return { action: null, sidebar };
+  if (previous !== undefined && previous !== null) {
+    sidebar = rememberSidebar(sidebar, previous, sidebarOpen);
   }
-
-  if (next === SETTINGS) return { action: sidebarOpen ? null : "expand", threadsSidebarOpen };
-
-  const arrivingFromAfar =
-    previous === THREADS || previous === SETTINGS || previous === undefined || previous === null;
-  return { action: arrivingFromAfar && sidebarOpen ? "collapse" : null, threadsSidebarOpen };
+  const want = sidebar[next] ?? sidebarDefault(next);
+  // Never seen Threads: learn the preference instead of imposing one.
+  if (want === undefined) return { action: null, sidebar: rememberSidebar(sidebar, next, sidebarOpen) };
+  if (want === sidebarOpen) return { action: null, sidebar };
+  return { action: want ? "expand" : "collapse", sidebar };
 }
 
 // ---------------------------------------------------------------- splits
@@ -620,7 +748,7 @@ export function threadPaneFor(
   return threads.find((pane) => pane.threadId === savedThreadId) ?? threads[0] ?? null;
 }
 
-/** Note that `tab` is in view, for choosing a split partner later. */
+/** Note that `tab` is in view, for choosing a split partner or where a close goes. */
 export function recordRecent(state: TabsState, tab: TabId): TabsState {
   if (state.recent[0] === tab) return state;
   return {
