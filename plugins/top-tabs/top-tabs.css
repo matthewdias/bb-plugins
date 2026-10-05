@@ -288,7 +288,39 @@ svg.bb-top-tab-icon,
   white-space: nowrap;
 }
 
+/* The Threads tab's thread title opens and shuts by its width, so the tabs
+   after it glide rather than jump. A one-column grid going from 0fr to 1fr
+   animates to the title's own width without measuring it. Only the strip
+   lays out, and it is small and fixed. The title inside keeps its full width
+   and is clipped, so it doesn't re-ellipsize on every frame. */
+.bb-top-tab-sublabel-reveal {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-columns 200ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 150ms ease-out;
+}
+
+.bb-top-tab-sublabel-reveal[data-shown] {
+  grid-template-columns: 1fr;
+  opacity: 1;
+}
+
+.bb-top-tab-sublabel-clip {
+  min-width: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-top-tab-sublabel-reveal {
+    transition: none;
+  }
+}
+
 .bb-top-tab-sublabel {
+  display: block;
+  width: max-content;
   min-width: 0;
   max-width: 200px;
   overflow: hidden;

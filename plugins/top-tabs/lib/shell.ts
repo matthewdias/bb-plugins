@@ -120,3 +120,272 @@ export function toggleSidebar(options: { instant?: boolean } = {}): boolean {
   trigger.click();
   return true;
 }
+
+/**
+ * The motion an instant switch keeps. Each animates only `translate` or
+ * `opacity`, which the compositor runs without laying the page out again —
+ * the page still lays out once, at its final width, as `instant` promises —
+ * and which keeps going while bb finishes rendering a long thread. Nothing
+ * here uses `transform` on the page, which would become the containing block
+ * of everything fixed inside it.
+ */
+const ENTRANCES = {
+  /** The sidebar slides back in over the space it already holds. */
+  sidebar: {
+    selector: '[data-side="left"] > [data-sidebar="panel"]',
+    keyframes: [{ translate: "-100% 0" }, { translate: "0 0" }],
+    timing: { duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+  },
+  /** The page fades in, so a thread rendered afresh does not just appear. */
+  page: {
+    selector: '[data-testid="app-layout-content-shell"]',
+    keyframes: [{ opacity: 0 }, { opacity: 1 }],
+    timing: { duration: 180, easing: "ease-out" },
+  },
+} satisfies Record<string, { selector: string; keyframes: Keyframe[]; timing: KeyframeAnimationOptions }>;
+
+/**
+ * How long after it starts an entrance adopts elements bb mounts.
+ * Leaving bb's own pages (Plugins, Skills) mounts a fresh sidebar and page
+ * shell for the thread, a moment after the old ones are on screen.
+ */
+const ADOPT_MS = 1000;
+
+/**
+ * Longest an entrance holds its elements out of sight, waiting for bb to
+ * mount and draw the thread. Going back to Threads always ends on the
+ * thread list, so this only bounds a render slower than bb ever is.
+ */
+const HOLD_MS = 3000;
+
+/**
+ * A page's own sidebar rather than the thread list. bb marks each sidebar's
+ * top row by its page: `app-sidebar-top-reserve-row` for the thread list,
+ * `skills-sidebar-top-reserve-row` on Skills. Matching every other page's
+ * mark, not the thread list's, means a rename leaves everything counted as
+ * the thread list, which is how this behaved before it knew the difference.
+ */
+const OTHER_PAGES_SIDEBAR =
+  '[data-side="left"] [data-testid$="-sidebar-top-reserve-row"]:not([data-testid="app-sidebar-top-reserve-row"])';
+
+/** A frame this quick means the browser has caught up with bb's render. */
+const STEADY_FRAME_MS = 25;
+
+/** Longest to wait for steady frames before moving anyway. */
+const SETTLE_MAX_MS = 300;
+
+/**
+ * Run `run` once the browser has caught up: two quick frames in a row, or
+ * at most `SETTLE_MAX_MS` from now. bb renders a thread in long frames, and
+ * motion started during them is spent unseen or stalls, so the strip moves
+ * once they're over. Returns a cancel.
+ */
+export function whenSettled(run: (now: number) => void): () => void {
+  const deadline = performance.now() + SETTLE_MAX_MS;
+  let last: number | null = null;
+  let steady = 0;
+  let frame = 0;
+  const tick = (now: number) => {
+    steady = last !== null && now - last < STEADY_FRAME_MS ? steady + 1 : 0;
+    last = now;
+    if (steady >= 2 || now >= deadline) run(now);
+    else frame = requestAnimationFrame(tick);
+  };
+  frame = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(frame);
+}
+
+/**
+ * Run `run` once `ready` says yes and the browser has caught up with bb's
+ * render. Returns a cancel.
+ */
+function whenReady(ready: Ready, run: (now: number) => void): () => void {
+  let cancelSettled = () => {};
+  if (ready()) {
+    cancelSettled = whenSettled(run);
+    return () => cancelSettled();
+  }
+  const observer = new MutationObserver(() => {
+    if (!ready()) return;
+    observer.disconnect();
+    cancelSettled = whenSettled(run);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  return () => {
+    observer.disconnect();
+    cancelSettled();
+  };
+}
+
+const playing = new Map<keyof typeof ENTRANCES | "sidebarExit", () => void>();
+
+/**
+ * What an entrance waits for before it may start: until it says yes, its
+ * elements stay held out of sight.
+ */
+export type Ready = () => boolean;
+
+/** Ready once the sidebar on screen is the thread list's, or a page's own. */
+export function sidebarOf(owner: "threads" | "page"): Ready {
+  return () => (document.querySelector(OTHER_PAGES_SIDEBAR) !== null) === (owner === "page");
+}
+
+/**
+ * Ready once the page on screen now has gone. Call it before navigating. bb
+ * keeps its page shell and `<main>` across pages and swaps what is inside.
+ */
+export function pageGone(): Ready {
+  const page = document.querySelector(`${ENTRANCES.page.selector} > main > *`);
+  return () => page === null || !page.isConnected;
+}
+
+/**
+ * Play one entrance, once bb has drawn what it is for.
+ *
+ * Until then the elements are held at the entrance's first keyframe, out of
+ * sight: until `ready`, and then through bb's render, which would otherwise
+ * spend or stall the motion (see whenSettled). By default it waits for the
+ * thread list: going back to Threads from a page with its own sidebar, what
+ * is up at first is that page's sidebar and content, still there while bb
+ * renders the thread. The entrance then starts on what is there, new or
+ * kept.
+ *
+ * Once it is playing, anything bb mounts in place of its elements takes the
+ * running animation's start time and carries on rather than starting over.
+ */
+export function playEntrance(kind: keyof typeof ENTRANCES, ready: Ready = sidebarOf("threads")): void {
+  playing.get(kind)?.();
+  if (kind === "sidebar") playing.get("sidebarExit")?.();
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const { selector, keyframes, timing } = ENTRANCES[kind];
+  const holds = new Map<Element, Animation>();
+  const animations: Animation[] = [];
+  const seen = new WeakSet<Element>();
+  let started = false;
+  let waiting = false;
+  // When the entrance was first drawn. A replacement mounts after that, so
+  // it takes the first animation's start time, or this while that is still
+  // on its way to the compositor.
+  let begun: number | null = null;
+  const hold = (element: Element) => {
+    if (holds.has(element)) return;
+    holds.set(element, element.animate([keyframes[0]!, keyframes[0]!], { duration: HOLD_MS * 2 }));
+  };
+  const release = () => {
+    for (const animation of holds.values()) animation.cancel();
+    holds.clear();
+  };
+  const adopt = (element: Element) => {
+    if (seen.has(element)) return;
+    seen.add(element);
+    const animation = element.animate(keyframes, timing);
+    const lead = animations[0];
+    if (lead !== undefined && (lead.startTime ?? begun) !== null) {
+      animation.startTime = lead.startTime ?? begun;
+    }
+    animations.push(animation);
+  };
+  let timer: number | undefined;
+  /** Stop watching for bb's elements in a while, and show anything held. */
+  const settle = (ms: number) => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      observer.disconnect();
+      release();
+    }, ms);
+  };
+  const start = (now: number) => {
+    started = true;
+    const targets = [...holds.keys()].filter((element) => element.isConnected);
+    release();
+    targets.forEach(adopt);
+    document.querySelectorAll(selector).forEach(adopt);
+    begun = now;
+    settle(ADOPT_MS);
+  };
+  let cancelSettled = () => {};
+  const observer = new MutationObserver((records) => {
+    const added: Element[] = [];
+    for (const record of records) {
+      for (const node of Array.from(record.addedNodes)) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches(selector)) added.push(node);
+        else added.push(...Array.from(node.querySelectorAll(selector)));
+      }
+    }
+    if (started) {
+      added.forEach(adopt);
+      return;
+    }
+    added.forEach(hold);
+    if (waiting && ready()) {
+      waiting = false;
+      cancelSettled = whenSettled(start);
+    }
+  });
+  const frame = requestAnimationFrame(() => {
+    waiting = !ready();
+    document.querySelectorAll(selector).forEach(hold);
+    observer.observe(document.body, { childList: true, subtree: true });
+    // Counted from the first frame, since the render that blocks before it
+    // can last longer than the animation. Anything still held by then shows.
+    settle(HOLD_MS);
+    if (!waiting) cancelSettled = whenSettled(start);
+  });
+  playing.set(kind, () => {
+    cancelAnimationFrame(frame);
+    cancelSettled();
+    window.clearTimeout(timer);
+    observer.disconnect();
+    release();
+    for (const animation of animations) animation.cancel();
+    playing.delete(kind);
+  });
+}
+
+/**
+ * Slide the sidebar out as the strip collapses it on leaving Threads. Call
+ * it just before the collapse, while the sidebar is still there to find.
+ *
+ * The collapse is instant, so the page beneath lays out once at full width;
+ * the sidebar is drawn over it, where it was, until `ready` and bb has drawn
+ * that page, then slides away. Pass the `pageGone()` the page's own entrance
+ * waits on, so the two move together. bb hides a collapsed sidebar and moves it a width to the
+ * left, so it is kept visible and translated back by that width. Only
+ * `translate` moves, on the compositor; visibility is held separately so it
+ * cannot stop that. If bb replaces the sidebar on the way — another page's
+ * sidebar, as on Plugins — it simply goes with the element.
+ */
+export function playSidebarExit(ready: Ready = () => true): void {
+  playing.get("sidebarExit")?.();
+  playing.get("sidebar")?.();
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const panel = document.querySelector(ENTRANCES.sidebar.selector);
+  if (panel === null) return;
+  const visible = panel.animate([{ visibility: "visible" }, { visibility: "visible" }], { duration: HOLD_MS * 2 });
+  let motion = panel.animate([{ translate: "100% 0" }, { translate: "100% 0" }], { duration: HOLD_MS * 2 });
+  const stop = () => {
+    cancelSettled();
+    window.clearTimeout(timer);
+    visible.cancel();
+    motion.cancel();
+    if (playing.get("sidebarExit") === stop) playing.delete("sidebarExit");
+  };
+  const cancelSettled = whenReady(ready, () => {
+    motion.cancel();
+    if (!panel.isConnected) return stop();
+    motion = panel.animate([{ translate: "100% 0" }, { translate: "0 0" }], {
+      duration: 160,
+      easing: "cubic-bezier(0.3, 0, 0.8, 0.15)",
+    });
+    motion.finished.then(stop, () => {});
+  });
+  // However long bb takes, the sidebar doesn't stay over the page.
+  const timer = window.setTimeout(stop, HOLD_MS);
+  playing.set("sidebarExit", stop);
+}
+
+/** Stop every entrance now, for a switch away before one has finished. */
+export function stopEntrances(): void {
+  for (const stop of [...playing.values()]) stop();
+}

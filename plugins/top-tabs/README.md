@@ -63,8 +63,9 @@ showed, so what you used is where you look for it.
 ### The Threads tab
 
 While another tab is in view, the Threads tab shows the thread it will return
-to beside its name. Clicking it returns to that thread, or to the compose
-screen if you were there.
+to beside its name. The name slides open as you leave and shut as you come
+back, so the tabs after it move rather than jump. Clicking it returns to that
+thread, or to the compose screen if you were there.
 
 It always shows three counts:
 
@@ -236,10 +237,22 @@ The sidebar belongs to Threads:
   undoes that. See [The Settings tab](#the-settings-tab).
 - **A split** pauses all of this until it closes.
 
-When the strip moves the sidebar as part of a switch, it does so instantly.
-The sidebar changes in the same step as the page, so the page lays out once,
-at its final width. A slide would make a long thread lay itself out again on
-every frame. Opening or closing the sidebar yourself still slides.
+When the strip moves the sidebar as part of a switch, the space it takes
+changes instantly, in the same step as the page, so the page lays out once,
+at its final width. Sliding that space open would make a long thread lay
+itself out again on every frame. What moves is drawn on top: going back to
+Threads, the sidebar slides in over the space it already has and the thread
+fades in, both animated without laying anything out again. They wait until
+bb has finished drawing the thread, so the motion plays from start to end
+instead of freezing partway or appearing half done, and the Threads tab's
+title moves with them. Coming back from a page with a sidebar of its own
+(Plugins, Skills, Settings), that sidebar and page stay out of sight until
+bb has the thread list ready, and the thread list is what slides in.
+Leaving Threads, the sidebar stays over the new page until bb has drawn it,
+then slides away as the page fades in; opening Settings, its sections slide
+in the same way. Only these changes of layout move: going between other
+tabs keeps the layout, and switches instantly, as a browser's tabs do.
+Opening or closing the sidebar yourself still slides as bb draws it. With reduced motion on, nothing animates.
 
 Above the thread list, the sidebar keeps bb's own navigation, unchanged.
 Its rows, drag-to-reorder, options menu, More, customize editor and
