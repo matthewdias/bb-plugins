@@ -89,11 +89,21 @@ describe("lifting", () => {
     expect(footer.hasAttribute("data-qd-lifted")).toBe(false);
   });
 
-  it("floats in a pane too narrow to dock", () => {
+  it("floats in a pane too narrow to dock, bottom-anchored above the composer", () => {
     const { pane, section } = mountThread({ paneWidth: 800 });
     start();
     expect(section.getAttribute("data-qd-mode")).toBe("float");
+    expect(section.getAttribute("data-qd-anchor")).toBe("bottom");
     expect(pane.hasAttribute("data-qd-docked")).toBe(false);
+  });
+
+  it("keeps a collapsed float floating, on the same anchor", () => {
+    const { section } = mountThread({ paneWidth: 800 });
+    start();
+    section.removeAttribute("data-expanded");
+    controller.update();
+    expect(section.getAttribute("data-qd-mode")).toBe("float");
+    expect(section.getAttribute("data-qd-anchor")).toBe("bottom");
   });
 
   it("leaves everything as bb drew it when set to inline", () => {
@@ -127,6 +137,7 @@ describe("lifting", () => {
     start();
     controller.stop();
     expect(section.hasAttribute("data-qd-mode")).toBe(false);
+    expect(section.hasAttribute("data-qd-anchor")).toBe(false);
     expect(section.style.getPropertyValue("--qd-x")).toBe("");
     expect(pane.hasAttribute("data-qd-host")).toBe(false);
     expect(footer.hasAttribute("data-qd-lifted")).toBe(false);
@@ -215,6 +226,35 @@ describe("on a phone", () => {
     pointer("pointerdown", section.querySelector("#body")!, 10, 10);
     expect(onToggle).not.toHaveBeenCalled();
     expect(section.getAttribute("data-qd-mode")).toBe("sheet");
+  });
+
+  it("keeps the sheet above an on-screen keyboard", () => {
+    // A 844px phone with the keyboard up: 500px of it still visible.
+    const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 500 });
+    const saved = ["visualViewport", "innerHeight"].map((name) => [name, Object.getOwnPropertyDescriptor(win, name)] as const);
+    Object.defineProperty(win, "visualViewport", { configurable: true, value: viewport });
+    Object.defineProperty(win, "innerHeight", { configurable: true, value: 844 });
+    try {
+      const { section } = mountThread({ paneWidth: 390 });
+      localStorage.setItem("question-dock:sheet", "full");
+      start();
+      // Bottom edge at the top of the keyboard, and never taller than what is visible.
+      expect(section.style.getPropertyValue("--qd-y")).toBe("500px");
+      expect(section.style.getPropertyValue("--qd-max-h")).toBe("484px");
+      expect(section.style.getPropertyValue("--qd-h")).toBe("484px");
+
+      // The keyboard goes away: the sheet follows the visible viewport back down.
+      viewport.height = 844;
+      viewport.dispatchEvent(new Event("resize"));
+      controller.update();
+      expect(section.style.getPropertyValue("--qd-y")).toBe("844px");
+      expect(section.style.getPropertyValue("--qd-h")).toBe("759.6px");
+    } finally {
+      for (const [name, descriptor] of saved) {
+        if (descriptor) Object.defineProperty(win, name, descriptor);
+        else Reflect.deleteProperty(win, name);
+      }
+    }
   });
 
   it("stays bb's card when the sheet is turned off", () => {

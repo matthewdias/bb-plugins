@@ -9,6 +9,8 @@ import {
   dockPlacement,
   floatBounds,
   floatMaxHeight,
+  floatPositionOf,
+  placeFloat,
   fromFraction,
   inDockZone,
   snapSheet,
@@ -95,4 +97,29 @@ test("a float is never taller than most of the pane", () => {
   assert.equal(floatMaxHeight(pane, floatBounds(pane, 900)), 700);
   // Short of room above the composer, the room wins.
   assert.equal(floatMaxHeight(pane, floatBounds(pane, 400)), 400 - 2 * INSET);
+});
+
+test("a float dropped low keeps its bottom edge when it shrinks", () => {
+  const bounds = { left: 0, top: 0, width: 1000, height: 600 };
+  const position = floatPositionOf(bounds, { left: 200, top: 300, width: 380, height: 250 });
+  assert.equal(position.anchor, "bottom");
+  // Full height, it comes back exactly where it was dropped.
+  assert.deepEqual(placeFloat(bounds, { width: 380, height: 250 }, position), { left: 200, edge: 550 });
+  // Collapsed to bb's bar, its bottom edge stays put.
+  assert.deepEqual(placeFloat(bounds, { width: 380, height: 38 }, position), { left: 200, edge: 550 });
+});
+
+test("a float dropped high keeps its top edge when it shrinks", () => {
+  const bounds = { left: 0, top: 100, width: 1000, height: 600 };
+  const position = floatPositionOf(bounds, { left: 0, top: 150, width: 380, height: 200 });
+  assert.equal(position.anchor, "top");
+  assert.deepEqual(placeFloat(bounds, { width: 380, height: 38 }, position), { left: 0, edge: 150 });
+});
+
+test("a float that grows is pushed back inside the room", () => {
+  const bounds = { left: 0, top: 0, width: 1000, height: 600 };
+  // Anchored by its top near the bottom, then a taller question arrives.
+  assert.equal(placeFloat(bounds, { width: 380, height: 500 }, { x: 0, y: 0.5, anchor: "top" }).edge, 100);
+  // Anchored by its bottom near the top: the bottom moves down to fit it.
+  assert.equal(placeFloat(bounds, { width: 380, height: 500 }, { x: 0, y: 0.9, anchor: "bottom" }).edge, 500);
 });

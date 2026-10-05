@@ -35,8 +35,23 @@ export const SHEET_HALF = 0.5;
 export const SHEET_FULL = 0.9;
 /** A sheet released shorter than this collapses back into bb's bar. */
 export const SHEET_COLLAPSE = 0.35;
+
+/**
+ * Where a float was left. `x` is a fraction of the room it can move across;
+ * `y` is how far its anchored edge sits from the matching edge of the room,
+ * as a fraction of the room's height. A card dropped in the lower half is
+ * anchored by its bottom and one in the upper half by its top, so a card
+ * that shrinks (collapsed to its bar, or a shorter next question) keeps the
+ * edge nearer where it was put instead of jumping.
+ */
+export interface FloatPosition {
+  x: number;
+  y: number;
+  anchor: "top" | "bottom";
+}
+
 /** Where a float starts before anyone moves it: bottom right, above the composer. */
-export const DEFAULT_FRACTION: Fraction = { x: 1, y: 1 };
+export const DEFAULT_FLOAT: FloatPosition = { x: 1, y: 0, anchor: "bottom" };
 
 export interface ModeInput {
   /** Phone-sized window, or touch with no hover. */
@@ -148,8 +163,48 @@ export function snapSheet(height: number, windowHeight: number): "collapse" | "h
   return Math.abs(share - SHEET_HALF) <= Math.abs(share - SHEET_FULL) ? "half" : "full";
 }
 
-export function isFraction(value: unknown): value is Fraction {
+export function isFloatPosition(value: unknown): value is FloatPosition {
   if (typeof value !== "object" || value === null) return false;
-  const { x, y } = value as Record<string, unknown>;
-  return typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y);
+  const { x, y, anchor } = value as Record<string, unknown>;
+  return (
+    typeof x === "number" &&
+    typeof y === "number" &&
+    Number.isFinite(x) &&
+    Number.isFinite(y) &&
+    (anchor === "top" || anchor === "bottom")
+  );
+}
+
+/** The position to remember for a card dropped at `rect`. */
+export function floatPositionOf(bounds: Rect, rect: Rect): FloatPosition {
+  const roomX = Math.max(0, bounds.width - rect.width);
+  const height = Math.max(1, bounds.height);
+  const bottom = bounds.top + bounds.height;
+  const anchor = rect.top + rect.height / 2 > bounds.top + bounds.height / 2 ? "bottom" : "top";
+  return {
+    x: roomX === 0 ? 1 : clamp01((rect.left - bounds.left) / roomX),
+    y: clamp01(anchor === "top" ? (rect.top - bounds.top) / height : (bottom - (rect.top + rect.height)) / height),
+    anchor,
+  };
+}
+
+/**
+ * The left edge, and the y of the anchored edge (the top or the bottom), for
+ * a card of `size` at `position`, kept wholly inside `bounds`.
+ */
+export function placeFloat(
+  bounds: Rect,
+  size: { width: number; height: number },
+  position: FloatPosition,
+): { left: number; edge: number } {
+  const roomX = Math.max(0, bounds.width - size.width);
+  const height = Math.min(size.height, bounds.height);
+  const bottom = bounds.top + bounds.height;
+  const left = bounds.left + clamp01(position.x) * roomX;
+  if (position.anchor === "top") {
+    const top = bounds.top + clamp01(position.y) * bounds.height;
+    return { left, edge: Math.min(Math.max(top, bounds.top), bottom - height) };
+  }
+  const edge = bottom - clamp01(position.y) * bounds.height;
+  return { left, edge: Math.max(Math.min(edge, bottom), bounds.top + height) };
 }

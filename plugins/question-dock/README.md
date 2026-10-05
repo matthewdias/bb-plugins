@@ -24,7 +24,9 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
   the card and it goes back to bb's one-line bar above the composer.
 - **Floating.** Drag the card by its header to float it. It stays above the
   composer and can't be dragged off the thread. It reopens where you dropped
-  it, on that device. Collapsed, a float stays put as a one-line chip.
+  it, on that device. Collapsed, a float stays put as a one-line chip. A card
+  dropped in the lower half of the thread keeps its bottom edge as it shrinks
+  or grows, and one dropped in the upper half keeps its top edge.
 - **Back to the dock.** Drag a float to the right edge of the thread. A
   dashed outline shows the dock column; release to dock. Double-clicking the
   header switches between the two.

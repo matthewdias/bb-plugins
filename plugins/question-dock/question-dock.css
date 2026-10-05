@@ -9,8 +9,10 @@
  * restyle the page on every streamed token.)
  *
  * The controller supplies the geometry as viewport coordinates:
- *   --qd-x, --qd-y   left edge, and the top edge (float) or bottom edge
- *                    (dock and sheet, which translate up by their height)
+ *   --qd-x, --qd-y   left edge, and the top edge, or the bottom edge for a
+ *                    dock, a sheet or a float anchored by its bottom
+ *                    ([data-qd-anchor="bottom"]), which translate up by
+ *                    their height
  *   --qd-w           width
  *   --qd-max-h       tallest the card may be
  *   --qd-h           the sheet's height
@@ -95,6 +97,12 @@ section[data-qd-mode="dock"] {
 }
 
 /* --- Float ------------------------------------------------------------ */
+
+/* A float left in the lower half of the thread is placed by its bottom edge,
+   so collapsing it or a shorter question keeps it where it was dropped. */
+section[data-qd-mode="float"][data-qd-anchor="bottom"] {
+  translate: 0 -100%;
+}
 
 section[data-qd-mode="float"][data-qd-dragging] {
   box-shadow:

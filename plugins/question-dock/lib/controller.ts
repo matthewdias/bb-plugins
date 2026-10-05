@@ -13,7 +13,7 @@
 // data-page-scroll-viewport and data-scroll-footer. If one stops matching,
 // the card is not lifted and bb lays it out as it always does.
 import {
-  DEFAULT_FRACTION,
+  DEFAULT_FLOAT,
   SHEET_FULL,
   SHEET_HALF,
   canDock,
@@ -24,11 +24,13 @@ import {
   floatWidth,
   fromFraction,
   inDockZone,
-  isFraction,
+  floatPositionOf,
+  isFloatPosition,
+  placeFloat,
   snapSheet,
   toFraction,
   type DesktopMode,
-  type Fraction,
+  type FloatPosition,
   type Mode,
   type Rect,
 } from "./geometry.ts";
@@ -46,6 +48,7 @@ const COMPACT_QUERY = "(max-width: 767px), (pointer: coarse) and (hover: none)";
 
 const MODE_ATTR = "data-qd-mode";
 const DRAGGING_ATTR = "data-qd-dragging";
+const ANCHOR_ATTR = "data-qd-anchor";
 const FOOTER_ATTR = "data-qd-lifted";
 const HOST_ATTR = "data-qd-host";
 const DOCKED_ATTR = "data-qd-docked";
@@ -286,6 +289,7 @@ export class DockController {
     this.lifted.delete(section);
     section.removeAttribute(MODE_ATTR);
     section.removeAttribute(DRAGGING_ATTR);
+    section.removeAttribute(ANCHOR_ATTR);
     for (const name of VARS) section.style.removeProperty(name);
     const others = [...this.lifted.values()];
     if (!others.some((other) => other.footer === footer)) footer.removeAttribute(FOOTER_ATTR);
@@ -330,6 +334,7 @@ export class DockController {
     let width: number;
     let maxHeight: number;
     let height: number | null = null;
+    let anchor: "top" | "bottom" = mode === "float" ? "top" : "bottom";
 
     if (mode === "dock") {
       const dock = dockPlacement(paneRect);
@@ -340,9 +345,14 @@ export class DockController {
       maxHeight = floatMaxHeight(paneRect, bounds);
       const size = { width, height: Math.min(section.getBoundingClientRect().height, maxHeight) };
       const drag = this.drag?.kind === "float" && this.drag.section === section ? this.drag : null;
-      const point = drag ? drag.at : fromFraction(bounds, size, this.floatFraction());
-      x = point.left;
-      y = point.top;
+      if (drag) {
+        x = drag.at.left;
+        y = drag.at.top;
+      } else {
+        const position = this.floatPosition();
+        ({ left: x, edge: y } = placeFloat(bounds, size, position));
+        anchor = position.anchor;
+      }
     } else {
       const viewport = this.win.visualViewport;
       const visibleTop = viewport?.offsetTop ?? 0;
@@ -362,7 +372,9 @@ export class DockController {
     setVar(section, "--qd-max-h", px(maxHeight));
     if (height === null) section.style.removeProperty("--qd-h");
     else setVar(section, "--qd-h", px(height));
-    this.calibrate(section, x, y, mode === "float" ? "top" : "bottom");
+    if (mode === "float" && anchor === "bottom") setAttr(section, ANCHOR_ATTR, "bottom");
+    else section.removeAttribute(ANCHOR_ATTR);
+    this.calibrate(section, x, y, anchor);
   }
 
   /**
@@ -390,14 +402,14 @@ export class DockController {
     if (Math.abs(originY - oldY) >= 0.5) setVar(section, "--qd-cb-y", px(originY));
   }
 
-  private floatFraction(): Fraction {
+  private floatPosition(): FloatPosition {
     const raw = this.read(FLOAT_KEY);
-    if (raw === null) return DEFAULT_FRACTION;
+    if (raw === null) return DEFAULT_FLOAT;
     try {
       const parsed: unknown = JSON.parse(raw);
-      return isFraction(parsed) ? parsed : DEFAULT_FRACTION;
+      return isFloatPosition(parsed) ? parsed : DEFAULT_FLOAT;
     } catch {
-      return DEFAULT_FRACTION;
+      return DEFAULT_FLOAT;
     }
   }
 
@@ -487,7 +499,8 @@ export class DockController {
           } else {
             const bounds = floatBounds(pane, current.footer.getBoundingClientRect().top);
             const rect = section.getBoundingClientRect();
-            this.write(FLOAT_KEY, JSON.stringify(toFraction(bounds, rect, drag.at)));
+            const dropped = { left: drag.at.left, top: drag.at.top, width: rect.width, height: rect.height };
+            this.write(FLOAT_KEY, JSON.stringify(floatPositionOf(bounds, dropped)));
             this.write(DESKTOP_KEY, "float");
           }
         }
