@@ -248,8 +248,9 @@ instead of freezing partway or appearing half done, and the Threads tab's
 title moves with them. Coming back from a page with a sidebar of its own
 (Plugins, Skills, Settings), that sidebar and page stay out of sight until
 bb has the thread list ready, and the thread list is what slides in.
-Leaving Threads is instant. Opening or closing the sidebar yourself still
-slides as bb draws it. With reduced motion on, nothing animates.
+Leaving Threads, the sidebar stays over the new page until bb has drawn it,
+then slides away; opening Settings, its sections slide in the same way.
+Opening or closing the sidebar yourself still slides as bb draws it. With reduced motion on, nothing animates.
 
 Above the thread list, the sidebar keeps bb's own navigation, unchanged.
 Its rows, drag-to-reorder, options menu, More, customize editor and

@@ -195,30 +195,36 @@ export function whenSettled(run: (now: number) => void): () => void {
   return () => cancelAnimationFrame(frame);
 }
 
-const playing = new Map<keyof typeof ENTRANCES, () => void>();
+const playing = new Map<keyof typeof ENTRANCES | "sidebarExit", () => void>();
+
+/** Whose sidebar an entrance is for: the thread list's, or a page's own. */
+export type SidebarOwner = "threads" | "page";
 
 /**
  * Play one entrance, once bb has drawn what it is for.
  *
  * Until then the elements are held at the entrance's first keyframe, out of
- * sight: through bb's render of the thread, which would otherwise spend or
- * stall the motion (see whenSettled), and, on the way back from a page with
- * its own sidebar, until that sidebar has left — what is on screen at first
- * is that page's sidebar and content, still up while bb renders the thread.
- * The entrance then starts on what is there, new or kept.
+ * sight: through bb's render, which would otherwise spend or stall the
+ * motion (see whenSettled), and until the sidebar on screen is `into`'s.
+ * Going back to Threads from a page with its own sidebar, what is up at
+ * first is that page's sidebar and content, still there while bb renders
+ * the thread; going to Settings, it is the thread list. The entrance then
+ * starts on what is there, new or kept.
  *
  * Once it is playing, anything bb mounts in place of its elements takes the
  * running animation's start time and carries on rather than starting over.
  */
-export function playEntrance(kind: keyof typeof ENTRANCES): void {
+export function playEntrance(kind: keyof typeof ENTRANCES, into: SidebarOwner = "threads"): void {
   playing.get(kind)?.();
+  if (kind === "sidebar") playing.get("sidebarExit")?.();
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const { selector, keyframes, timing } = ENTRANCES[kind];
   const holds = new Map<Element, Animation>();
   const animations: Animation[] = [];
   const seen = new WeakSet<Element>();
   let started = false;
-  let otherPage = false;
+  let waiting = false;
+  const wrongSidebar = () => (document.querySelector(OTHER_PAGES_SIDEBAR) !== null) !== (into === "page");
   // When the entrance was first drawn. A replacement mounts after that, so
   // it takes the first animation's start time, or this while that is still
   // on its way to the compositor.
@@ -274,19 +280,19 @@ export function playEntrance(kind: keyof typeof ENTRANCES): void {
       return;
     }
     added.forEach(hold);
-    if (otherPage && document.querySelector(OTHER_PAGES_SIDEBAR) === null) {
-      otherPage = false;
+    if (waiting && !wrongSidebar()) {
+      waiting = false;
       cancelSettled = whenSettled(start);
     }
   });
   const frame = requestAnimationFrame(() => {
-    otherPage = document.querySelector(OTHER_PAGES_SIDEBAR) !== null;
+    waiting = wrongSidebar();
     document.querySelectorAll(selector).forEach(hold);
     observer.observe(document.body, { childList: true, subtree: true });
     // Counted from the first frame, since the render that blocks before it
     // can last longer than the animation. Anything still held by then shows.
     settle(HOLD_MS);
-    if (!otherPage) cancelSettled = whenSettled(start);
+    if (!waiting) cancelSettled = whenSettled(start);
   });
   playing.set(kind, () => {
     cancelAnimationFrame(frame);
@@ -297,6 +303,47 @@ export function playEntrance(kind: keyof typeof ENTRANCES): void {
     for (const animation of animations) animation.cancel();
     playing.delete(kind);
   });
+}
+
+/**
+ * Slide the sidebar out as the strip collapses it on leaving Threads. Call
+ * it just before the collapse, while the sidebar is still there to find.
+ *
+ * The collapse is instant, so the page beneath lays out once at full width;
+ * the sidebar is drawn over it, where it was, until bb has drawn that page,
+ * then slides away. bb hides a collapsed sidebar and moves it a width to the
+ * left, so it is kept visible and translated back by that width. Only
+ * `translate` moves, on the compositor; visibility is held separately so it
+ * cannot stop that. If bb replaces the sidebar on the way — another page's
+ * sidebar, as on Plugins — it simply goes with the element.
+ */
+export function playSidebarExit(): void {
+  playing.get("sidebarExit")?.();
+  playing.get("sidebar")?.();
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const panel = document.querySelector(ENTRANCES.sidebar.selector);
+  if (panel === null) return;
+  const visible = panel.animate([{ visibility: "visible" }, { visibility: "visible" }], { duration: HOLD_MS * 2 });
+  let motion = panel.animate([{ translate: "100% 0" }, { translate: "100% 0" }], { duration: HOLD_MS * 2 });
+  const stop = () => {
+    cancelSettled();
+    window.clearTimeout(timer);
+    visible.cancel();
+    motion.cancel();
+    if (playing.get("sidebarExit") === stop) playing.delete("sidebarExit");
+  };
+  const cancelSettled = whenSettled(() => {
+    motion.cancel();
+    if (!panel.isConnected) return stop();
+    motion = panel.animate([{ translate: "100% 0" }, { translate: "0 0" }], {
+      duration: 160,
+      easing: "cubic-bezier(0.3, 0, 0.8, 0.15)",
+    });
+    motion.finished.then(stop, () => {});
+  });
+  // However long bb takes, the sidebar doesn't stay over the page.
+  const timer = window.setTimeout(stop, HOLD_MS);
+  playing.set("sidebarExit", stop);
 }
 
 /** Stop every entrance now, for a switch away before one has finished. */

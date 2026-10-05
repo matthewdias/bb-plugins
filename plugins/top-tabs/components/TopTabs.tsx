@@ -34,6 +34,7 @@ import {
   isSidebarOpen,
   observeSidebar,
   playEntrance,
+  playSidebarExit,
   stopEntrances,
   toggleSidebar,
 } from "../lib/shell.ts";
@@ -255,7 +256,9 @@ export function TopTabs() {
     const before = previous.current;
     previous.current = next;
     // An entrance left running would carry on over the page being left for.
-    if (next !== THREADS) stopEntrances();
+    // Only on a real move: this runs again once bb has rendered the page,
+    // and the exit started on the way out has to survive that.
+    if (next !== before && next !== THREADS) stopEntrances();
     const { compact, collapseSidebar, inSplit } = live.current;
     if (compact || !collapseSidebar || inSplit) return;
     const sidebarOpen = isSidebarOpen();
@@ -272,10 +275,13 @@ export function TopTabs() {
         : { ...s, threadsSidebarOpen: step.threadsSidebarOpen },
     );
     if (step.action === null) return;
-    // Coming back to Threads slides the sidebar in, on the compositor; see
-    // playEntrance. Not on load, where there is nothing to come back from.
-    if (step.action === "expand" && next === THREADS && before !== undefined) {
-      playEntrance("sidebar");
+    // The sidebar slides in coming back to Threads or opening Settings, and
+    // out leaving Threads, on the compositor; see playEntrance and
+    // playSidebarExit. Not on load, where there is nothing to move from.
+    if (before !== undefined) {
+      if (step.action === "expand" && next === THREADS) playEntrance("sidebar");
+      if (step.action === "expand" && next === SETTINGS) playEntrance("sidebar", "page");
+      if (step.action === "collapse" && before === THREADS) playSidebarExit();
     }
     toggleSidebar({ instant: true });
   }, []);
