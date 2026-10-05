@@ -242,12 +242,14 @@ changes instantly, in the same step as the page, so the page lays out once,
 at its final width. Sliding that space open would make a long thread lay
 itself out again on every frame. What moves is drawn on top: going back to
 Threads, the sidebar slides in over the space it already has and the thread
-fades in, both animated without laying anything out again. Coming back from
-a page with a sidebar of its own (Plugins, Skills, Settings), that sidebar
-and page stay out of sight until bb has the thread list ready, and the
-thread list is what slides in.
-Leaving Threads is instant. Opening or closing the sidebar yourself still slides as bb
-draws it. With reduced motion on, nothing animates.
+fades in, both animated without laying anything out again. They wait until
+bb has finished drawing the thread, so the motion plays from start to end
+instead of freezing partway or appearing half done, and the Threads tab's
+title moves with them. Coming back from a page with a sidebar of its own
+(Plugins, Skills, Settings), that sidebar and page stay out of sight until
+bb has the thread list ready, and the thread list is what slides in.
+Leaving Threads is instant. Opening or closing the sidebar yourself still
+slides as bb draws it. With reduced motion on, nothing animates.
 
 Above the thread list, the sidebar keeps bb's own navigation, unchanged.
 Its rows, drag-to-reorder, options menu, More, customize editor and
