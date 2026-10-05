@@ -12,6 +12,7 @@
 // The two destinations still exist; they moved into that view, beside the
 // draft, because "does this thread still own the work" is a decision about what
 // you have just written rather than a mode to set before writing it.
+import { useCallback } from "react";
 import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeftRightIcon } from "@hugeicons/core-free-icons";
@@ -23,8 +24,24 @@ import { HANDOFF_PANEL_ACTION } from "./panel-ids.ts";
 
 export { HANDOFF_PANEL_ACTION };
 
-export function HandoffAction({ row }: { row: FollowUp }) {
+/** Open the Hand off tab on a row: the button below, and the banner's ⋯ menu. */
+export function useHandoff(): (row: FollowUp) => void {
   const navigate = useBbNavigate();
+  return useCallback(
+    (row: FollowUp) => {
+      // The panel takes the screen; the keyboard should not fight it.
+      dismissKeyboard();
+      navigate.openThreadPanel({
+        actionId: HANDOFF_PANEL_ACTION,
+        params: { id: row.id },
+      });
+    },
+    [navigate],
+  );
+}
+
+export function HandoffAction({ row }: { row: FollowUp }) {
+  const handoff = useHandoff();
 
   return (
     <span title="Hand off — compose it in a new thread" className="inline-flex">
@@ -35,12 +52,7 @@ export function HandoffAction({ row }: { row: FollowUp }) {
         onMouseDown={(event) => event.preventDefault()}
         onClick={(event) => {
           event.stopPropagation();
-          // The panel takes the screen; the keyboard should not fight it.
-          dismissKeyboard();
-          navigate.openThreadPanel({
-            actionId: HANDOFF_PANEL_ACTION,
-            params: { id: row.id },
-          });
+          handoff(row);
         }}
         aria-label={`Hand off "${row.text}" in a new thread`}
       >
