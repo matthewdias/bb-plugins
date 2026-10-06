@@ -1,11 +1,12 @@
 // Plugin Triage's own item in bb's sidebar. bb has no way to badge its own
-// Plugins item, so this one carries the count, and opening it goes to the
-// Triage tab inside the Plugins screen, where the page lives.
-import { useEffect, useSyncExternalStore } from "react";
+// Plugins item, so this one carries the count, and opening it shows the
+// Triage page itself. It must not redirect into the Plugins screen: bb's
+// "Back to app" returns to the last page outside that screen, which would be
+// this one, and a redirect would send you straight back in.
+import { useSyncExternalStore } from "react";
 import { useSettings } from "@get-bb/plugin-sdk/app";
 import { countText, countedDecks, waitingCount } from "../lib/count";
-import { TRIAGE_HREF } from "../screen/dom";
-import { navigateInApp } from "./navigate";
+import { TriagePage } from "./TriagePage";
 import { triageStore } from "./triage-store";
 
 /** How many cards are waiting, by the decks the settings count; null until loaded. */
@@ -26,10 +27,7 @@ export function TriageSidebarCount() {
   );
 }
 
-/** The item's page: hands over to the Triage tab, leaving no step for Back. */
+/** The item's page: the Triage page, under bb's title bar. */
 export function TriageSidebarPanel() {
-  useEffect(() => {
-    navigateInApp(TRIAGE_HREF, { replace: true });
-  }, []);
-  return null;
+  return <TriagePage heading={false} />;
 }

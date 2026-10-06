@@ -38,7 +38,8 @@ function usePlan(card: NewCard | null) {
   return plan !== null && card !== null && plan.key === card.key ? plan : null;
 }
 
-export function TriagePage() {
+/** `heading` is off where bb's own title bar already says Triage. */
+export function TriagePage({ heading = true }: { heading?: boolean } = {}) {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const deck = useSyncExternalStore(triageStore.subscribe, triageStore.getSnapshot);
@@ -80,7 +81,7 @@ export function TriagePage() {
       <header className="flex items-center gap-3 border-b border-border px-4 py-3 sm:gap-4 sm:px-6 sm:py-4">
         {/* bb's own title bar already says Plugins, and the row says Triage;
             on a phone the space is worth more than the heading. */}
-        <h1 className="hidden text-lg font-semibold sm:block">Triage</h1>
+        {heading && <h1 className="hidden text-lg font-semibold sm:block">Triage</h1>}
         <nav className="flex min-w-0 shrink overflow-x-auto rounded-lg border border-border p-0.5 [scrollbar-width:none]" aria-label="Decks">
           {(["new", "updates", "cleanup", "saved"] as const).map((id) => (
             <button

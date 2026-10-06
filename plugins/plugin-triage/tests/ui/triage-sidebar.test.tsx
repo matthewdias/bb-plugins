@@ -5,6 +5,9 @@ import { resetTriageStore, triageStore, type TriageRpc } from "../../ui/triage-s
 
 let settings: Record<string, boolean> | undefined;
 vi.mock("@get-bb/plugin-sdk/app", () => ({ useSettings: () => ({ values: settings, isLoading: false }) }));
+vi.mock("../../ui/TriagePage", () => ({
+  TriagePage: ({ heading }: { heading?: boolean }) => <main data-heading={String(heading ?? true)}>Triage page</main>,
+}));
 
 const { TriageSidebarCount, TriageSidebarPanel } = await import("../../ui/TriageSidebar");
 
@@ -42,16 +45,15 @@ describe("the Triage sidebar item", () => {
     expect(screen.queryByLabelText(/waiting in Triage/)).toBeNull();
   });
 
-  it("hands over to the Triage tab without leaving a step for Back", () => {
-    window.history.replaceState({}, "", "/");
-    window.history.pushState({}, "", "/plugins/plugin-triage/triage");
-    const before = window.history.length;
+  it("shows the Triage page itself, with no heading under bb's title bar, and stays put", () => {
+    // A redirect into the Plugins screen would loop: bb's Back to app returns here.
+    window.history.replaceState({}, "", "/plugins/plugin-triage/triage");
     const heard = vi.fn();
     window.addEventListener("popstate", heard);
     render(<TriageSidebarPanel />);
     window.removeEventListener("popstate", heard);
-    expect(window.location.pathname + window.location.search).toBe("/plugins?view=triage");
-    expect(window.history.length).toBe(before);
-    expect(heard).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Triage page").getAttribute("data-heading")).toBe("false");
+    expect(window.location.pathname + window.location.search).toBe("/plugins/plugin-triage/triage");
+    expect(heard).not.toHaveBeenCalled();
   });
 });

@@ -4,9 +4,8 @@
  * panels: pushing the path and announcing it is how the Triage row, the
  * install toast's Open settings button and a Saved card reach bb's own pages.
  */
-export function navigateInApp(to: string, options: { replace?: boolean } = {}): void {
-  if (options.replace === true) window.history.replaceState({}, "", to);
-  else window.history.pushState({}, "", to);
+export function navigateInApp(to: string): void {
+  window.history.pushState({}, "", to);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 

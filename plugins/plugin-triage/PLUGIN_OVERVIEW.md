@@ -43,8 +43,8 @@ what data it touches, and whether it does what its listing says. Plugins run
 with full access to bb, so this is worth doing for anything you don't know.
 
 **A count in the sidebar.** A Triage item in bb's sidebar, and the Triage
-row in the Plugins screen, show how many cards are waiting; opening the item
-goes to the Triage tab. Choose in settings whether new plugins, updates and
+row in the Plugins screen, show how many cards are waiting; the item opens
+the same Triage page. Choose in settings whether new plugins, updates and
 cleanup suggestions count.
 
 ## How it works
