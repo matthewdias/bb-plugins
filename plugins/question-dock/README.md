@@ -19,10 +19,14 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
 ## Using it
 
 - **Docked.** On a window where the thread is at least 960px wide, an open
-  question takes a 380px column on the right of the thread, bottom-aligned
-  beside the composer. The chat and the composer move over for it. Collapse
-  the card and it goes back to bb's one-line bar above the composer.
-- **Floating.** Drag the card by its header to float it. It stays above the
+  question takes a column on the right of the thread, bottom-aligned beside
+  the composer: 45% of the thread's width, between 440 and 640px. The chat
+  and the composer move over for it. Drag the column's left edge to make it
+  wider or narrower; the width is remembered on that device, and the chat
+  always keeps at least 520px. Collapse the card and it goes back to bb's
+  one-line bar above the composer.
+- **Floating.** Drag the card by its header, marked by a grip at its start
+  and a grab cursor, to float it. It stays above the
   composer and can't be dragged off the thread. It reopens where you dropped
   it, on that device. Collapsed, a float stays put as a one-line chip. A card
   dropped in the lower half of the thread keeps its bottom edge as it shrinks
@@ -51,8 +55,8 @@ two cards at once, which is rare, the first moves and the second stays.
 | Where questions open on a wide window | Dock beside the chat | **Float over the chat** floats every card where you last dropped one. **Leave it above the composer** turns the desktop behaviour off. |
 | Open questions as a sheet on phones | On | Off leaves the card where bb puts it on a phone. |
 
-What you do by dragging (dock or float, the float's position, the sheet's
-height) is remembered per device, and wins over the setting. **Question
+What you do by dragging (dock or float, the dock's width, the float's
+position, the sheet's height) is remembered per device, and wins over the setting. **Question
 Dock: Reset card position** in the palette forgets it.
 
 ## Commands
@@ -60,7 +64,7 @@ Dock: Reset card position** in the palette forgets it.
 - **Question Dock: Dock card**: dock cards from now on, on this device.
 - **Question Dock: Float card**: float them.
 - **Question Dock: Reset card position**: back to the setting, the default
-  spot and the default sheet height.
+  dock width, the default spot and the default sheet height.
 
 ## How it works
 

@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   DOCK_MIN_PANE,
-  DOCK_WIDTH,
   FLOAT_MIN_ROOM,
   INSET,
   chooseMode,
   dockPlacement,
+  dockWidth,
   floatBounds,
   floatMaxHeight,
   floatPositionOf,
@@ -50,8 +50,9 @@ test("a phone gets the sheet while the card is open, and bb's bar while it is no
 });
 
 test("the dock hugs the pane's right edge, bottom-anchored", () => {
-  const dock = dockPlacement({ left: 300, top: 50, width: 1000, height: 800 });
-  assert.equal(dock.left, 300 + 1000 - DOCK_WIDTH - INSET);
+  const dock = dockPlacement({ left: 300, top: 50, width: 1000, height: 800 }, 420);
+  assert.equal(dock.left, 300 + 1000 - 420 - INSET);
+  assert.equal(dock.width, 420);
   assert.equal(dock.bottom, 850 - INSET);
   assert.equal(dock.maxHeight, 800 - 2 * INSET);
 });
@@ -131,4 +132,17 @@ test("a sheet fits under the top of the pane, and takes all of it while typing",
   // The keyboard is up and bb has shrunk the pane to what is visible.
   assert.equal(sheetHeight(300, "half", true), 292);
   assert.equal(sheetHeight(4, "full", false), 0);
+});
+
+test("the dock grows with the pane, within bounds, and leaves the chat room", () => {
+  // A share of the pane, never narrower than 440 by default or wider than 640.
+  assert.equal(dockWidth(1000, null), 450);
+  assert.equal(dockWidth(1300, null), 585);
+  assert.equal(dockWidth(2400, null), 640);
+  // A dragged width is honoured, up to what leaves the chat its minimum.
+  assert.equal(dockWidth(2400, 700), 700);
+  assert.equal(dockWidth(1200, 700), 1200 - 520 - 2 * INSET);
+  assert.equal(dockWidth(1200, 100), 360);
+  // At the narrowest pane that docks, the chat keeps its minimum.
+  assert.ok(DOCK_MIN_PANE - dockWidth(DOCK_MIN_PANE, null) - 2 * INSET >= 520);
 });

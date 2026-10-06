@@ -17,6 +17,7 @@ import {
   canDock,
   chooseMode,
   dockPlacement,
+  dockWidth,
   floatBounds,
   floatMaxHeight,
   floatWidth,
@@ -59,6 +60,9 @@ const SETTLE_DELAYS_MS = [120, 400] as const;
 
 const DESKTOP_KEY = "question-dock:desktop";
 const FLOAT_KEY = "question-dock:float";
+const DOCK_WIDTH_KEY = "question-dock:dock-width";
+/** How near the dock's left edge a press resizes it rather than reaching the card. */
+const RESIZE_EDGE_PX = 6;
 const SHEET_KEY = "question-dock:sheet";
 
 export interface DockOptions {
@@ -75,7 +79,8 @@ interface Lifted {
 
 type Drag =
   | { kind: "float"; section: HTMLElement; origin: { left: number; top: number }; at: { left: number; top: number } }
-  | { kind: "sheet"; section: HTMLElement; startHeight: number; height: number };
+  | { kind: "sheet"; section: HTMLElement; startHeight: number; height: number }
+  | { kind: "resize"; section: HTMLElement; startWidth: number; width: number };
 
 export type GhostListener = (ghost: Rect | null) => void;
 
@@ -92,6 +97,7 @@ export class DockController {
   private resizeObserver: ResizeObserver | null = null;
   private readonly observed = new Set<Element>();
   private readonly timers = new Set<number>();
+  private cancelSwallow: (() => void) | null = null;
 
   constructor(
     private readonly win: Window & typeof globalThis,
@@ -171,6 +177,8 @@ export class DockController {
     for (const dispose of this.teardown.splice(0)) dispose();
     for (const timer of this.timers) this.win.clearTimeout(timer);
     this.timers.clear();
+    this.cancelSwallow?.();
+    this.cancelSwallow = null;
     if (this.frame !== null) {
       this.cancelFrame(this.frame);
       this.frame = null;
@@ -205,7 +213,7 @@ export class DockController {
 
   /** Forget this device's choices: back to the setting, default spot and height. */
   reset(): void {
-    for (const key of [DESKTOP_KEY, FLOAT_KEY, SHEET_KEY]) this.remove(key);
+    for (const key of [DESKTOP_KEY, FLOAT_KEY, SHEET_KEY, DOCK_WIDTH_KEY]) this.remove(key);
     this.update();
   }
 
@@ -322,7 +330,10 @@ export class DockController {
     setAttr(footer, FOOTER_ATTR, "");
     setAttr(pane, HOST_ATTR, "");
     if (mode === "dock") setAttr(pane, DOCKED_ATTR, "");
-    else if (!this.paneHasDock(pane, section)) pane.removeAttribute(DOCKED_ATTR);
+    else if (!this.paneHasDock(pane, section)) {
+      pane.removeAttribute(DOCKED_ATTR);
+      pane.style.removeProperty("--qd-dock-w");
+    }
     this.observe(section);
     this.observe(pane);
   }
@@ -337,7 +348,10 @@ export class DockController {
     const others = [...this.lifted.values()];
     if (!others.some((other) => other.footer === footer)) footer.removeAttribute(FOOTER_ATTR);
     if (!others.some((other) => other.pane === pane)) pane.removeAttribute(HOST_ATTR);
-    if (!this.paneHasDock(pane, section)) pane.removeAttribute(DOCKED_ATTR);
+    if (!this.paneHasDock(pane, section)) {
+      pane.removeAttribute(DOCKED_ATTR);
+      pane.style.removeProperty("--qd-dock-w");
+    }
     this.unobserve(section);
     if (this.drag?.section === section) {
       this.drag = null;
@@ -380,8 +394,11 @@ export class DockController {
     let anchor: "top" | "bottom" = mode === "float" ? "top" : "bottom";
 
     if (mode === "dock") {
-      const dock = dockPlacement(paneRect);
+      const resize = this.drag?.kind === "resize" && this.drag.section === section ? this.drag : null;
+      const dock = dockPlacement(paneRect, dockWidth(paneRect.width, resize ? resize.width : this.dockWidthChoice()));
       ({ left: x, bottom: y, width, maxHeight } = dock);
+      // The chat moves over by exactly as much.
+      setVar(pane, "--qd-dock-w", px(width));
     } else if (mode === "float") {
       const bounds = floatBounds(paneRect, footer.getBoundingClientRect().top);
       width = floatWidth(bounds);
@@ -453,6 +470,11 @@ export class DockController {
     if (Math.abs(originY - oldY) >= 0.5) setVar(section, "--qd-cb-y", px(originY));
   }
 
+  private dockWidthChoice(): number | null {
+    const width = Number.parseFloat(this.read(DOCK_WIDTH_KEY) ?? "");
+    return Number.isFinite(width) ? width : null;
+  }
+
   private floatPosition(): FloatPosition {
     const raw = this.read(FLOAT_KEY);
     if (raw === null) return DEFAULT_FLOAT;
@@ -478,6 +500,8 @@ export class DockController {
   }
 
   private beginDrag(target: Element, event: PointerEvent): DragSession | null {
+    const edge = this.dockEdge(target, event);
+    if (edge) return this.resizeSession(edge);
     const entry = this.headerCard(target);
     if (!entry) return null;
     const { section } = entry;
@@ -535,7 +559,7 @@ export class DockController {
         drag.at = fromFraction(bounds, rect, toFraction(bounds, rect, wanted));
         this.place(current);
         const pane = this.paneRect(current.pane);
-        this.setGhost(inDockZone(pane, moveEvent.clientX) ? dockGhost(pane) : null);
+        this.setGhost(inDockZone(pane, moveEvent.clientX) ? dockGhost(pane, dockWidth(pane.width, this.dockWidthChoice())) : null);
       },
       end: (endEvent, cancelled) => {
         const drag = this.drag?.kind === "float" ? this.drag : null;
@@ -560,6 +584,38 @@ export class DockController {
     };
   }
 
+  /** The docked card whose left edge, its resize handle, is under the press. */
+  private dockEdge(target: Element, event: PointerEvent): Lifted | null {
+    if (!(target instanceof this.win.HTMLElement)) return null;
+    const entry = this.lifted.get(target);
+    if (!entry || entry.mode !== "dock") return null;
+    return event.clientX - target.getBoundingClientRect().left <= RESIZE_EDGE_PX ? entry : null;
+  }
+
+  /** Drag the dock's left edge to make it wider or narrower; the chat follows. */
+  private resizeSession(entry: Lifted): DragSession {
+    const { section } = entry;
+    return {
+      start: () => {
+        const startWidth = section.getBoundingClientRect().width;
+        this.drag = { kind: "resize", section, startWidth, width: startWidth };
+        section.setAttribute(DRAGGING_ATTR, "");
+      },
+      move: (dx) => {
+        if (this.drag?.kind !== "resize") return;
+        this.drag.width = dockWidth(this.paneRect(entry.pane).width, this.drag.startWidth - dx);
+        this.place(entry);
+      },
+      end: (_event, cancelled) => {
+        const drag = this.drag?.kind === "resize" ? this.drag : null;
+        this.drag = null;
+        section.removeAttribute(DRAGGING_ATTR);
+        if (drag && !cancelled) this.write(DOCK_WIDTH_KEY, String(Math.round(drag.width)));
+        this.update();
+      },
+    };
+  }
+
   private onDoubleClick(event: MouseEvent): void {
     if (!(event.target instanceof Element)) return;
     const entry = this.headerCard(event.target);
@@ -577,7 +633,8 @@ export class DockController {
       event.preventDefault();
       event.stopPropagation();
       this.collapse(entry.section);
-      swallowNextClick(this.doc);
+      this.cancelSwallow?.();
+      this.cancelSwallow = swallowNextClick(this.doc);
       return;
     }
   }
@@ -625,8 +682,8 @@ export class DockController {
   }
 }
 
-function dockGhost(pane: Rect): Rect {
-  const dock = dockPlacement(pane);
+function dockGhost(pane: Rect, width: number): Rect {
+  const dock = dockPlacement(pane, width);
   return { left: dock.left, top: dock.bottom - dock.maxHeight, width: dock.width, height: dock.maxHeight };
 }
 

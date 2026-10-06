@@ -19,8 +19,8 @@ export interface DragSession {
 /** Return a session for a press that may become a drag, or null to leave it alone. */
 export type BeginDrag = (target: Element, event: PointerEvent) => DragSession | null;
 
-/** Swallow the next click anywhere in `doc`, if it comes soon. */
-export function swallowNextClick(doc: Document): void {
+/** Swallow the next click anywhere in `doc`, if it comes soon. Returns a canceller. */
+export function swallowNextClick(doc: Document): () => void {
   const view = doc.defaultView;
   const onClick = (event: Event) => {
     event.preventDefault();
@@ -33,9 +33,11 @@ export function swallowNextClick(doc: Document): void {
     if (timer !== undefined) view?.clearTimeout(timer);
   }
   doc.addEventListener("click", onClick, true);
+  return stop;
 }
 
 export function listenForDrags(doc: Document, begin: BeginDrag): () => void {
+  let cancelSwallow: (() => void) | null = null;
   let press: {
     pointerId: number;
     startX: number;
@@ -72,7 +74,10 @@ export function listenForDrags(doc: Document, begin: BeginDrag): () => void {
     press = null;
     if (!dragging) return;
     session.end(event, cancelled);
-    if (!cancelled) swallowNextClick(doc);
+    if (!cancelled) {
+      cancelSwallow?.();
+      cancelSwallow = swallowNextClick(doc);
+    }
   };
   const onUp = (event: PointerEvent) => finish(event, false);
   const onCancel = (event: PointerEvent) => finish(event, true);
@@ -82,6 +87,7 @@ export function listenForDrags(doc: Document, begin: BeginDrag): () => void {
   doc.addEventListener("pointerup", onUp, true);
   doc.addEventListener("pointercancel", onCancel, true);
   return () => {
+    cancelSwallow?.();
     doc.removeEventListener("pointerdown", onDown, true);
     doc.removeEventListener("pointermove", onMove, true);
     doc.removeEventListener("pointerup", onUp, true);

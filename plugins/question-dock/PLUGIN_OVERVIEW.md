@@ -7,7 +7,8 @@ card, with its keyboard shortcuts and multi-question tabs intact.
 ## What you get
 
 **Docked beside the chat.** On a wide window the card takes a column on the
-right of the thread, and the chat and composer move over for it. You can
+right of the thread, and the chat and composer move over for it. Drag the
+column's edge to make it wider. You can
 read back through the conversation while you answer.
 
 **Floating where you put it.** Drag the card's header and it floats over the

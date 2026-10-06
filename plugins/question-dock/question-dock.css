@@ -40,7 +40,7 @@
 /* The docked card takes a column on the right; the chat and the composer
    move over for it rather than running underneath. */
 [data-page-scroll-viewport][data-qd-docked] > div {
-  padding-right: calc(var(--qd-dock-w, 380px) + 8px);
+  padding-right: calc(var(--qd-dock-w, 420px) + 8px);
 }
 
 section[data-qd-mode] {
@@ -78,22 +78,68 @@ section[data-qd-mode] > div[id][class*="overflow-y-auto"] {
 /* The header is the handle. bb's own button fills it; a press stays a click
    until it moves. */
 section[data-qd-mode] > div:first-child {
-  cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
-section[data-qd-mode][data-qd-dragging] > div:first-child {
-  cursor: grabbing;
-}
 section[data-qd-mode][data-qd-dragging] {
   transition: none !important;
+}
+
+/* On a desktop card, all of the header reads as the handle: the grab cursor
+   over bb's label button too, which would otherwise show a pointer, a grip
+   at its start, and a tint on hover. bb's chevron, the header's last
+   button, keeps its pointer: it still collapses the card. */
+section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child,
+section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child > button:first-child,
+section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child > button:first-child * {
+  cursor: grab !important;
+}
+section[data-qd-mode][data-qd-dragging] > div:first-child,
+section[data-qd-mode][data-qd-dragging] > div:first-child * {
+  cursor: grabbing !important;
+}
+section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child {
+  padding-left: 6px;
+  transition: background-color 120ms ease-out;
+}
+section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child:hover,
+section[data-qd-mode][data-qd-dragging] > div:first-child {
+  background-color: var(--state-hover, color-mix(in oklab, currentColor 6%, transparent));
+}
+section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 12px;
+  margin-right: 2px;
+  /* Two columns of three dots. */
+  background-image: radial-gradient(circle, var(--muted-foreground, currentColor) 1px, transparent 1.4px);
+  background-size: 3px 4px;
+  opacity: 0.7;
 }
 
 /* --- Dock ------------------------------------------------------------- */
 
 section[data-qd-mode="dock"] {
   translate: 0 -100%;
+}
+
+/* Its left edge resizes it: a thin strip over the card's border, with a
+   line on hover, and the chat moves over as it widens. */
+section[data-qd-mode="dock"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  z-index: 2;
+  cursor: ew-resize;
+}
+section[data-qd-mode="dock"]:hover::after,
+section[data-qd-mode="dock"][data-qd-dragging]::after {
+  background: linear-gradient(to right, color-mix(in oklab, var(--ring, currentColor) 55%, transparent) 2px, transparent 2px);
 }
 
 /* --- Float ------------------------------------------------------------ */

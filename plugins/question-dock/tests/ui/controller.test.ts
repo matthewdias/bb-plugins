@@ -69,7 +69,9 @@ describe("lifting", () => {
     expect(pane.hasAttribute("data-qd-docked")).toBe(true);
     expect(pane.hasAttribute("data-qd-host")).toBe(true);
     expect(footer.hasAttribute("data-qd-lifted")).toBe(true);
-    expect(section.style.getPropertyValue("--qd-w")).toBe("380px");
+    // 45% of a 1200px pane, and the chat moves over by the same.
+    expect(section.style.getPropertyValue("--qd-w")).toBe("540px");
+    expect(pane.style.getPropertyValue("--qd-dock-w")).toBe("540px");
   });
 
   it("lifts plan reviews and plugin forms too", () => {
@@ -186,6 +188,55 @@ describe("dragging the header", () => {
     pointer("pointerdown", body, 100, 100);
     pointer("pointermove", body, 20, 100);
     expect(section.hasAttribute("data-qd-dragging")).toBe(false);
+  });
+});
+
+describe("resizing the dock", () => {
+  it("widens from its left edge, keeps the width, and moves the chat over", () => {
+    const { pane, section, label } = mountThread();
+    const onClick = vi.fn();
+    label.addEventListener("click", onClick);
+    start();
+    // jsdom does no layout: the card's box is where its CSS variables say.
+    section.getBoundingClientRect = () => new DOMRect(736, 100, 456, 600);
+
+    pointer("pointerdown", section, 738, 300);
+    pointer("pointermove", section, 700, 300);
+    pointer("pointermove", section, 638, 300);
+    expect(section.style.getPropertyValue("--qd-w")).toBe("556px");
+    expect(pane.style.getPropertyValue("--qd-dock-w")).toBe("556px");
+    pointer("pointerup", section, 638, 300);
+
+    expect(localStorage.getItem("question-dock:dock-width")).toBe("556");
+    expect(section.getAttribute("data-qd-mode")).toBe("dock");
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("leaves a press inside the card alone", () => {
+    const { section } = mountThread();
+    start();
+    section.getBoundingClientRect = () => new DOMRect(736, 100, 456, 600);
+    pointer("pointerdown", section, 800, 300);
+    pointer("pointermove", section, 700, 300);
+    expect(section.style.getPropertyValue("--qd-w")).toBe("540px");
+    expect(section.hasAttribute("data-qd-dragging")).toBe(false);
+  });
+
+  it("is forgotten by Reset", () => {
+    const { section } = mountThread();
+    localStorage.setItem("question-dock:dock-width", "600");
+    start();
+    expect(section.style.getPropertyValue("--qd-w")).toBe("600px");
+    controller.reset();
+    expect(section.style.getPropertyValue("--qd-w")).toBe("540px");
+  });
+
+  it("gives the chat its width back when the card goes", () => {
+    const { pane, section } = mountThread();
+    start();
+    section.remove();
+    controller.update();
+    expect(pane.style.getPropertyValue("--qd-dock-w")).toBe("");
   });
 });
 

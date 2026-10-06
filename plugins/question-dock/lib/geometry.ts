@@ -20,7 +20,15 @@ export interface Fraction {
 
 /** Gap between a lifted card and the pane's edges. */
 export const INSET = 8;
-export const DOCK_WIDTH = 380;
+/** The dock's default width, as a share of the pane, between the bounds below. */
+export const DOCK_SHARE = 0.45;
+export const DOCK_DEFAULT_MIN = 440;
+export const DOCK_DEFAULT_MAX = 640;
+/** How far the dock's edge can be dragged either way. */
+export const DOCK_MIN_WIDTH = 360;
+export const DOCK_MAX_WIDTH = 760;
+/** The narrowest chat column a dock may leave beside it. */
+export const CHAT_MIN_WIDTH = 520;
 /** Narrowest pane that docks: the dock plus a chat column bb still lays out well. */
 export const DOCK_MIN_PANE = 960;
 export const FLOAT_WIDTH = 380;
@@ -84,12 +92,26 @@ export function chooseMode(input: ModeInput): Mode | null {
   return mode;
 }
 
+/**
+ * The dock's width in a pane `paneWidth` wide: the width its edge was dragged
+ * to, or a share of the pane, and never so wide the chat beside it is cramped.
+ */
+export function dockWidth(paneWidth: number, preferred: number | null): number {
+  const wanted =
+    preferred ?? Math.min(DOCK_DEFAULT_MAX, Math.max(DOCK_DEFAULT_MIN, Math.round(paneWidth * DOCK_SHARE)));
+  const widest = Math.min(DOCK_MAX_WIDTH, paneWidth - CHAT_MIN_WIDTH - 2 * INSET);
+  return Math.round(Math.max(DOCK_MIN_WIDTH, Math.min(wanted, widest)));
+}
+
 /** The dock column: the pane's right edge, bottom-anchored, full height at most. */
-export function dockPlacement(pane: Rect): { left: number; bottom: number; width: number; maxHeight: number } {
+export function dockPlacement(
+  pane: Rect,
+  width: number,
+): { left: number; bottom: number; width: number; maxHeight: number } {
   return {
-    left: pane.left + pane.width - DOCK_WIDTH - INSET,
+    left: pane.left + pane.width - width - INSET,
     bottom: pane.top + pane.height - INSET,
-    width: DOCK_WIDTH,
+    width,
     maxHeight: Math.max(0, pane.height - 2 * INSET),
   };
 }
