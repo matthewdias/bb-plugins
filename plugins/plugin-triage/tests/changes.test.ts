@@ -8,18 +8,26 @@ const label = (sha: string, ref = "HEAD") => ({ version: sha, display: `https://
 const commit = (sha: string, subject: string) => ({ sha, commit: { message: `${subject}\n\nbody`, author: { name: "Ada", date: "2026-10-01T00:00:00Z" } }, author: { login: "ada" } });
 
 /** A GitHub that answers by path, and records what was asked. */
-function github(routes: Record<string, unknown>, status: Record<string, { status: number; headers?: Record<string, string> }> = {}) {
+function github(
+  routes: Record<string, unknown>,
+  status: Record<string, { status: number; headers?: Record<string, string> }> = {},
+  okHeaders: Record<string, string> = {},
+) {
   const asked: string[] = [];
-  const fetch = vi.fn(async (url: string) => {
+  const auth: (string | null)[] = [];
+  const fetch = vi.fn(async (url: string, init?: { headers?: Record<string, string> }) => {
     const path = url.replace("https://api.github.com", "");
     asked.push(path);
+    const authorization = init?.headers?.Authorization ?? null;
+    auth.push(authorization);
+    if (authorization === "Bearer revoked") return { ok: false, status: 401, headers: { get: () => null }, json: async () => ({}) };
     const failure = Object.entries(status).find(([prefix]) => path.startsWith(prefix))?.[1];
     if (failure) return { ok: false, status: failure.status, headers: { get: (n: string) => failure.headers?.[n] ?? null }, json: async () => ({}) };
     const body = Object.entries(routes).find(([prefix]) => path.startsWith(prefix))?.[1];
     if (body === undefined) return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}) };
-    return { ok: true, status: 200, headers: { get: () => null }, json: async () => body };
+    return { ok: true, status: 200, headers: { get: (n: string) => okHeaders[n] ?? null }, json: async () => body };
   });
-  return { fetch, asked };
+  return { fetch, asked, auth };
 }
 
 const compare = {
@@ -98,5 +106,33 @@ describe("labels", () => {
     expect(refOf(label(A, "notes/v1.2.0"))).toBe("notes/v1.2.0");
     expect(changesKey(label(A), label(B), "sub")).toBe(`changes:acme/plugins:sub:${A}...${B}`);
     expect(changesKey({ version: "1.0.0", display: "x@1.0.0" }, label(B), null)).toBeNull();
+  });
+});
+
+describe("asking GitHub with a login", () => {
+  it("sends the login with every request", async () => {
+    const { fetch, auth } = github({ "/repos/acme/plugins/compare/": compare, "/repos/acme/plugins/commits": [] });
+    await fetchChanges(fetch, label(A), label(B), "sub", { token: "gho_x" });
+    expect(auth).toEqual(["Bearer gho_x", "Bearer gho_x"]);
+  });
+
+  it("drops a refused login and asks again without it", async () => {
+    const { fetch, auth } = github({ "/repos/acme/plugins/compare/": compare });
+    const onUnauthorized = vi.fn();
+    const changes = await fetchChanges(fetch, label(A), label(B), null, { token: "revoked", onUnauthorized });
+    expect(changes.kind).toBe("github");
+    expect(auth).toEqual(["Bearer revoked", null]);
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports what is left of the hourly limit", async () => {
+    const { fetch } = github({ "/repos/acme/plugins/compare/": compare }, {}, {
+      "x-ratelimit-remaining": "4987",
+      "x-ratelimit-limit": "5000",
+      "x-ratelimit-reset": "1791300000",
+    });
+    const onBudget = vi.fn();
+    await fetchChanges(fetch, label(A), label(B), null, { token: "gho_x", onBudget });
+    expect(onBudget).toHaveBeenCalledWith({ remaining: 4987, limit: 5000, resetAt: 1791300000_000 });
   });
 });

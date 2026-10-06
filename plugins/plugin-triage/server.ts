@@ -41,7 +41,10 @@ import {
   type UpdateResult,
 } from "./lib/updates-deck.ts";
 import { summarizeSource, type ResolvedSource } from "./lib/source.ts";
-import { changesKey, fetchChanges, type Changes } from "./lib/changes.ts";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { LOW_BUDGET, changesKey, fetchChanges, type Budget, type Changes } from "./lib/changes.ts";
+import { gitHubLogin } from "./lib/github-auth.ts";
 
 export { rpcContract };
 
@@ -63,6 +66,25 @@ function message(error: unknown): string {
 
 export default async function plugin(bb: BbPluginApi) {
   const kv = bb.storage.kv;
+
+  const settings = bb.settings.define({
+    useGitHubLogin: {
+      type: "boolean",
+      label: "Use this machine's GitHub login for update change lists",
+      description:
+        "Uses the login the GitHub CLI holds (gh auth token), as bb itself does for git, or GH_TOKEN if it is set. The token is only sent to api.github.com, for read-only lookups of the commits an update brings, and lifts GitHub's limit from 60 requests an hour to 5,000. Off, change lists are looked up without a login.",
+      default: true,
+    },
+  });
+
+  const run = promisify(execFile);
+  const login = gitHubLogin({
+    enabled: async () => (await settings.get()).useGitHubLogin,
+    env: process.env,
+    runGh: async (command, args) => (await run(command, args, { timeout: 15_000, maxBuffer: 64 * 1024 })).stdout,
+  });
+  /** What GitHub last said is left of the hourly limit, for the login in use then. */
+  let budget: (Budget & { withLogin: boolean }) | null = null;
 
   // Every read-modify-write of decisions or jobs goes through here, so an RPC
   // and the runner never interleave and lose each other's change.
@@ -391,7 +413,7 @@ export default async function plugin(bb: BbPluginApi) {
       return result;
     },
 
-    update_changes: async ({ pluginId, from, to }): Promise<Changes> => {
+    update_changes: async ({ pluginId, from, to, force }): Promise<Changes> => {
       let subdirectory: string | null = null;
       try {
         subdirectory = (await bb.sdk.plugins.getSource({ pluginId })).subdirectory ?? null;
@@ -403,8 +425,27 @@ export default async function plugin(bb: BbPluginApi) {
       // A commit range never changes, so an answer is good for good.
       const cached = await kv.get<Changes>(key);
       if (cached !== null && cached !== undefined) return cached;
-      const changes = await fetchChanges(fetch as never, from, to, subdirectory);
-      if (changes.kind !== "unavailable") await kv.set(key, changes);
+      const token = await login.token();
+      // Nearly out of requests: leave the rest to cards someone asks about.
+      // A budget read without a login says nothing about one with it.
+      if (
+        force !== true &&
+        budget !== null &&
+        budget.withLogin === (token !== null) &&
+        budget.remaining < LOW_BUDGET &&
+        (budget.resetAt === null || Date.now() < budget.resetAt)
+      ) {
+        return { kind: "deferred", remaining: budget.remaining, resetAt: budget.resetAt };
+      }
+      const access = {
+        token,
+        onUnauthorized: () => login.reject(),
+        onBudget: (next: Budget) => {
+          budget = { ...next, withLogin: access.token !== null };
+        },
+      };
+      const changes = await fetchChanges(fetch as never, from, to, subdirectory, access);
+      if (changes.kind === "github" || changes.kind === "none") await kv.set(key, changes);
       return changes;
     },
 

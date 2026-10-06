@@ -13,6 +13,8 @@ export interface UpdateCardProps {
   top: boolean;
   /** What the update changes; undefined while loading. Top card only. */
   changes?: Changes;
+  /** Fetch the changes even though GitHub's limit is nearly spent. */
+  onLoadChanges?: () => void;
   onChanges?: () => void;
   onDetails?: () => void;
 }
@@ -30,7 +32,7 @@ function Chip({ children, tone }: { children: React.ReactNode; tone?: "warn" }) 
   );
 }
 
-export function UpdateCard({ card, top, changes, onChanges, onDetails }: UpdateCardProps) {
+export function UpdateCard({ card, top, changes, onLoadChanges, onChanges, onDetails }: UpdateCardProps) {
   return (
     <article
       className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-xl"
@@ -72,7 +74,7 @@ export function UpdateCard({ card, top, changes, onChanges, onDetails }: UpdateC
           </p>
         )}
 
-        {top && <ChangeList changes={changes} onMore={onChanges} />}
+        {top && <ChangeList changes={changes} onMore={onChanges} onLoad={onLoadChanges} />}
 
         {card.blocked !== null && (
           <p className="text-xs text-muted-foreground">
@@ -104,10 +106,31 @@ export function UpdateCard({ card, top, changes, onChanges, onDetails }: UpdateC
  * The commits the update brings, or the release notes. Clamped rather than
  * scrolled: the card stays one surface to drag, and GitHub has the rest.
  */
-function ChangeList({ changes, onMore }: { changes: Changes | undefined; onMore?: () => void }) {
+function ChangeList({
+  changes,
+  onMore,
+  onLoad,
+}: {
+  changes: Changes | undefined;
+  onMore?: () => void;
+  onLoad?: () => void;
+}) {
   if (changes === undefined) return <p className="text-xs text-muted-foreground">Loading changes…</p>;
   if (changes.kind === "none") return null;
   if (changes.kind === "unavailable") return <p className="text-xs text-muted-foreground">{changes.reason}</p>;
+  if (changes.kind === "deferred") {
+    const at = changes.resetAt === null ? null : new Date(changes.resetAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground" data-no-drag>
+        <span className="min-w-0 flex-1">
+          Saving GitHub's hourly limit: {changes.remaining} left{at === null ? "" : `, back at ${at}`}.
+        </span>
+        <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onLoad}>
+          Load changes
+        </Button>
+      </div>
+    );
+  }
 
   if (changes.subdirectory !== null && changes.total === 0) {
     return (

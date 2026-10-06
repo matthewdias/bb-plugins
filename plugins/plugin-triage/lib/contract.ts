@@ -89,7 +89,13 @@ export const rpcContract = defineRpcContract({
     output: z.custom<{ undone: boolean; reason: string | null }>(() => true),
   },
   update_changes: {
-    input: z.object({ pluginId: z.string().min(1), from: versionLabel, to: versionLabel }),
+    input: z.object({
+      pluginId: z.string().min(1),
+      from: versionLabel,
+      to: versionLabel,
+      /** Fetch even when GitHub's hourly limit is nearly spent. */
+      force: z.boolean().optional(),
+    }),
     output: z.custom<Changes>(() => true),
   },
   updates_start: {

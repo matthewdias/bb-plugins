@@ -13,9 +13,13 @@ type Deck = { cards: UpdateCard[]; queued: UpdateJob[]; running: boolean; histor
 
 const label = (v: string) => ({ version: v, display: `https://github.com/acme/x.git@v${v} (${v})` });
 
-async function host(apply: (pluginId: string) => unknown = () => ({ applied: true, outcome: "updated", from: label("1"), to: label("2") })) {
+async function host(
+  apply: (pluginId: string) => unknown = () => ({ applied: true, outcome: "updated", from: label("1"), to: label("2") }),
+  login = false,
+) {
   const ids = ["alpha", "beta", SELF];
-  const { bb, harness } = createFakePluginHost({ pluginId: SELF });
+  // Never this machine's real gh login: tests that want one set GH_TOKEN.
+  const { bb, harness } = createFakePluginHost({ pluginId: SELF, settings: { useGitHubLogin: login } });
   harness.sdk.stub("plugins.listUpdateResults", () =>
     ids.map((id) => ({ id, outcome: "update-available", installed: label("1"), candidate: label("2") })),
   );
@@ -217,5 +221,66 @@ describe("the Updates deck over RPC", () => {
     expect(calls).toBe(asked);
     vi.unstubAllGlobals();
     service.controller.abort();
+  });
+
+  describe("GitHub's hourly limit", () => {
+    const sha = (c: string) => c.repeat(40);
+    const range = (n: number) => ({
+      pluginId: `p${n}`,
+      from: { version: sha("a"), display: "https://github.com/acme/x.git@HEAD (a)" },
+      to: { version: sha(String(n)), display: "https://github.com/acme/x.git@HEAD (b)" },
+    });
+    /** GitHub, saying `remaining` requests are left and who asked. */
+    function stubGitHub(remaining: () => number) {
+      const auth: (string | null)[] = [];
+      vi.stubGlobal("fetch", async (_url: string, init?: { headers?: Record<string, string> }) => {
+        auth.push(init?.headers?.Authorization ?? null);
+        const headers: Record<string, string> = { "x-ratelimit-remaining": String(remaining()), "x-ratelimit-limit": "60" };
+        return { ok: true, status: 200, headers: { get: (n: string) => headers[n] ?? null }, json: async () => ({ total_commits: 0, commits: [], html_url: "u" }) };
+      });
+      return auth;
+    }
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    });
+
+    it("stops fetching on its own when few requests are left, and fetches when asked", async () => {
+      const { rpc, service } = await host();
+      const auth = stubGitHub(() => 5);
+      expect(await rpc("update_changes", range(1))).toMatchObject({ kind: "github" });
+      expect(await rpc("update_changes", range(2))).toMatchObject({ kind: "deferred", remaining: 5 });
+      expect(auth).toHaveLength(1);
+      expect(await rpc("update_changes", { ...range(2), force: true })).toMatchObject({ kind: "github" });
+      expect(auth).toHaveLength(2);
+      service.controller.abort();
+    });
+
+    it("uses the machine's GitHub login when allowed, and only then", async () => {
+      vi.stubEnv("GH_TOKEN", "gho_test");
+      const withLogin = await host(undefined, true);
+      const auth = stubGitHub(() => 4000);
+      await withLogin.rpc("update_changes", range(1));
+      expect(auth).toEqual(["Bearer gho_test"]);
+      withLogin.service.controller.abort();
+
+      const without = await host(undefined, false);
+      await without.rpc("update_changes", range(2));
+      expect(auth).toEqual(["Bearer gho_test", null]);
+      without.service.controller.abort();
+    });
+
+    it("doesn't hold a nearly spent limit without a login against requests with one", async () => {
+      const { rpc, harness, service } = await host();
+      let left = 3;
+      stubGitHub(() => left);
+      await rpc("update_changes", range(1));
+      // A login appears: its own limit is a different, fresh one.
+      vi.stubEnv("GH_TOKEN", "gho_test");
+      await harness.setSettings({ useGitHubLogin: true });
+      left = 4900;
+      expect(await rpc("update_changes", range(2))).toMatchObject({ kind: "github" });
+      service.controller.abort();
+    });
   });
 });

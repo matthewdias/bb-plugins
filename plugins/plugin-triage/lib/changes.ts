@@ -32,7 +32,28 @@ export type Changes =
   /** Not a range GitHub can describe (npm, another host, a version not a commit). */
   | { kind: "none" }
   /** GitHub could have said, but didn't this time. Not cached. */
-  | { kind: "unavailable"; reason: string };
+  | { kind: "unavailable"; reason: string }
+  /** Not fetched, to save what is left of GitHub's hourly limit; ask with force. Not cached. */
+  | { kind: "deferred"; remaining: number; resetAt: number | null };
+
+/** What GitHub says is left of the hourly limit, from any response. */
+export interface Budget {
+  remaining: number;
+  limit: number;
+  /** Epoch ms. */
+  resetAt: number | null;
+}
+
+/** Below this many requests left, change lists wait to be asked for. */
+export const LOW_BUDGET = 10;
+
+export interface GitHubAccess {
+  /** A token to send, or null to go without. */
+  token: string | null;
+  /** GitHub refused the token. */
+  onUnauthorized?: () => void;
+  onBudget?: (budget: Budget) => void;
+}
 
 export const COMMITS_SHOWN = 6;
 
@@ -75,11 +96,33 @@ type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: A
 
 class GitHubError extends Error {}
 
-async function get<T>(fetch: Fetch, path: string): Promise<T | null> {
-  const response = await fetch(`https://api.github.com${path}`, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "bb-plugin-triage" },
-    signal: AbortSignal.timeout(10_000),
-  });
+function readBudget(headers: { get(name: string): string | null }): Budget | null {
+  const remaining = Number(headers.get("x-ratelimit-remaining"));
+  const limit = Number(headers.get("x-ratelimit-limit"));
+  const reset = Number(headers.get("x-ratelimit-reset"));
+  if (headers.get("x-ratelimit-remaining") === null || !Number.isFinite(remaining)) return null;
+  return { remaining, limit: Number.isFinite(limit) ? limit : 0, resetAt: Number.isFinite(reset) && reset > 0 ? reset * 1000 : null };
+}
+
+async function get<T>(fetch: Fetch, path: string, access: GitHubAccess): Promise<T | null> {
+  const send = (token: string | null) =>
+    fetch(`https://api.github.com${path}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "bb-plugin-triage",
+        ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+  let response = await send(access.token);
+  if (response.status === 401 && access.token !== null) {
+    // A stale or revoked login: drop it, and ask again without one.
+    access.onUnauthorized?.();
+    access.token = null;
+    response = await send(null);
+  }
+  const budget = readBudget(response.headers);
+  if (budget !== null) access.onBudget?.(budget);
   if (response.status === 404) return null;
   if (!response.ok) {
     const reset = Number(response.headers.get("x-ratelimit-reset"));
@@ -112,6 +155,7 @@ export async function fetchChanges(
   from: VersionLabel,
   to: VersionLabel,
   subdirectory: string | null,
+  access: GitHubAccess = { token: null },
 ): Promise<Changes> {
   const repo = githubRepo(to);
   if (repo === null || changesKey(from, to, subdirectory) === null) return { kind: "none" };
@@ -120,6 +164,7 @@ export async function fetchChanges(
     const compare = await get<{ total_commits: number; commits: ApiCommit[]; html_url: string }>(
       fetch,
       `${base}/compare/${from.version}...${to.version}`,
+      access,
     );
     if (compare === null) return { kind: "unavailable", reason: "GitHub doesn't know one of these versions." };
 
@@ -131,6 +176,7 @@ export async function fetchChanges(
       const touching = await get<ApiCommit[]>(
         fetch,
         `${base}/commits?sha=${to.version}&path=${encodeURIComponent(subdirectory)}&per_page=100`,
+        access,
       );
       const shas = new Set((touching ?? []).map((c) => c.sha));
       relevant = compare.commits.filter((c) => shas.has(c.sha));
@@ -142,6 +188,7 @@ export async function fetchChanges(
       const release = await get<{ name: string | null; body: string | null; html_url: string }>(
         fetch,
         `${base}/releases/tags/${encodeURIComponent(ref)}`,
+        access,
       );
       if (release !== null && (release.body ?? "").trim() !== "") {
         releaseNotes = { name: release.name || ref, body: release.body!.trim(), url: release.html_url };

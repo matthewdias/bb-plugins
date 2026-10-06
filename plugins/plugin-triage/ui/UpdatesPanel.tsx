@@ -22,40 +22,74 @@ export const UPDATE_ACTIONS: DeckActions = {
   up: { label: "Later", name: "Remind me in a week", icon: "Clock", hint: "later" },
 };
 
+/** How long a card sits on top before its changes are fetched: skimming is free. */
+export const DWELL_MS = 700;
+
 const changesCache = new Map<string, Promise<Changes>>();
+const settledChanges = new Map<string, Changes>();
+
+/** Answers that may be different next time are asked again, not kept. */
+const keep = (changes: Changes) => changes.kind === "github" || changes.kind === "none";
 
 /** What the top card's update changes, fetched once per card. */
-function useChanges(rpc: TriageRpc, card: Card | null): Changes | undefined {
+function useChanges(rpc: TriageRpc, card: Card | null): { changes: Changes | undefined; load: () => void } {
   const [loaded, setLoaded] = useState<{ key: string; changes: Changes } | null>(null);
-  useEffect(() => {
-    if (card === null) return;
-    const key = `${card.pluginId}:${card.from.version}...${card.to.version}`;
-    let request = changesCache.get(key);
+  const key = card === null ? null : `${card.pluginId}:${card.from.version}...${card.to.version}`;
+
+  function ask(force: boolean): Promise<Changes> | null {
+    if (card === null || key === null) return null;
+    let request = force ? undefined : changesCache.get(key);
     if (request === undefined) {
       request = rpc
         .call("update_changes", {
           pluginId: card.pluginId,
           from: { version: card.from.version, display: card.from.display },
           to: { version: card.to.version, display: card.to.display },
+          ...(force ? { force: true } : {}),
         })
         .catch((): Changes => ({ kind: "unavailable", reason: "Couldn't load the changes." }));
       changesCache.set(key, request);
-      // An unanswered question is asked again next time.
-      void request.then((changes) => changes.kind === "unavailable" && changesCache.delete(key));
+      void request.then((changes) => {
+        if (keep(changes)) settledChanges.set(key, changes);
+        else changesCache.delete(key);
+      });
+    }
+    return request;
+  }
+
+  useEffect(() => {
+    if (key === null) return;
+    const known = settledChanges.get(key);
+    if (known !== undefined) {
+      setLoaded({ key, changes: known });
+      return;
     }
     let live = true;
-    void request.then((changes) => live && setLoaded({ key, changes }));
+    // Only once the card has stayed on top: a card flicked past costs nothing.
+    const timer = setTimeout(() => {
+      void ask(false)?.then((changes) => live && setLoaded({ key, changes }));
+    }, DWELL_MS);
     return () => {
       live = false;
+      clearTimeout(timer);
     };
-  }, [card, rpc]);
-  const key = card === null ? null : `${card.pluginId}:${card.from.version}...${card.to.version}`;
-  return loaded !== null && loaded.key === key ? loaded.changes : undefined;
+    // `ask` reads the same card and rpc this effect keys on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, rpc]);
+
+  return {
+    changes: loaded !== null && loaded.key === key ? loaded.changes : undefined,
+    load: () => {
+      setLoaded(null);
+      void ask(true)?.then((changes) => key !== null && setLoaded({ key, changes }));
+    },
+  };
 }
 
 /** Tests only. */
 export function resetChangesCache(): void {
   changesCache.clear();
+  settledChanges.clear();
 }
 
 function message(cause: unknown): string {
@@ -66,7 +100,7 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
   const navigate = useBbNavigate();
   const [starting, setStarting] = useState(false);
   const [checking, setChecking] = useState<string | "all" | null>(null);
-  const changes = useChanges(rpc, updates.cards[0] ?? null);
+  const { changes, load: loadChanges } = useChanges(rpc, updates.cards[0] ?? null);
 
   async function start() {
     setStarting(true);
@@ -114,6 +148,7 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
               card={card}
               top={top}
               changes={top ? changes : undefined}
+              onLoadChanges={loadChanges}
               onChanges={() => card.compareUrl !== null && navigate.openUrl(card.compareUrl)}
               onDetails={() => navigateInApp(pluginDetailsPath(card.pluginId))}
             />

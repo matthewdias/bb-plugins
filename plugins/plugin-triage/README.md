@@ -66,10 +66,19 @@ the card on top also lists what the update changes: the commits between the
 two versions that touch the plugin (when it shares a repository with other
 plugins, only those in its own folder), and the release notes when the new
 version is a release. An update that touches nothing of the plugin's says so,
-so it can be skipped with confidence. The lists come from GitHub's public
-API, which allows 60 requests an hour from one machine; each range is fetched
-once and kept. **Changes** opens the full comparison on GitHub; **Details**
-opens the plugin in bb's detail pane.
+so it can be skipped with confidence. **Changes** opens the full comparison
+on GitHub; **Details** opens the plugin in bb's detail pane.
+
+The lists come from GitHub's API. To get its 5,000-an-hour limit rather than
+the 60 GitHub allows without a login, Plugin Triage uses this machine's
+GitHub login the way bb does for git: `GH_TOKEN` if it is set, otherwise
+`gh auth token`. The token stays in memory and is only sent to
+api.github.com, for read-only lookups; turn **Use this machine's GitHub login
+for update change lists** off in the plugin's settings to look up without
+one. Either way a card's changes are fetched only once it has stayed on top
+for a moment, so skimming the deck costs nothing; each range is fetched once
+and kept; and when fewer than ten requests are left in the hour, cards offer
+**Load changes** instead of spending them.
 
 | | Drag | Key |
 | --- | --- | --- |

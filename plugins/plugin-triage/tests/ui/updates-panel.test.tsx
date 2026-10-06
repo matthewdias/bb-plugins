@@ -208,3 +208,30 @@ describe("what the top card's update changes", () => {
     await waitFor(() => expect(call.mock.calls.filter(([m]) => m === "update_changes")).toHaveLength(1));
   });
 });
+
+describe("fetching the top card's changes", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("waits until a card has stayed on top, so flicking past costs nothing", async () => {
+    vi.useFakeTimers();
+    const { rpc, call } = rpcFake();
+    const asked = () => call.mock.calls.filter(([m]) => m === "update_changes").map(([, input]) => (input as { pluginId: string }).pluginId);
+    const view = render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha"), card("beta")] })} keyboard />);
+    await vi.advanceTimersByTimeAsync(300);
+    view.rerender(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("beta")] })} keyboard />);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(asked()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(asked()).toEqual(["beta"]);
+  });
+
+  it("offers to load the changes when GitHub's limit is nearly spent", async () => {
+    changesAnswer = { kind: "deferred", remaining: 4, resetAt: null };
+    const { rpc, call } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    expect(await screen.findByText(/Saving GitHub's hourly limit: 4 left/)).toBeTruthy();
+    changesAnswer = { kind: "none" };
+    fireEvent.click(screen.getByRole("button", { name: "Load changes" }));
+    await waitFor(() => expect(call).toHaveBeenLastCalledWith("update_changes", expect.objectContaining({ pluginId: "alpha", force: true })));
+  });
+});
