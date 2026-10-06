@@ -20,6 +20,9 @@ const thread = (overrides: Row = {}): Row => ({
   sourceThreadId: MAIN,
   lifecycleOwnerThreadId: MAIN,
   environmentId: "env_main",
+  titleFallback: "Replying to this earlier message in the conversation: The build is green.",
+  lastReadAt: 900,
+  latestAttentionAt: 800,
   updatedAt: 1_000,
   ...overrides,
 });
@@ -45,6 +48,15 @@ const sideChatTab = {
   paramsJson: JSON.stringify({ threadId: SIDE, sourceThreadId: MAIN, sourceMessageText: "", sourceSeqEnd: null }),
 };
 const infoTab = { id: "thread-info:thread-info:none", kind: "thread-info" };
+// This plugin's own "Side chats" tab showing the same side chat.
+const ownTab = {
+  id: "plugin-panel:promote-side-chat:x",
+  kind: "plugin-panel",
+  pluginId: "promote-side-chat",
+  actionId: "side-chats",
+  title: "Why is CI red?",
+  paramsJson: JSON.stringify({ threadId: SIDE, anchor: null }),
+};
 
 interface Options {
   threads?: Record<string, Row>;
@@ -75,7 +87,7 @@ async function host(options: Options = {}) {
     order.push("archive");
     return options.archive?.() ?? { archivedThreadIds: [SIDE] };
   });
-  harness.sdk.stub("threads.tabs.get", () => ({ revision: 7, tabs: [infoTab, sideChatTab] }));
+  harness.sdk.stub("threads.tabs.get", () => ({ revision: 7, tabs: [infoTab, sideChatTab, ownTab] }));
   harness.sdk.stub("threads.tabs.update", () => {
     order.push("tabs");
     return options.tabsUpdate?.() ?? { revision: 8, tabs: [infoTab] };
@@ -218,17 +230,25 @@ test("promote: refuses a side chat with nothing in it, without forking", async (
 test("listSideChats: lists live side chats with a message, newest first", async () => {
   const { harness } = await host({
     threads: {
-      a: thread({ id: "a", updatedAt: 1 }),
-      b: thread({ id: "b", updatedAt: 3 }),
+      a: thread({ id: "a", updatedAt: 1, titleFallback: null }),
+      b: thread({ id: "b", updatedAt: 3, status: "active" }),
+      c: thread({ id: "c", updatedAt: 4, lastReadAt: 10, latestAttentionAt: 20 }),
       empty: thread({ id: "empty", updatedAt: 2 }),
       visible: thread({ id: "visible", visibility: "visible" }),
     },
-    timelines: { a: userSaid("first question"), b: userSaid("second\nquestion"), visible: userSaid("x") },
+    timelines: {
+      a: userSaid("first question"),
+      b: userSaid("second\nquestion"),
+      c: userSaid("third"),
+      visible: userSaid("x"),
+    },
   });
   const result = (await harness.callRpc("listSideChats", { threadId: MAIN })) as { sideChats: Row[] };
+  const anchor = "The build is green.";
   assert.deepEqual(result.sideChats, [
-    { id: "b", preview: "second question", updatedAt: 3 },
-    { id: "a", preview: "first question", updatedAt: 1 },
+    { id: "c", preview: "third", anchor, state: "unread", updatedAt: 4 },
+    { id: "b", preview: "second question", anchor, state: "working", updatedAt: 3 },
+    { id: "a", preview: "first question", anchor: null, state: "read", updatedAt: 1 },
   ]);
   assert.deepEqual(harness.sdk.callsTo("threads.list")[0]?.[0], {
     includeHidden: true,
@@ -240,9 +260,61 @@ test("listSideChats: lists live side chats with a message, newest first", async 
   });
 });
 
-test("events: a side chat being created, going idle, or archived refreshes its main thread", async () => {
+test("listSideChats: reads each side chat's first message once", async () => {
   const { harness } = await host();
-  for (const event of ["thread.created", "thread.idle", "thread.archived"] as const) {
+  await harness.callRpc("listSideChats", { threadId: MAIN });
+  await harness.callRpc("listSideChats", { threadId: MAIN });
+  assert.equal(harness.sdk.callsTo("threads.timeline").length, 1);
+});
+
+test("listSideChats: an empty side chat is read again until it has a message", async () => {
+  const timelines: Record<string, unknown> = {};
+  const { harness } = await host({ timelines });
+  assert.deepEqual(await harness.callRpc("listSideChats", { threadId: MAIN }), { sideChats: [] });
+  timelines[SIDE] = userSaid("Now there is one");
+  const result = (await harness.callRpc("listSideChats", { threadId: MAIN })) as { sideChats: Row[] };
+  assert.equal(result.sideChats[0]?.preview, "Now there is one");
+});
+
+test("archive: archives the side chat and closes both plugins' tabs for it", async () => {
+  const { harness, forkArgs } = await host();
+  const result = await harness.callRpc("archiveSideChat", { sideChatThreadId: SIDE });
+  assert.deepEqual(result, { sideChatThreadId: SIDE });
+  assert.deepEqual(harness.sdk.callsTo("threads.archive")[0]?.[0], { threadId: SIDE });
+  assert.deepEqual(harness.sdk.callsTo("threads.tabs.update")[0]?.[0], {
+    threadId: MAIN,
+    expectedRevision: 7,
+    tabs: [infoTab],
+  });
+  assert.equal(forkArgs().length, 0);
+});
+
+test("archive: a side chat mid-reply may be archived", async () => {
+  const { harness } = await host({ threads: { [SIDE]: thread({ status: "active" }) } });
+  await harness.callRpc("archiveSideChat", { sideChatThreadId: SIDE });
+  assert.equal(harness.sdk.callsTo("threads.archive").length, 1);
+});
+
+test("archive: refuses what is not a live side chat, and reports a failed archive", async () => {
+  const { harness } = await host({ threads: { [SIDE]: thread({ originPluginId: null }) } });
+  await assert.rejects(harness.callRpc("archiveSideChat", { sideChatThreadId: SIDE }), /not a side chat/);
+  assert.equal(harness.sdk.callsTo("threads.archive").length, 0);
+
+  const failing = await host({
+    archive: () => {
+      throw new Error("archive exploded");
+    },
+  });
+  await assert.rejects(
+    failing.harness.callRpc("archiveSideChat", { sideChatThreadId: SIDE }),
+    /archive exploded/,
+  );
+  assert.equal(failing.harness.sdk.callsTo("threads.tabs.update").length, 0);
+});
+
+test("events: a side chat being created, starting or finishing a reply, or archived refreshes its main thread", async () => {
+  const { harness } = await host();
+  for (const event of ["thread.created", "thread.active", "thread.idle", "thread.archived"] as const) {
     const before = harness.realtimeSignals.length;
     await harness.emitThreadEvent(event, { thread: thread(), lastAssistantText: null } as never);
     assert.deepEqual(harness.realtimeSignals.slice(before), [
@@ -287,4 +359,32 @@ test("cli: list without a thread asks for one", async () => {
   const result = await cli([], {});
   assert.equal(result.exitCode, 1);
   assert.match(result.stderr, /pass --thread/);
+});
+
+test("cli: list marks replies in progress and unread", async () => {
+  const { cli } = await host({
+    threads: {
+      a: thread({ id: "a", updatedAt: 2, status: "active" }),
+      b: thread({ id: "b", updatedAt: 1, lastReadAt: 1, latestAttentionAt: 2 }),
+    },
+    timelines: { a: userSaid("one"), b: userSaid("two") },
+  });
+  assert.deepEqual(await cli(["list"]), {
+    exitCode: 0,
+    stdout: "a  [replying] one\nb  [new reply] two\n",
+    stderr: "",
+  });
+});
+
+test("cli: archive", async () => {
+  const { cli } = await host();
+  assert.deepEqual(await cli(["archive", SIDE]), {
+    exitCode: 0,
+    stdout: `Archived side chat ${SIDE}\n`,
+    stderr: "",
+  });
+  const again = await host({ threads: { [SIDE]: thread({ archivedAt: 1 }) } });
+  const refused = await again.cli(["archive", SIDE]);
+  assert.equal(refused.exitCode, 1);
+  assert.match(refused.stderr, /already archived/);
 });

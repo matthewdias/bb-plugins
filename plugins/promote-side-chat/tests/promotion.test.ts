@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  anchorFrom,
+  archiveRefusalFor,
   firstUserText,
   isSideChat,
   isTabFor,
   oneLine,
   refusalFor,
+  sideChatState,
   titleFor,
   type ThreadFacts,
 } from "../lib/promotion.ts";
@@ -90,18 +93,53 @@ test("titleFor: the user's first question, on one line", () => {
   assert.ok(titleFor("word ".repeat(40)).length <= 60);
 });
 
-test("isTabFor: matches the side-chat panel showing that side chat, by params", () => {
+test("isTabFor: matches either plugin's panel showing that side chat, by params", () => {
   const tab = (threadId: unknown, extra: Record<string, unknown> = {}) => ({
     kind: "plugin-panel",
     pluginId: "side-chat",
     paramsJson: JSON.stringify({ threadId, sourceThreadId: "thr_main" }),
     ...extra,
   });
-  assert.equal(isTabFor(tab("thr_side"), "thr_side"), true);
-  assert.equal(isTabFor(tab("thr_other"), "thr_side"), false);
-  assert.equal(isTabFor(tab("thr_side", { pluginId: "follow-up" }), "thr_side"), false);
-  assert.equal(isTabFor(tab("thr_side", { kind: "git-diff" }), "thr_side"), false);
-  assert.equal(isTabFor(tab("thr_side", { paramsJson: "{not json" }), "thr_side"), false);
-  assert.equal(isTabFor(tab("thr_side", { paramsJson: null }), "thr_side"), false);
-  assert.equal(isTabFor({ kind: "thread-info" }, "thr_side"), false);
+  assert.equal(isTabFor(tab("thr_side"), "thr_side", "side-chats"), true);
+  assert.equal(isTabFor(tab("thr_other"), "thr_side", "side-chats"), false);
+  assert.equal(isTabFor(tab("thr_side", { pluginId: "follow-up" }), "thr_side", "side-chats"), false);
+  assert.equal(isTabFor(tab("thr_side", { kind: "git-diff" }), "thr_side", "side-chats"), false);
+  assert.equal(isTabFor(tab("thr_side", { paramsJson: "{not json" }), "thr_side", "side-chats"), false);
+  assert.equal(isTabFor(tab("thr_side", { paramsJson: null }), "thr_side", "side-chats"), false);
+  assert.equal(isTabFor({ kind: "thread-info" }, "thr_side", "side-chats"), false);
+  // This plugin's own "Side chats" tab on the same side chat.
+  assert.equal(isTabFor(tab("thr_side", { pluginId: "side-chats" }), "thr_side", "side-chats"), true);
+  // Its list tab names no side chat.
+  assert.equal(isTabFor(tab(undefined, { pluginId: "side-chats" }), "thr_side", "side-chats"), false);
+});
+
+test("archiveRefusalFor: any live side chat may be archived, busy or not", () => {
+  assert.equal(archiveRefusalFor(sideChat()), null);
+  assert.equal(archiveRefusalFor(sideChat({ status: "active", queuedMessageCount: 3 })), null);
+  assert.match(archiveRefusalFor(sideChat({ archivedAt: 5 })) ?? "", /already archived/);
+  assert.match(archiveRefusalFor(sideChat({ visibility: "visible" })) ?? "", /not a side chat/);
+});
+
+test("sideChatState: replying beats unread, and unread means attention after the last read", () => {
+  const at = (status: string, lastReadAt: number | null, latestAttentionAt: number | null) =>
+    sideChatState({ status, lastReadAt, latestAttentionAt });
+  for (const status of ["pending", "starting", "active", "stopping"]) {
+    assert.equal(at(status, 0, 99), "working", status);
+  }
+  assert.equal(at("idle", 10, 20), "unread");
+  assert.equal(at("idle", null, 20), "unread");
+  assert.equal(at("error", 10, 20), "unread");
+  assert.equal(at("idle", 20, 20), "read");
+  assert.equal(at("idle", 30, 20), "read");
+  assert.equal(at("idle", 30, null), "read");
+});
+
+test("anchorFrom: reads the replied-to text back out of the seeded fallback title", () => {
+  assert.equal(
+    anchorFrom("Replying to this earlier message in the conversation: The build is green."),
+    "The build is green.",
+  );
+  assert.equal(anchorFrom("Replying to this earlier message in the conversation:   "), null);
+  assert.equal(anchorFrom("Some other fallback"), null);
+  assert.equal(anchorFrom(null), null);
 });

@@ -25,7 +25,7 @@
   },
   "bb": {
     "name": "Promote Side Chat",
-    "description": "Turns a side chat into an ordinary thread of its own, kept when the main thread is archived, in the same checkout or a new worktree.",
+    "description": "Keeps a thread's side chats in one list: reopen one after closing its tab, see which have replied, archive them, or promote one to a thread of its own.",
     "branding": {
       "icon": "SideChat"
     },

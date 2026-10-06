@@ -1,5 +1,6 @@
-// What makes a thread a side chat, whether one may be promoted, and what the
-// promoted thread is called. Pure, so the policy is tested without a host.
+// What makes a thread a side chat, what state one is in, whether it may be
+// promoted or archived, and what a promoted one is called. Pure, so the policy
+// is tested without a host.
 //
 // A side chat is bb's built-in side-chat plugin's hidden fork of a thread,
 // owned by that thread's lifecycle: archiving the main thread archives it, and
@@ -11,6 +12,9 @@ export const SIDE_CHAT_PLUGIN_ID = "side-chat";
 
 /** Realtime channel: a thread's set of side chats changed. */
 export const SIDE_CHATS_CHANGED = "side-chats-changed";
+
+/** The seed the side-chat plugin puts before the replied-to message. */
+const REPLY_SEED_PREFIX = "Replying to this earlier message in the conversation:";
 
 const TITLE_MAX = 60;
 
@@ -56,6 +60,46 @@ export function refusalFor(thread: ThreadFacts, hasUserMessage: boolean): string
   }
   if (!hasUserMessage) return `Side chat ${thread.id} has no messages yet.`;
   return null;
+}
+
+/** Why a side chat cannot be archived, or null when it can. A busy one may be: archiving stops it. */
+export function archiveRefusalFor(thread: ThreadFacts): string | null {
+  if (!isSideChat(thread)) return `${thread.id} is not a side chat.`;
+  if (thread.archivedAt !== null) return `Side chat ${thread.id} is already archived.`;
+  return null;
+}
+
+/** Statuses in which a thread is doing, or about to do, a turn. */
+const WORKING = new Set(["pending", "starting", "active", "stopping"]);
+
+/**
+ * What the list shows beside a side chat: replying now, a reply nobody has
+ * looked at, or neither. bb moves `latestAttentionAt` when the thread wants
+ * the user, such as a finished reply, and `lastReadAt` when the thread is
+ * viewed, in the side-chat panel too, so a reply that arrived after its tab
+ * was closed stays unread.
+ */
+export function sideChatState(thread: {
+  status: string;
+  lastReadAt: number | null;
+  latestAttentionAt: number | null;
+}): "working" | "unread" | "read" {
+  if (WORKING.has(thread.status)) return "working";
+  if (thread.latestAttentionAt !== null && thread.latestAttentionAt > (thread.lastReadAt ?? 0)) {
+    return "unread";
+  }
+  return "read";
+}
+
+/**
+ * The replied-to text the side-chat plugin seeded, read back from bb's
+ * fallback title (which bb may have shortened). Null for a side chat started
+ * from the panel, which replies to nothing.
+ */
+export function anchorFrom(titleFallback: string | null | undefined): string | null {
+  if (titleFallback == null || !titleFallback.startsWith(REPLY_SEED_PREFIX)) return null;
+  const anchor = titleFallback.slice(REPLY_SEED_PREFIX.length).trim();
+  return anchor === "" ? null : anchor;
 }
 
 /** A timeline row, as far as finding the first user message needs. */
@@ -106,15 +150,17 @@ export function titleFor(firstUser: string): string {
 }
 
 /**
- * The side-chat panel tabs on the main thread that show `sideChatId`. Matched
- * on the tab's params rather than its id, whose encoding is the side-chat
- * plugin's business.
+ * The panel tabs on the main thread that show `sideChatId`: the side-chat
+ * plugin's own, and this plugin's (pass its id as `ownPluginId`). Matched on
+ * the tab's params rather than its id, whose encoding is the host's business.
  */
 export function isTabFor(
   tab: { kind: string; pluginId?: string; paramsJson?: string | null },
   sideChatId: string,
+  ownPluginId: string,
 ): boolean {
-  if (tab.kind !== "plugin-panel" || tab.pluginId !== SIDE_CHAT_PLUGIN_ID) return false;
+  if (tab.kind !== "plugin-panel") return false;
+  if (tab.pluginId !== SIDE_CHAT_PLUGIN_ID && tab.pluginId !== ownPluginId) return false;
   if (typeof tab.paramsJson !== "string") return false;
   try {
     const params = JSON.parse(tab.paramsJson) as unknown;

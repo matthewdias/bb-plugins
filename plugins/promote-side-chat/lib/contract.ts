@@ -1,5 +1,6 @@
-// The RPC contract between the header control and the server. Shared so the
-// frontend's calls are typed against the same schemas the server validates.
+// The RPC contract between the header control, the panel, and the server.
+// Shared so the frontend's calls are typed against the same schemas the server
+// validates.
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
@@ -11,8 +12,12 @@ const threadId = z.string().trim().min(1);
 export const sideChatSummarySchema = z
   .object({
     id: z.string(),
-    /** What the user asked, else what they replied to. One line. */
+    /** What the user first asked. One line. */
     preview: z.string(),
+    /** The main-thread message the side chat replies to, possibly shortened by bb. */
+    anchor: z.string().nullable(),
+    /** Replying now, a reply not yet looked at, or neither. */
+    state: z.enum(["working", "unread", "read"]),
     updatedAt: z.number(),
   })
   .strict();
@@ -27,6 +32,8 @@ export const promotionSchema = z
     warnings: z.array(z.string()),
   })
   .strict();
+
+export const archiveSchema = z.object({ sideChatThreadId: z.string() }).strict();
 
 export const rpcContract = defineRpcContract({
   listSideChats: {
@@ -43,8 +50,13 @@ export const rpcContract = defineRpcContract({
       .strict(),
     output: promotionSchema,
   },
+  archiveSideChat: {
+    input: z.object({ sideChatThreadId: threadId }).strict(),
+    output: archiveSchema,
+  },
 });
 
 export type SideChatSummary = z.infer<typeof sideChatSummarySchema>;
 export type Promotion = z.infer<typeof promotionSchema>;
+export type Archive = z.infer<typeof archiveSchema>;
 export type EnvironmentChoice = "shared" | "worktree";

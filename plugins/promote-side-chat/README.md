@@ -1,10 +1,13 @@
 # Promote Side Chat
 
 A side chat is a good place to ask about something without derailing the
-thread. Sometimes the question turns out to be its own piece of work. Promote
-Side Chat turns that side chat into an ordinary thread: it shows up in the
-sidebar, it carries the conversation forward, and it stays when the main
-thread is archived.
+thread. bb gives you no list of them, though: close a side chat's tab and it's
+out of reach, a reply that lands after you've looked away says nothing, and
+when the question turns out to be its own piece of work it stays a side chat.
+This plugin keeps a thread's side chats in one list, shows which are replying
+or have a reply you haven't read, and lets you open, archive, or promote each
+one. Promoting turns a side chat into an ordinary thread that carries the
+conversation forward and stays when the main thread is archived.
 
 ## Install
 
@@ -20,12 +23,27 @@ releases and `bb plugin update` follows it.
 ## What it does
 
 **A control in the thread header.** While a thread has side chats with
-something in them, its header shows the side-chat icon and a count. Click it
-for a list of the thread's side chats, each showing the first thing you asked
-and how long ago. A side chat you opened but never wrote in isn't listed, and
-the control disappears once there's nothing to promote.
+something in them, its header shows the side-chat icon and a count. A spinner
+beside the count means one is replying, and a dot means one has a reply you
+haven't read. Click it for a list of the thread's side chats, each showing the
+first thing you asked, then "replying…", "new reply", or how long ago. A side
+chat you opened but never wrote in isn't listed, and the control disappears
+once there's nothing to list.
 
-**Two ways to promote.** **Promote** keeps the new thread in the main
+**A "Side chats" panel.** The same list lives in the thread's side panel,
+under **Side chats** in the panel's new-tab launcher, beside bb's own **Start
+side chat**.
+
+**Open.** Opens the side chat in a panel tab, even after you've closed its
+own tab: the conversation with its composer, the message it replies to, bb's
+**Send to main thread** on each reply, and **Promote** and **Archive** above
+it. Viewing it there marks its reply read.
+
+**Archive.** Discards a side chat you're done with, without promoting it, and
+closes its tabs. One that is mid-reply is stopped. bb would otherwise keep a
+side chat with messages until its main thread is archived.
+
+**Two ways to promote.** **Promote to thread** keeps the new thread in the main
 thread's checkout, where the side chat already ran. **Promote into new
 worktree** gives it a fresh worktree on the same machine, branched from the
 project's default branch, for work that will edit files alongside the main
@@ -51,6 +69,11 @@ has no messages yet can't be promoted. Wait for the reply, or send or delete
 the queued messages, then try again. Promoting the same side chat twice
 returns the thread it was promoted to the first time.
 
+**How current the marks are.** Replies starting and finishing reach the
+header as they happen. Reading a side chat raises no event a plugin can hear,
+so a dot clears when you open the list, when the window regains focus, when
+you read it in this plugin's panel, or within 20 seconds while one is showing.
+
 ## For agents
 
 ```sh
@@ -58,10 +81,12 @@ bb promote-side-chat                          # this thread's side chats
 bb promote-side-chat list --thread thr_…      # another thread's
 bb promote-side-chat promote thr_side         # promote one, same checkout
 bb promote-side-chat promote thr_side --worktree --title "Fix CI"
+bb promote-side-chat archive thr_side         # discard one
 ```
 
-Each command takes `--json`. The bundled `promote-side-chat` skill tells
-agents to promote only when the user asks.
+`list` marks a side chat `[replying]` or `[new reply]`. Each command takes
+`--json`. The bundled `promote-side-chat` skill tells agents to promote or
+archive only when the user asks.
 
 ## Development
 
