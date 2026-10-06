@@ -15,6 +15,7 @@ import type { rpcContract } from "../lib/contract";
 import type { Job } from "../lib/queue";
 import { startScreenEngine, type ScreenEngine } from "../screen/engine";
 import { haptic } from "./haptics";
+import { jobToast } from "./job-toasts";
 import { navigateInApp } from "./navigate";
 import { TriagePage } from "./TriagePage";
 import { triageStore } from "./triage-store";
@@ -42,49 +43,16 @@ function useInstallToasts() {
     for (const job of jobs) {
       const was = before.get(job.id);
       if (was === job.state || (was !== "pending" && was !== "running" && was !== undefined)) continue;
-      if (job.kind === "remove") {
-        if (job.state === "done") {
-          haptic("success");
-          toast.success(`Removed ${job.displayName}`, { id: `triage-remove-${job.pluginId}` });
-        } else if (job.state === "failed") {
-          haptic("error");
-          toast.error(`Couldn't remove ${job.displayName}`, { id: `triage-remove-${job.pluginId}`, description: job.error ?? undefined });
-        }
-        continue;
-      }
-      if (job.kind === "update") {
-        if (job.state === "done") {
-          haptic("success");
-          toast.success(job.result === "current" ? `${job.displayName} was already up to date` : `Updated ${job.displayName}`, {
-            id: `triage-update-${job.pluginId}`,
-          });
-        } else if (job.state === "failed") {
-          haptic("error");
-          toast.error(`Couldn't update ${job.displayName}`, {
-            id: `triage-update-${job.pluginId}`,
-            description: job.error ?? undefined,
-          });
-        }
-        continue;
-      }
-      if (job.state === "done") {
-        haptic("success");
-        toast.success(`Installed ${job.displayName}`, {
-          id: `triage-install-${job.key}`,
-          description: undefined,
-          action:
-            job.pluginId === null
-              ? undefined
-              : { label: "Settings", onClick: () => navigateInApp(`/settings/plugins/${encodeURIComponent(job.pluginId!)}`) },
-        });
-      } else if (job.state === "failed") {
-        haptic("error");
-        toast.error(`Couldn't install ${job.displayName}`, {
-          id: `triage-install-${job.key}`,
-          description: job.error ?? undefined,
-          action: undefined,
-        });
-      }
+      const shown = jobToast(job);
+      if (shown === null) continue;
+      haptic(shown.tone);
+      const options = {
+        id: shown.id,
+        description: shown.description,
+        action: shown.action === undefined ? undefined : { label: shown.action.label, onClick: () => navigateInApp(shown.action!.to) },
+      };
+      if (shown.tone === "success") toast.success(shown.title, options);
+      else toast.error(shown.title, options);
     }
   };
 
