@@ -55,7 +55,7 @@ import {
   type CleanupDecisions,
   type Installed,
 } from "./lib/cleanup-deck.ts";
-import { bury, snapshot, type GraveyardEntry, type JsonValue } from "./lib/graveyard.ts";
+import { removalCost } from "./lib/removal-cost.ts";
 import { observe, type Observations, type PluginSample } from "./lib/usage.ts";
 
 export { rpcContract };
@@ -64,7 +64,8 @@ const DECISIONS = "decisions";
 const UPDATE_DECISIONS = "updateDecisions";
 const CLEANUP_DECISIONS = "cleanupDecisions";
 const OBSERVATIONS = "usage";
-const GRAVEYARD = "graveyard";
+/** Finished removals the Cleanup tab lists. */
+const REMOVALS_SHOWN = 20;
 /** Finished updates the Updates tab lists. */
 const HISTORY_SHOWN = 20;
 /** The marketplace of plugins bundled with bb. */
@@ -114,7 +115,6 @@ export default async function plugin(bb: BbPluginApi) {
   const readJobs = async () => (await kv.get<Job[]>(JOBS)) ?? [];
   const readUpdateDecisions = async () => (await kv.get<UpdateDecisions>(UPDATE_DECISIONS)) ?? {};
   const readCleanupDecisions = async () => (await kv.get<CleanupDecisions>(CLEANUP_DECISIONS)) ?? {};
-  const readGraveyard = async () => (await kv.get<GraveyardEntry[]>(GRAVEYARD)) ?? [];
 
   // Usage: bb's handler counts, sampled hourly and on load, into when each
   // plugin was last seen doing something (see lib/usage.ts).
@@ -200,31 +200,8 @@ export default async function plugin(bb: BbPluginApi) {
   async function remove(job: RemoveJob): Promise<Outcome> {
     try {
       const { plugins } = await bb.sdk.plugins.list();
-      const plugin = plugins.find((p) => p.id === job.pluginId);
-      if (plugin === undefined) return { ok: true, pluginId: job.pluginId };
-      const source = await bb.sdk.plugins.getSource({ pluginId: job.pluginId });
-      let settings: { schema: Record<string, { label: string; secret?: true; default?: unknown }>; values: Record<string, JsonValue> } | null = null;
-      try {
-        settings = (await bb.sdk.plugins.getSettings({ pluginId: job.pluginId })) as never;
-      } catch {
-        // No settings to keep.
-      }
-      // Kept before removing, so a removal is never without its way back.
-      const entry = snapshot({
-        id: `grave_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-        now: Date.now(),
-        plugin: { id: plugin.id, name: plugin.name, icon: plugin.icon, iconUrl: plugin.iconUrl },
-        source: { requested: source.requested, ...(source.subdirectory ? { subdirectory: source.subdirectory } : {}) },
-        settings,
-      });
-      await locked(async () => kv.set(GRAVEYARD, bury(await readGraveyard(), entry)));
-      try {
-        await bb.sdk.plugins.remove({ pluginId: job.pluginId });
-      } catch (error) {
-        // Still installed: nothing to restore.
-        await locked(async () => kv.set(GRAVEYARD, (await readGraveyard()).filter((other) => other.id !== entry.id)));
-        throw error;
-      }
+      if (!plugins.some((p) => p.id === job.pluginId)) return { ok: true, pluginId: job.pluginId };
+      await bb.sdk.plugins.remove({ pluginId: job.pluginId });
       return { ok: true, pluginId: job.pluginId };
     } catch (error) {
       return { ok: false, error: message(error) };
@@ -569,12 +546,11 @@ export default async function plugin(bb: BbPluginApi) {
     },
 
     cleanup_deck: async () => {
-      const [list, observations, decisions, jobs, graveyard] = await Promise.all([
+      const [list, observations, decisions, jobs] = await Promise.all([
         bb.sdk.plugins.list(),
         kv.get<Observations>(OBSERVATIONS),
         readCleanupDecisions(),
         readJobs(),
-        readGraveyard(),
       ]);
       return {
         cards: buildCleanupDeck({
@@ -585,7 +561,10 @@ export default async function plugin(bb: BbPluginApi) {
           now: Date.now(),
           selfId: bb.pluginId,
         }),
-        graveyard,
+        history: jobs
+          .filter((job): job is RemoveJob => job.kind === "remove" && (job.state === "done" || job.state === "failed"))
+          .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
+          .slice(0, REMOVALS_SHOWN),
       };
     },
 
@@ -647,25 +626,16 @@ export default async function plugin(bb: BbPluginApi) {
       return result;
     },
 
-    graveyard_restore: async ({ id }) => {
-      const entry = (await readGraveyard()).find((other) => other.id === id);
-      if (entry === undefined) throw new Error("That's no longer in the Graveyard.");
-      const installed = await bb.sdk.plugins.install({
-        source: entry.source,
-        ...(entry.subdirectory === null ? {} : { subdirectory: entry.subdirectory }),
-      });
-      if (Object.keys(entry.settings).length > 0) {
-        await bb.sdk.plugins.updateSettings({ pluginId: installed.id, values: entry.settings as never });
+    cleanup_cost: async ({ pluginId }) => {
+      const { plugins } = await bb.sdk.plugins.list();
+      const schedules = plugins.find((p) => p.id === pluginId)?.schedules?.length ?? 0;
+      let settings = null;
+      try {
+        settings = await bb.sdk.plugins.getSettings({ pluginId });
+      } catch {
+        // No settings, nothing to lose there.
       }
-      await locked(async () => kv.set(GRAVEYARD, (await readGraveyard()).filter((other) => other.id !== id)));
-      changed("restore");
-      return { pluginId: installed.id, secrets: entry.secrets };
-    },
-
-    graveyard_forget: async ({ id }) => {
-      await locked(async () => kv.set(GRAVEYARD, (await readGraveyard()).filter((other) => other.id !== id)));
-      changed("forget");
-      return { forgotten: true };
+      return removalCost(settings as never, schedules);
     },
 
     updates_check: async ({ pluginId }) => {

@@ -1,18 +1,17 @@
-// The Cleanup tab: installed plugins worth a second look, and the Graveyard
-// of ones removed from here, each with a way back.
-import { useState } from "react";
+// The Cleanup tab: installed plugins worth a second look, and what was
+// removed from here lately.
+import { useEffect, useState } from "react";
 import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CleanupCard as Card, CleanupReason } from "../lib/cleanup-deck";
-import type { GraveyardEntry } from "../lib/graveyard";
+import type { RemoveJob } from "../lib/queue";
+import { describeCost, type RemovalCost } from "../lib/removal-cost";
 import { CardStack } from "./CardStack";
 import { cleanupActions, decideCleanup, undoLastCleanup } from "./cleanup-decisions";
 import { PluginIcon, ago } from "./EntryCard";
-import { haptic } from "./haptics";
 import { navigateInApp, pluginDetailsPath } from "./navigate";
-import { triageStore, type CleanupState, type TriageRpc } from "./triage-store";
+import type { CleanupState, TriageRpc } from "./triage-store";
 
 const date = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -39,7 +38,33 @@ export function reasonText(reason: CleanupReason): { title: string; detail: stri
   }
 }
 
-function CleanupCardView({ card, top }: { card: Card; top: boolean }) {
+const costs = new Map<string, Promise<RemovalCost | null>>();
+
+/** What uninstalling the top card's plugin would delete, asked once per plugin. */
+function useCost(rpc: TriageRpc, pluginId: string | null): RemovalCost | null | undefined {
+  const [loaded, setLoaded] = useState<{ pluginId: string; cost: RemovalCost | null } | null>(null);
+  useEffect(() => {
+    if (pluginId === null) return;
+    let request = costs.get(pluginId);
+    if (request === undefined) {
+      request = rpc.call("cleanup_cost", { pluginId }).catch(() => null);
+      costs.set(pluginId, request);
+    }
+    let live = true;
+    void request.then((cost) => live && setLoaded({ pluginId, cost }));
+    return () => {
+      live = false;
+    };
+  }, [pluginId, rpc]);
+  return loaded !== null && loaded.pluginId === pluginId ? loaded.cost : undefined;
+}
+
+/** Tests only. */
+export function resetCosts(): void {
+  costs.clear();
+}
+
+function CleanupCardView({ card, top, cost }: { card: Card; top: boolean; cost?: RemovalCost | null }) {
   const reason = reasonText(card.reason);
   return (
     <article
@@ -77,9 +102,15 @@ function CleanupCardView({ card, top }: { card: Card; top: boolean }) {
             ))}
           </div>
         )}
-        <p className="text-xs text-muted-foreground">
-          Uninstalling deletes its settings; Plugin Triage keeps a copy, so it can be restored from the Graveyard.
-        </p>
+        {top && (
+          <p className="text-xs text-muted-foreground" data-testid="removal-cost">
+            {cost === undefined
+              ? "Checking what uninstalling would delete…"
+              : cost === null
+                ? "Uninstalling deletes its settings, secrets and schedules, for good."
+                : describeCost(cost)}
+          </p>
+        )}
       </div>
       {top && (
         <footer className="border-t border-border p-2">
@@ -92,73 +123,28 @@ function CleanupCardView({ card, top }: { card: Card; top: boolean }) {
   );
 }
 
-function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
-function Graveyard({ rpc, entries }: { rpc: TriageRpc; entries: GraveyardEntry[] }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  if (entries.length === 0) return null;
-
-  async function restore(entry: GraveyardEntry) {
-    setBusy(entry.id);
-    try {
-      const { secrets } = await rpc.call("graveyard_restore", { id: entry.id });
-      haptic("success");
-      toast.success(`Restored ${entry.displayName}`, {
-        description: secrets.length > 0 ? `Set again by hand: ${secrets.join(", ")}.` : undefined,
-      });
-      void triageStore.load(rpc);
-    } catch (cause) {
-      haptic("error");
-      toast.error(`Couldn't restore ${entry.displayName}: ${message(cause)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function forget(entry: GraveyardEntry) {
-    try {
-      await rpc.call("graveyard_forget", { id: entry.id });
-      void triageStore.load(rpc);
-    } catch (cause) {
-      toast.error(`Couldn't forget it: ${message(cause)}`);
-    }
-  }
-
+function Recent({ history }: { history: RemoveJob[] }) {
+  if (history.length === 0) return null;
   return (
     <section className="mx-auto w-full max-w-md space-y-1">
-      <h3 className="px-1 text-xs font-medium text-muted-foreground">Graveyard</h3>
+      <h3 className="px-1 text-xs font-medium text-muted-foreground">Recent</h3>
       <ul className="divide-y divide-border rounded-xl border border-border">
-        {entries.map((entry) => {
-          const kept = Object.keys(entry.settings).length;
-          const notes = [
-            `Removed ${ago(new Date(entry.removedAt).toISOString()) ?? ""}`.trim(),
-            kept > 0 ? `${kept} setting${kept === 1 ? "" : "s"} kept` : null,
-            entry.secrets.length > 0 ? `${entry.secrets.length} secret${entry.secrets.length === 1 ? "" : "s"} won't come back` : null,
-          ].filter(Boolean);
-          return (
-            <li key={entry.id} className="flex items-center gap-3 px-3 py-2">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm">{entry.displayName}</p>
-                <p className="truncate text-xs text-muted-foreground">{notes.join(" · ")}</p>
-              </div>
-              <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => void restore(entry)} disabled={busy !== null}>
-                {busy === entry.id ? "Restoring…" : "Restore"}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={() => void forget(entry)}
-                disabled={busy !== null}
-                aria-label={`Forget ${entry.displayName}`}
+        {history.map((job) => (
+          <li key={job.id} className="flex items-center gap-3 px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm">{job.displayName}</p>
+              <p
+                className={cn("truncate text-xs text-muted-foreground", job.state === "failed" && "text-amber-600 dark:text-amber-400")}
+                title={job.error ?? undefined}
               >
-                <Icon name="X" aria-hidden />
-              </Button>
-            </li>
-          );
-        })}
+                {job.state === "failed" ? `Couldn't remove: ${job.error ?? "failed"}` : "Removed"}
+              </p>
+            </div>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {job.finishedAt === null ? "" : ago(new Date(job.finishedAt).toISOString())}
+            </span>
+          </li>
+        ))}
       </ul>
     </section>
   );
@@ -166,6 +152,7 @@ function Graveyard({ rpc, entries }: { rpc: TriageRpc; entries: GraveyardEntry[]
 
 export function CleanupPanel({ rpc, cleanup, keyboard }: { rpc: TriageRpc; cleanup: CleanupState; keyboard: boolean }) {
   const top = cleanup.cards[0] ?? null;
+  const cost = useCost(rpc, top?.pluginId ?? null);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       {top !== null ? (
@@ -178,7 +165,7 @@ export function CleanupPanel({ rpc, cleanup, keyboard }: { rpc: TriageRpc; clean
             onDecide={(card, direction) => void decideCleanup(rpc, card, direction)}
             onUndo={() => void undoLastCleanup(rpc)}
             onDetails={() => {}}
-            render={(card, isTop) => <CleanupCardView card={card} top={isTop} />}
+            render={(card, isTop) => <CleanupCardView card={card} top={isTop} cost={isTop ? cost : undefined} />}
           />
         </div>
       ) : (
@@ -191,7 +178,7 @@ export function CleanupPanel({ rpc, cleanup, keyboard }: { rpc: TriageRpc; clean
           </p>
         </div>
       )}
-      <Graveyard rpc={rpc} entries={cleanup.graveyard} />
+      <Recent history={cleanup.history} />
     </div>
   );
 }

@@ -3,11 +3,11 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import type { Decision, NewCard } from "./new-deck.ts";
-import type { Job, UpdateJob } from "./queue.ts";
+import type { Job, RemoveJob, UpdateJob } from "./queue.ts";
 import type { Unavailable, UpdateCard, UpdateDecision } from "./updates-deck.ts";
 import type { Changes } from "./changes.ts";
 import type { CleanupCard, CleanupDecision } from "./cleanup-deck.ts";
-import type { GraveyardEntry } from "./graveyard.ts";
+import type { RemovalCost } from "./removal-cost.ts";
 import type { SourceSummary } from "./source.ts";
 
 const entryRef = { entryId: z.string().min(1), marketplace: z.string().min(1) };
@@ -112,7 +112,8 @@ export const rpcContract = defineRpcContract({
   },
   cleanup_deck: {
     input: z.object({}),
-    output: z.custom<{ cards: CleanupCard[]; graveyard: GraveyardEntry[] }>(() => true),
+    /** `history`: finished removals, newest first. */
+    output: z.custom<{ cards: CleanupCard[]; history: RemoveJob[] }>(() => true),
   },
   cleanup_decide: {
     input: z.object({
@@ -136,14 +137,10 @@ export const rpcContract = defineRpcContract({
     }),
     output: z.custom<{ undone: boolean; reason: string | null }>(() => true),
   },
-  graveyard_restore: {
-    input: z.object({ id: z.string().min(1) }),
-    /** `secrets` names the secret settings that did not come back. */
-    output: z.custom<{ pluginId: string; secrets: string[] }>(() => true),
-  },
-  graveyard_forget: {
-    input: z.object({ id: z.string().min(1) }),
-    output: z.custom<{ forgotten: boolean }>(() => true),
+  /** What uninstalling this plugin would delete for good. */
+  cleanup_cost: {
+    input: z.object({ pluginId: z.string().min(1) }),
+    output: z.custom<RemovalCost>(() => true),
   },
   updates_check: {
     input: z.object({ pluginId: z.string().min(1).optional() }),

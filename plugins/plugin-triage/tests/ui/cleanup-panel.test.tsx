@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
-import { CleanupPanel, reasonText } from "../../ui/CleanupPanel";
+import { CleanupPanel, reasonText, resetCosts } from "../../ui/CleanupPanel";
 import { cleanupActions, decideCleanup, resetCleanupDecisions, undoLastCleanup } from "../../ui/cleanup-decisions";
 import { resetTriageStore, triageStore, type TriageRpc } from "../../ui/triage-store";
 import type { CleanupCard } from "../../lib/cleanup-deck";
-import type { GraveyardEntry } from "../../lib/graveyard";
+import type { RemoveJob } from "../../lib/queue";
+import type { RemovalCost } from "../../lib/removal-cost";
 
 vi.mock("@get-bb/plugin-sdk/app", () => ({ experimental_Icon: () => null }));
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn() }) }));
@@ -28,22 +28,14 @@ function card(pluginId: string, overrides: Partial<CleanupCard> = {}): CleanupCa
   };
 }
 
-const grave: GraveyardEntry = {
-  id: "g1",
-  pluginId: "notes",
-  displayName: "Notes",
-  icon: null,
-  iconUrl: null,
-  removedAt: Date.now(),
-  source: "git:x",
-  subdirectory: null,
-  settings: { mode: "b" },
-  secrets: ["Token"],
-};
+let cost: RemovalCost | Error = { settings: ["Mode", "Theme"], secrets: ["API key"], scheduled: true };
 
 function rpcFake() {
   const call = vi.fn(async (method: string, _input?: unknown) => {
-    if (method === "graveyard_restore") return { pluginId: "notes", secrets: ["Token"] };
+    if (method === "cleanup_cost") {
+      if (cost instanceof Error) throw cost;
+      return cost;
+    }
     if (method === "cleanup_decide") return { previous: null };
     if (method === "cleanup_undo") return { undone: true, reason: null };
     if (method === "deck_new" || method === "deck_saved") return { cards: [] };
@@ -56,6 +48,8 @@ function rpcFake() {
 }
 
 afterEach(() => {
+  resetCosts();
+  cost = { settings: ["Mode", "Theme"], secrets: ["API key"], scheduled: true };
   resetCleanupDecisions();
   resetTriageStore();
 });
@@ -63,7 +57,7 @@ afterEach(() => {
 describe("the Cleanup tab", () => {
   it("offers keep, uninstall and try-without for a plugin that is on", () => {
     const { rpc } = rpcFake();
-    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [card("broken")], graveyard: [] }} keyboard />);
+    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [card("broken")], history: [] }} keyboard />);
     expect(screen.getByRole("button", { name: "Keep it (→)" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Uninstall (←)" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try without it for two weeks (↑)" })).toBeTruthy();
@@ -86,13 +80,32 @@ describe("the Cleanup tab", () => {
     expect(reasonText({ kind: "disabled", since: null }).detail).toBe("Since before Plugin Triage was watching.");
   });
 
-  it("restores from the Graveyard, and says which secrets to set again", async () => {
+  it("says what uninstalling the top card would delete, before it is queued", async () => {
     const { rpc, call } = rpcFake();
-    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [], graveyard: [grave] }} keyboard />);
-    expect(screen.getByText(/1 setting kept · 1 secret won't come back/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
-    await waitFor(() => expect(call).toHaveBeenCalledWith("graveyard_restore", { id: "g1" }));
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Restored Notes", { description: "Set again by hand: Token." }));
+    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [card("notes")], history: [] }} keyboard />);
+    expect(await screen.findByText(
+      "Uninstalling deletes its 2 changed settings (Mode and Theme), its secret API key and its scheduled work, for good.",
+    )).toBeTruthy();
+    expect(call).toHaveBeenCalledWith("cleanup_cost", { pluginId: "notes" });
+  });
+
+  it("still warns when bb couldn't say what would be lost", async () => {
+    cost = new Error("nope");
+    const { rpc } = rpcFake();
+    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [card("notes")], history: [] }} keyboard />);
+    expect(await screen.findByText("Uninstalling deletes its settings, secrets and schedules, for good.")).toBeTruthy();
+  });
+
+  it("lists recent removals, failures with why, and offers no restore", () => {
+    const { rpc } = rpcFake();
+    const history = [
+      { id: "1", kind: "remove", pluginId: "a", displayName: "Alpha", state: "done", finishedAt: Date.now(), error: null },
+      { id: "2", kind: "remove", pluginId: "b", displayName: "Beta", state: "failed", finishedAt: Date.now(), error: "in use" },
+    ] as RemoveJob[];
+    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [], history }} keyboard />);
+    expect(screen.getByText("Removed")).toBeTruthy();
+    expect(screen.getByText("Couldn't remove: in use")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Restore/ })).toBeNull();
   });
 
   it("decides by direction for the card's kind, and undoes with the action taken", async () => {

@@ -5,10 +5,9 @@
 import type { PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../lib/contract";
 import type { NewCard } from "../lib/new-deck";
-import type { Job, UpdateJob } from "../lib/queue";
+import type { Job, RemoveJob, UpdateJob } from "../lib/queue";
 import type { Unavailable, UpdateCard } from "../lib/updates-deck";
 import type { CleanupCard } from "../lib/cleanup-deck";
-import type { GraveyardEntry } from "../lib/graveyard";
 
 export type TriageRpc = PluginRpcClient<typeof rpcContract>;
 
@@ -20,7 +19,8 @@ export interface UpdatesState {
 
 export interface CleanupState {
   cards: CleanupCard[];
-  graveyard: GraveyardEntry[];
+  /** Finished removals, newest first. */
+  history: RemoveJob[];
 }
 
 /** Installs and updates queued or under way, in the order they will run. */
@@ -43,7 +43,7 @@ export interface DeckState {
 
 const NO_UPDATES: UpdatesState = { cards: [], unavailable: [], history: [] };
 const NO_QUEUE: QueueState = { jobs: [], running: false };
-const NO_CLEANUP: CleanupState = { cards: [], graveyard: [] };
+const NO_CLEANUP: CleanupState = { cards: [], history: [] };
 
 let state: DeckState = {
   status: "idle",

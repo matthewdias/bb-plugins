@@ -114,13 +114,14 @@ plugins are never dealt.
 | ↑ | Try without it: off now, asks again in two weeks | Turn it back on | Two more weeks without it |
 
 Turning a plugin off or on happens at once, and Z turns it back. Uninstalling
-waits in the queue for **Run all**, removals after installs and updates. Just
-before removing, Plugin Triage keeps the plugin's source and any settings you
-changed, and the **Graveyard** lists what it removed, each with a **Restore**
-that installs it again from the same source and puts those settings back.
-Secret settings can't be read, so they don't come back; the Graveyard names
-them, and Restore says which to set again. Cleanup's cards don't add to the
-number on the Triage row.
+waits in the queue for **Run all**, removals after installs and updates.
+Uninstalling is for good: bb deletes the plugin's settings, secrets and
+schedules with it, so the card on top says what that would take, read from bb
+("Uninstalling deletes its 2 changed settings (Mode and Theme), its secret API
+key and its scheduled work, for good"). Installing it again starts from the
+defaults. Finished removals are listed under **Recent**, failures with why,
+and a plugin that couldn't be removed goes back in the deck. Cleanup's cards
+don't add to the number on the Triage row.
 
 ## What counts as new
 

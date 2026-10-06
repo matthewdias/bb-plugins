@@ -45,7 +45,7 @@ function useInstallToasts() {
       if (job.kind === "remove") {
         if (job.state === "done") {
           haptic("success");
-          toast.success(`Removed ${job.displayName}`, { id: `triage-remove-${job.pluginId}`, description: "Restore it from Cleanup's Graveyard." });
+          toast.success(`Removed ${job.displayName}`, { id: `triage-remove-${job.pluginId}` });
         } else if (job.state === "failed") {
           haptic("error");
           toast.error(`Couldn't remove ${job.displayName}`, { id: `triage-remove-${job.pluginId}`, description: job.error ?? undefined });

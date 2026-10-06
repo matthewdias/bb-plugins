@@ -1,12 +1,12 @@
 // The Cleanup deck over RPC, against the SDK's fake host: usage sampling,
-// trying without a plugin, keeping, uninstalling through the queue, and the
-// Graveyard's restore.
+// trying without a plugin, keeping, uninstalling through the queue, and what
+// uninstalling would delete.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import type { CleanupCard } from "../lib/cleanup-deck";
 import { TRIAL_MS } from "../lib/cleanup-deck";
-import type { GraveyardEntry } from "../lib/graveyard";
+import type { RemoveJob } from "../lib/queue";
 
 const NOW = Date.parse("2026-10-06T12:00:00Z");
 const SELF = "plugin-triage";
@@ -40,6 +40,7 @@ async function host(options: { remove?: (id: string) => unknown } = {}) {
       providerIds: [],
       capabilities: [{ kind: "agent-tool", label: "t" }],
       handlerStats: { count: p.count, errorCount: 0, maxMs: 0, totalMs: 0 },
+      schedules: p.id === "off" ? [{ name: "nightly" }] : [],
     })),
   }));
   const find = (id: string) => installed.find((p) => p.id === id)!;
@@ -55,7 +56,7 @@ async function host(options: { remove?: (id: string) => unknown } = {}) {
   harness.sdk.stub("plugins.getSettings", () => ({
     ok: true,
     schema: { mode: { type: "string", label: "Mode", default: "a" }, token: { type: "string", label: "Token", secret: true } },
-    values: { mode: "b", token: "secret-value" },
+    values: { mode: "b", token: { set: true } },
   }));
   harness.sdk.stub("plugins.remove", ({ pluginId }: { pluginId: string }) => {
     const answer = options.remove?.(pluginId);
@@ -72,7 +73,7 @@ async function host(options: { remove?: (id: string) => unknown } = {}) {
   await plugin(bb);
   const service = harness.runService("queue");
   const rpc = async <T,>(method: string, input: unknown = {}) => (await harness.callRpc(method, input)) as T;
-  const deck = () => rpc<{ cards: CleanupCard[]; graveyard: GraveyardEntry[] }>("cleanup_deck");
+  const deck = () => rpc<{ cards: CleanupCard[]; history: RemoveJob[] }>("cleanup_deck");
   const cards = async () => (await deck()).cards.map((c) => [c.pluginId, c.reason.kind]);
   const decide = (pluginId: string, action: string) => rpc<{ previous: unknown }>("cleanup_decide", { pluginId, displayName: pluginId, action });
   const advance = async (ms: number) => {
@@ -145,39 +146,35 @@ describe("the Cleanup deck over RPC", () => {
     service.controller.abort();
   });
 
-  it("uninstalls only on Run all, keeping settings for restore but never secrets", async () => {
-    const { harness, decide, deck, cards, run, installed, service } = await host();
+  it("uninstalls only on Run all, and lists it under Recent, without the batch's updates", async () => {
+    const { harness, rpc, decide, deck, cards, run, installed, service } = await host();
+    const label = (version: string) => ({ version, display: version });
+    harness.sdk.stub("plugins.checkUpdates", () => [{ id: "fine", outcome: "update-available", installed: label("1"), candidate: label("2") }]);
+    harness.sdk.stub("plugins.applyUpdate", () => ({ applied: true, outcome: "updated", from: label("1"), to: label("2") }));
+    await rpc("update_decide", { pluginId: "fine", displayName: "fine", action: "queue", from: label("1"), to: label("2") });
     await decide("off", "remove");
     expect(await cards()).toEqual([["broken", "broken"]]);
     expect(harness.sdk.callsTo("plugins.remove")).toHaveLength(0);
     await run();
     expect(harness.sdk.callsTo("plugins.remove")).toEqual([[{ pluginId: "off" }]]);
+    expect(harness.sdk.callsTo("plugins.applyUpdate")).toHaveLength(1);
     expect(installed.some((p) => p.id === "off")).toBe(false);
-    const [entry] = (await deck()).graveyard;
-    expect(entry).toMatchObject({ pluginId: "off", source: "git:https://github.com/acme/off.git@*", subdirectory: "plugins/x", settings: { mode: "b" }, secrets: ["Token"] });
-    expect(JSON.stringify(entry)).not.toContain("secret-value");
+    expect((await deck()).history.map((j) => [j.pluginId, j.state])).toEqual([["off", "done"]]);
     service.controller.abort();
   });
 
-  it("restores from the Graveyard: the same source, then the settings", async () => {
-    const { harness, rpc, decide, deck, run, installed, service } = await host();
-    await decide("off", "remove");
-    await run();
-    const [entry] = (await deck()).graveyard;
-    expect(await rpc("graveyard_restore", { id: entry!.id })).toEqual({ pluginId: "off", secrets: ["Token"] });
-    expect(harness.sdk.callsTo("plugins.install")).toEqual([[{ source: "git:https://github.com/acme/off.git@*", subdirectory: "plugins/x" }]]);
-    expect(harness.sdk.callsTo("plugins.updateSettings")).toEqual([[{ pluginId: "off", values: { mode: "b" } }]]);
-    expect(installed.some((p) => p.id === "off")).toBe(true);
-    expect((await deck()).graveyard).toEqual([]);
-    service.controller.abort();
-  });
-
-  it("keeps no Graveyard entry when the removal fails, and puts the card back", async () => {
+  it("puts the card back when a removal fails, and says why under Recent", async () => {
     const { decide, deck, cards, run, service } = await host({ remove: () => new Error("in use") });
     await decide("off", "remove");
     await run();
-    expect((await deck()).graveyard).toEqual([]);
     expect(await cards()).toContainEqual(["off", "disabled"]);
+    expect((await deck()).history[0]).toMatchObject({ pluginId: "off", state: "failed", error: "in use" });
+    service.controller.abort();
+  });
+
+  it("says what uninstalling would delete: changed settings, set secrets, schedules", async () => {
+    const { rpc, service } = await host();
+    expect(await rpc("cleanup_cost", { pluginId: "off" })).toEqual({ settings: ["Mode"], secrets: ["Token"], scheduled: true });
     service.controller.abort();
   });
 
@@ -194,13 +191,4 @@ describe("the Cleanup deck over RPC", () => {
     service.controller.abort();
   });
 
-  it("forgets a Graveyard entry on request", async () => {
-    const { rpc, decide, deck, run, service } = await host();
-    await decide("off", "remove");
-    await run();
-    const [entry] = (await deck()).graveyard;
-    await rpc("graveyard_forget", { id: entry!.id });
-    expect((await deck()).graveyard).toEqual([]);
-    service.controller.abort();
-  });
 });

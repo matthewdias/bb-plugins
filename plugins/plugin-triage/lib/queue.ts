@@ -53,7 +53,7 @@ export interface UpdateJob extends JobBase {
   result: "updated" | "current" | null;
 }
 
-/** Uninstalling, from the Cleanup deck. A snapshot is taken first, for restore. */
+/** Uninstalling, from the Cleanup deck. */
 export interface RemoveJob extends JobBase {
   kind: "remove";
   pluginId: string;
