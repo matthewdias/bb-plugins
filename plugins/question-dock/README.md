@@ -23,14 +23,16 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
   the composer: 45% of the thread's width, between 440 and 640px. The chat
   and the composer move over for it. Drag the column's left edge to make it
   wider or narrower; the width is remembered on that device, and the chat
-  always keeps at least 520px. Collapse the card and it goes back to bb's
-  one-line bar above the composer.
+  always keeps at least 520px.
 - **Floating.** Drag the card by its header, marked by a grip at its start
-  and a grab cursor, to float it. It stays above the
-  composer and can't be dragged off the thread. It reopens where you dropped
-  it, on that device. Collapsed, a float stays put as a one-line chip. A card
-  dropped in the lower half of the thread keeps its bottom edge as it shrinks
-  or grows, and one dropped in the upper half keeps its top edge.
+  and a grab cursor, to float it. It stays above the composer and can't be
+  dragged off the thread. It reopens where you dropped
+  it, on that device. A card dropped in the lower half of the thread keeps
+  its bottom edge as it shrinks or grows, and one dropped in the upper half
+  keeps its top edge.
+- **Collapsing** a docked or floating card (its chevron, a click on its
+  header, or Escape) puts it back in bb's one-line bar above the composer.
+  Expand the bar and it returns where it was.
 - **Back to the dock.** Drag a float to the right edge of the thread. A
   dashed outline shows the dock column; release to dock. Double-clicking the
   header switches between the two.

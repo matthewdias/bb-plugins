@@ -50,8 +50,8 @@ export const SHEET_COLLAPSE = 0.35;
  * `y` is how far its anchored edge sits from the matching edge of the room,
  * as a fraction of the room's height. A card dropped in the lower half is
  * anchored by its bottom and one in the upper half by its top, so a card
- * that shrinks (collapsed to its bar, or a shorter next question) keeps the
- * edge nearer where it was put instead of jumping.
+ * that changes height (a shorter or longer next question) keeps the edge
+ * nearer where it was put instead of jumping.
  */
 export interface FloatPosition {
   x: number;
@@ -79,17 +79,15 @@ export function canDock(paneWidth: number): boolean {
 /**
  * The mode for one card, or null to leave it where bb draws it.
  *
- * A collapsed card is bb's one-line bar above the composer, which is the
- * right place for it in every mode but float: there it is a small chip that
- * stays where it was put.
+ * A collapsed card is bb's one-line bar above the composer, in every mode:
+ * collapsing puts the card away, and expanding the bar brings it back where
+ * it was, docked, floating or as a sheet.
  */
 export function chooseMode(input: ModeInput): Mode | null {
-  if (input.compact) return input.mobileSheet && input.expanded ? "sheet" : null;
+  if (!input.expanded) return null;
+  if (input.compact) return input.mobileSheet ? "sheet" : null;
   if (input.desktopMode === "inline") return null;
-  const mode: Mode =
-    input.desktopMode === "dock" && canDock(input.paneWidth) ? "dock" : "float";
-  if (mode === "dock" && !input.expanded) return null;
-  return mode;
+  return input.desktopMode === "dock" && canDock(input.paneWidth) ? "dock" : "float";
 }
 
 /**

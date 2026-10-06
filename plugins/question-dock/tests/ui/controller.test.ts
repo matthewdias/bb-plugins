@@ -99,13 +99,18 @@ describe("lifting", () => {
     expect(pane.hasAttribute("data-qd-docked")).toBe(false);
   });
 
-  it("keeps a collapsed float floating, on the same anchor", () => {
-    const { section } = mountThread({ paneWidth: 800 });
+  it("hands a collapsed float back to bb's bar, and floats it again when it reopens", () => {
+    const { footer, section } = mountThread({ paneWidth: 800 });
     start();
     section.removeAttribute("data-expanded");
     controller.update();
+    expect(section.hasAttribute("data-qd-mode")).toBe(false);
+    expect(section.hasAttribute("data-qd-anchor")).toBe(false);
+    expect(footer.hasAttribute("data-qd-lifted")).toBe(false);
+
+    section.setAttribute("data-expanded", "");
+    controller.update();
     expect(section.getAttribute("data-qd-mode")).toBe("float");
-    expect(section.getAttribute("data-qd-anchor")).toBe("bottom");
   });
 
   it("leaves everything as bb drew it when set to inline", () => {

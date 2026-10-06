@@ -30,9 +30,10 @@ test("a pane too narrow to dock floats instead", () => {
   assert.equal(chooseMode({ ...wide, paneWidth: DOCK_MIN_PANE }), "dock");
 });
 
-test("a collapsed card goes back to bb's bar unless it floats", () => {
+test("a collapsed card goes back to bb's bar, docked or floating", () => {
   assert.equal(chooseMode({ ...wide, expanded: false }), null);
-  assert.equal(chooseMode({ ...wide, expanded: false, desktopMode: "float" }), "float");
+  assert.equal(chooseMode({ ...wide, expanded: false, desktopMode: "float" }), null);
+  assert.equal(chooseMode({ ...wide, expanded: false, paneWidth: 800 }), null);
 });
 
 test("float and inline are honoured on a wide pane", () => {
