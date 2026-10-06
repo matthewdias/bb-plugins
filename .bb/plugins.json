@@ -4,6 +4,7 @@
   "name": "matthewdias-bb-plugins",
   "plugins": [
     { "name": "follow-up", "source": "./plugins/follow-up" },
+    { "name": "mark-unread", "source": "./plugins/mark-unread" },
     { "name": "question-dock", "source": "./plugins/question-dock" },
     { "name": "swipe-controls", "source": "./plugins/swipe-controls" },
     { "name": "thread-badges", "source": "./plugins/thread-badges" },
