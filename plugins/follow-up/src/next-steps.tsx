@@ -22,7 +22,7 @@ import { useComposer, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../server";
 import type { FollowUp } from "../lib/followups.ts";
-import type { NextOffer } from "../lib/next-steps.ts";
+import { shortLabel, visibleText, type NextOffer } from "../lib/next-steps.ts";
 import { setRows } from "./store.ts";
 import { SEND_FAILED, setOffer, STALE_OFFER, takeStep } from "./use-next-steps.ts";
 import { REFUSAL_DETAIL } from "./record-draft.ts";
@@ -86,36 +86,46 @@ function Chip({
   label,
   hint,
   ariaLabel,
-  whole,
   emphasis,
   disabled,
   onSend,
   onEdit,
+  onHover,
 }: {
+  /**
+   * Drawn whole, never truncated by CSS. An agent's step is sent word for word
+   * as the user's message, so all of it has to be on screen — a cut-off button
+   * would send words nobody saw. A label that does stand for something longer
+   * (Do's) is cut before it gets here, and says so with "…". The row scrolls
+   * sideways instead.
+   */
   label: ReactNode;
   /** Hover text. Desktop only: a phone has no hover. */
   hint: string | null;
   ariaLabel: string;
-  /**
-   * Never truncate. An agent's step is sent word for word as the user's
-   * message, so all of it has to be on screen — a cut-off button would send
-   * words nobody saw. The row scrolls sideways instead.
-   */
-  whole: boolean;
   emphasis: boolean;
   disabled: boolean;
   onSend: () => void;
   onEdit: () => void;
+  /** Pointer or focus arriving (true) and leaving (false). */
+  onHover?: (on: boolean) => void;
 }) {
   const hold = useHold(onEdit);
   return (
-    <span title={hint ?? undefined} className="inline-flex min-w-0 shrink-0">
+    <span
+      title={hint ?? undefined}
+      className="inline-flex min-w-0 shrink-0"
+      onMouseEnter={() => onHover?.(true)}
+      onMouseLeave={() => onHover?.(false)}
+    >
       <Button
         variant={emphasis ? "secondary" : "ghost"}
         size="sm"
-        className={cn("h-7 gap-1.5 px-2 text-xs", !whole && "max-w-[18rem]")}
+        className="h-7 gap-1.5 px-2 text-xs"
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
+        onFocus={() => onHover?.(true)}
+        onBlur={() => onHover?.(false)}
         {...hold.handlers}
         onClick={(event) => {
           if (hold.consumeHeld()) return;
@@ -124,7 +134,7 @@ function Chip({
         }}
         aria-label={ariaLabel}
       >
-        <span className={whole ? undefined : "truncate"}>{label}</span>
+        <span>{label}</span>
       </Button>
     </span>
   );
@@ -135,6 +145,7 @@ export function NextSteps({
   offer,
   candidate,
   onInsertRow,
+  onHighlightCandidate,
 }: {
   threadId: string;
   offer: NextOffer | null;
@@ -142,6 +153,11 @@ export function NextSteps({
   candidate: FollowUp | null;
   /** The list's own "put in composer", for editing a "Do" before sending. */
   onInsertRow: (row: FollowUp) => void;
+  /**
+   * The "Do" chip is being pointed at or focused, so the list can mark the row
+   * it stands for — the chip shows the row's start, the list shows all of it.
+   */
+  onHighlightCandidate?: (on: boolean) => void;
 }) {
   const composer = useComposer();
   const rpc = useRpc<typeof rpcContract>();
@@ -250,7 +266,6 @@ export function NextSteps({
             label={step}
             hint={hint}
             ariaLabel={`Send "${step}"`}
-            whole
             emphasis={index === 0}
             disabled={busy}
             onSend={() => void take(index)}
@@ -261,22 +276,23 @@ export function NextSteps({
           <Chip
             label={
               <>
-                <span className="text-muted-foreground">Do:</span> {candidate.text}
+                <span className="text-muted-foreground">Do:</span>{" "}
+                {shortLabel(candidate.text)}
               </>
             }
+            // The whole row, since the label is usually only its start. A
+            // phone has no hover, but it has the row itself, right below.
             hint={
               isCompact
                 ? null
-                : "Send this follow-up to the agent now.\n\n⌥-click to put it in the composer first."
+                : `${visibleText(candidate.text)}\n\nSends this follow-up to the agent now. ⌥-click to put it in the composer first.`
             }
             ariaLabel={`Do "${candidate.text}" now`}
-            // May truncate: the message it sends quotes the row in full, and
-            // the row itself is right below in the list.
-            whole={false}
             emphasis
             disabled={busy}
             onSend={() => void doRow(candidate)}
             onEdit={() => onInsertRow(candidate)}
+            onHover={onHighlightCandidate}
           />
         )}
         {queued && (

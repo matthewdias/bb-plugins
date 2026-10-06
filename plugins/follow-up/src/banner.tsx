@@ -203,6 +203,7 @@ function FollowUpRow({
   showDetail,
   hoverActions,
   active,
+  highlighted,
   onEnter,
   onPeek,
   onOpenInPanel,
@@ -226,6 +227,8 @@ function FollowUpRow({
   showDetail: boolean;
   hoverActions: boolean;
   active: boolean;
+  /** Marked because the Next row's "Do" chip, which stands for it, is hovered. */
+  highlighted: boolean;
   onEnter: (id: string | null) => void;
   onPeek: (row: FollowUp | null) => void;
   onOpenInPanel: () => void;
@@ -266,7 +269,9 @@ function FollowUpRow({
         // Opaque only while lifted: a transparent row would show the rows
         // sliding underneath it.
         isDragging && "rounded bg-card shadow-sm ring-1 ring-border",
+        highlighted && !isDragging && "rounded bg-state-hover",
       )}
+      data-highlighted={highlighted || undefined}
       onMouseEnter={() => {
         if (anyDragging) return;
         onEnter(row.id);
@@ -812,6 +817,9 @@ export function FollowUpBanner() {
   const offer = useOffer(threadId);
   const candidate = doCandidate(rows);
   const offered = (offer?.steps.length ?? 0) > 0;
+  // The "Do" chip shows only the start of the top row; while it is pointed at,
+  // the row it stands for is marked in the list, where all of it is.
+  const [candidateLit, setCandidateLit] = useState(false);
   const nextShown = !running && (offered || candidate !== null);
   // What the card's own entrance keys off. `hasContent` alone stopped being the
   // answer the moment the card could also be showing nothing: a fully cleared
@@ -1095,6 +1103,7 @@ export function FollowUpBanner() {
           offer={offer}
           candidate={candidate}
           onInsertRow={insert}
+          onHighlightCandidate={setCandidateLit}
         />
       )}
       {cleared ? (
@@ -1314,6 +1323,7 @@ export function FollowUpBanner() {
               onDismiss={() => void dismiss(row)}
               onDone={() => void markDone(row, true)}
               active={hoveredId === row.id}
+              highlighted={candidateLit && candidate?.id === row.id}
               onEnter={setHoveredId}
               onPeek={schedulePeek}
               onCancelExpand={() => void cancelExpand(row)}

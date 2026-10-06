@@ -78,7 +78,11 @@ When the agent offered nothing, the row offers the top of the list instead:
 *Do* sends that follow-up to the agent now, with its whole record, and marks it
 in progress, as mentioning it would. It skips an out-of-scope row, which leads
 with a handoff, and does not skip past the top to find another: the list's
-order is yours.
+order is yours. The chip shows the start of the row, usually its headline
+("Fix the restore…"), ending in "…" whenever there is more. Hover it for the
+whole row, which is also marked in the list while you do. The label is cut
+from the row's own words rather than written separately, so it can never say
+something the row does not.
 
 **The empty state.** When the list empties, the banner offers three things:
 *suggest what's next*, start a new thread in the same checkout, or archive this

@@ -9,6 +9,7 @@ import {
   NEXT_STEP_MAX,
   NEXT_STEPS_MAX,
   parseOffer,
+  shortLabel,
   stepAt,
   withoutStep,
 } from "../lib/next-steps.ts";
@@ -150,4 +151,40 @@ test("doAsk: quotes only what the row shows, since the line goes out as the user
     text: "Tidy\u200B the\u{E0061} loader\n\nnow",
   });
   assert.equal(doAsk(sneaky), 'Pick up the follow-up "Tidy the loader now".');
+});
+
+test("shortLabel: a row's headline, marked as cut", () => {
+  assert.equal(
+    shortLabel("Fix Graveyard restore: reinstall store plugins through the store"),
+    "Fix Graveyard restore…",
+  );
+  assert.equal(shortLabel("Rename the flag — it reads as a negative"), "Rename the flag…");
+  assert.equal(shortLabel("Pin the clock (the test fails at midnight)"), "Pin the clock…");
+  assert.equal(shortLabel("Fix the flaky test. It fails on CI"), "Fix the flaky test…");
+});
+
+test("shortLabel: a row that fits is shown whole, with no ellipsis", () => {
+  assert.equal(shortLabel("Tidy the loader"), "Tidy the loader");
+  assert.equal(shortLabel("Fix the flaky test."), "Fix the flaky test");
+  // A one-word headline says too little, so the colon is not a cut.
+  assert.equal(shortLabel("Docs: update README"), "Docs: update README");
+  // Nor is a colon inside a path:line anchor.
+  assert.equal(shortLabel("Fix server.ts:120 crash"), "Fix server.ts:120 crash");
+});
+
+test("shortLabel: anything still too long is cut at a word", () => {
+  assert.equal(
+    shortLabel("Ask bb for an uninstall that also deletes the plugin's data folder"),
+    "Ask bb for an uninstall that also…",
+  );
+  const label = shortLabel("Supercalifragilisticexpialidocious and then some");
+  assert.ok(label.endsWith("…"));
+  assert.ok(label.length <= 37, label);
+});
+
+test("shortLabel: only what would show — and a prefix of it, so it cannot say anything else", () => {
+  const text = "Tidy\u200B the loader: and\u{E0061} more";
+  const label = shortLabel(text);
+  assert.equal(label, "Tidy the loader…");
+  assert.ok(doAsk(row("a", "deferred", { text })).includes(label.slice(0, -1)));
 });

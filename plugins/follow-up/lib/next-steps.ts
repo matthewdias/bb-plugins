@@ -191,3 +191,37 @@ export function doCandidate(rows: readonly FollowUp[]): FollowUp | null {
 export function doAsk(row: FollowUp): string {
   return `Pick up the follow-up "${visibleText(row.text)}".`;
 }
+
+/** How much of a follow-up the "Do" chip shows: what fits beside "Do:" on a phone. */
+export const DO_LABEL_MAX = 36;
+
+/**
+ * A follow-up's text cut down to fit the "Do" chip.
+ *
+ * Derived from the row's own words, never written separately. The chip
+ * stands for a row the user can read in full in the list right below it, and
+ * the line a press sends quotes that row in full. A short title an agent
+ * supplied could say something the row does not, and the button would then
+ * show one thing and send another — the gap the rest of this file exists to
+ * close. A prefix cannot do that: everything it shows is the start of what
+ * goes.
+ *
+ * The cut prefers the row's headline, the part before the first ": ", "; ",
+ * ". ", " (" or spaced dash, which is how most rows read ("Fix the restore:
+ * reinstall through the store"). A one-word headline ("Docs: …") says too
+ * little and is ignored. Anything still too long is cut at a word. Whenever
+ * the label is shorter than the row, it ends in "…", so a chip never passes
+ * a fragment off as the whole thing.
+ */
+export function shortLabel(text: string, max = DO_LABEL_MAX): string {
+  const full = visibleText(text);
+  const headline = full.split(/:\s|;\s|\.\s|\s[—–-]\s|\s\(/)[0]!.trim();
+  let label = headline.split(" ").length >= 2 ? headline : full;
+  if (label.length > max) {
+    const cut = label.slice(0, max);
+    const space = cut.lastIndexOf(" ");
+    label = space > max / 2 ? cut.slice(0, space) : cut;
+  }
+  label = label.replace(/[\s,;:.—–-]+$/, "");
+  return label.length < full.replace(/[\s.]+$/, "").length ? `${label}…` : label;
+}

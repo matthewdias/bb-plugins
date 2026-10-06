@@ -169,6 +169,31 @@ describe("Do, when the agent offered nothing", () => {
     );
   });
 
+  it("shows the start of a long row, with all of it on hover", async () => {
+    const long = row(
+      "r1",
+      "Fix Graveyard restore: reinstall store plugins through the store and say what Restore will install",
+      "deferred",
+    );
+    const slot = renderBanner("thr_do_long", { rows: [long] });
+    const chip = await slot.findByRole("button", { name: `Do "${long.text}" now` });
+    expect(chip.textContent).toBe("Do: Fix Graveyard restore…");
+    expect(chip.parentElement?.getAttribute("title")).toContain(long.text);
+  });
+
+  it("marks the row it stands for while it is pointed at", async () => {
+    const slot = renderBanner("thr_do_lit", { rows: [top, row("r2", "Rename the flag", "cleanup")] });
+    const chip = await slot.findByRole("button", { name: 'Do "Tidy the loader" now' });
+    const rowOf = (text: string) =>
+      within(slot.getByRole("list")).getByText(text).closest("[data-highlighted]");
+    expect(rowOf("Tidy the loader")).toBeNull();
+    fireEvent.mouseEnter(chip.parentElement!);
+    await waitFor(() => expect(rowOf("Tidy the loader")).not.toBeNull());
+    expect(rowOf("Rename the flag")).toBeNull();
+    fireEvent.mouseLeave(chip.parentElement!);
+    await waitFor(() => expect(rowOf("Tidy the loader")).toBeNull());
+  });
+
   it("is not offered beside the agent's own steps", async () => {
     const slot = renderBanner("thr_do_offer", { rows: [top], offer: offerOf("Open a PR") });
     await slot.findByRole("button", { name: 'Send "Open a PR"' });
