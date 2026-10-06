@@ -41,13 +41,16 @@ const toggle = command("toggle-followups");
 const panel = command("open-followups-panel");
 const handoff = command("open-handoff-panel");
 
-test("commands: three, with distinct ids and no default shortcut", () => {
+test("commands: six, with distinct ids and no default shortcut", () => {
   assert.deepEqual(
     commands.map((entry) => [entry.id, entry.title]),
     [
       ["toggle-followups", "Follow-ups: show or hide the list"],
       ["open-followups-panel", "Follow-ups: open panel"],
       ["open-handoff-panel", "Follow-ups: hand off…"],
+      ["take-next-step-1", "Follow-ups: take the first next step"],
+      ["take-next-step-2", "Follow-ups: take the second next step"],
+      ["take-next-step-3", "Follow-ups: take the third next step"],
     ],
   );
   assert.ok(commands.every((entry) => entry.defaultShortcut === undefined));

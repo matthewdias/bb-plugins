@@ -54,6 +54,18 @@ import {
   SERVICE_TIER_MAX,
   type ExpansionExecution,
 } from "./lib/expansion-execution.ts";
+import {
+  doAsk,
+  makeOffer,
+  NEXT_LABEL_MAX,
+  NEXT_PROMPT_MAX,
+  NEXT_STEPS_MAX,
+  parseOffer,
+  stepAsFollowUp,
+  stepAt,
+  withoutStep,
+  type NextOffer,
+} from "./lib/next-steps.ts";
 
 /** Global, not per-thread: settings have no project or thread scope. */
 const EXECUTION_KEY = "expansion-execution";
@@ -98,6 +110,23 @@ const followUpSchema = z.object({
   doneNote: z.string().nullable().optional(),
   createdBy: z.enum(["agent", "user"]).nullable().optional(),
 });
+
+const nextOfferSchema = z
+  .object({
+    steps: z.array(z.object({ label: z.string(), prompt: z.string() }).strict()),
+    goalMet: z.boolean(),
+    offeredAt: z.string(),
+  })
+  .strict();
+
+/** Which step of which offer a press is about. */
+const nextStepRef = z
+  .object({
+    threadId: z.string().min(1).max(200),
+    offeredAt: z.string().min(1).max(64),
+    index: z.number().int().min(0).max(NEXT_STEPS_MAX - 1),
+  })
+  .strict();
 
 export const rpcContract = defineRpcContract({
   followups_list: {
@@ -215,6 +244,57 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
     output: z
       .object({ outcome: z.enum(["sent", "queued", "failed", "disabled"]) })
+      .strict(),
+  },
+  /** The steps offered under this thread's latest reply. See lib/next-steps.ts. */
+  followups_next_get: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z.object({ offer: nextOfferSchema.nullable() }).strict(),
+  },
+  /**
+   * Press a step: send its prompt as the user's message. `offeredAt` names the
+   * offer the button belonged to, so a press that lands after the offer was
+   * replaced is `stale` rather than a different step sent by index.
+   */
+  followups_next_take: {
+    input: nextStepRef,
+    output: z
+      .object({ outcome: z.enum(["sent", "queued", "stale", "failed"]) })
+      .strict(),
+  },
+  /**
+   * Keep a step as a follow-up instead of doing it now. The step leaves the
+   * offer; the rest stay pressable.
+   */
+  followups_next_keep: {
+    input: nextStepRef,
+    output: z
+      .object({
+        outcome: z.enum(["added", "duplicate", "dismissed", "full", "stale"]),
+        offer: nextOfferSchema.nullable(),
+        followUps: z.array(followUpSchema),
+        done: z.array(followUpSchema),
+      })
+      .strict(),
+  },
+  /** Put the offer away without sending anything. */
+  followups_next_clear: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z.object({ ok: z.literal(true) }).strict(),
+  },
+  /**
+   * "Do" on the top follow-up: hand it to this thread's agent now, the way a
+   * mention pill would on send, without going through the composer.
+   */
+  followups_next_do: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        id: z.string().min(1).max(64),
+      })
+      .strict(),
+    output: z
+      .object({ outcome: z.enum(["sent", "queued", "gone", "failed"]) })
       .strict(),
   },
   /**
@@ -515,11 +595,25 @@ const EXPANDING_PREFIX = "expanding:";
  * saying, not when it should disappear.
  */
 const SEEN_PREFIX = "seen:";
+/**
+ * The steps the agent offered at the end of this thread's latest turn. One
+ * value per thread, replaced on every offer and deleted when a turn starts:
+ * see lib/next-steps.ts for why an offer never outlives its turn.
+ */
+const NEXT_PREFIX = "next:";
 
 const itemsKey = (threadId: string) => `${ITEMS_PREFIX}${threadId}`;
 const tombsKey = (threadId: string) => `${TOMBS_PREFIX}${threadId}`;
 const expandingKey = (helperThreadId: string) => `${EXPANDING_PREFIX}${helperThreadId}`;
 const seenKey = (threadId: string) => `${SEEN_PREFIX}${threadId}`;
+const nextKey = (threadId: string) => `${NEXT_PREFIX}${threadId}`;
+
+/**
+ * Frontend refetch signal for offers, separate from FOLLOWUPS_CHANGED because
+ * an offer changes on every turn and the list mostly does not: sharing one
+ * signal would refetch every row twice a turn to learn nothing.
+ */
+const NEXT_CHANGED = "followups-next-changed";
 
 const TOOL_INSTRUCTIONS = [
   "When you notice work you are not going to do in this turn — something out of",
@@ -630,6 +724,36 @@ const CAPTURE_RULE = [
   "the handoff picker\".",
 ].join("\n");
 
+const OFFER_TOOL_INSTRUCTIONS = [
+  "When your reply would end by offering to do something in this thread — \"Want",
+  "me to open a PR?\", \"Shall I add the test?\" — call offer_next_steps with it,",
+  "once, as the last thing you do in the turn. Each step becomes a button under",
+  "your reply; pressing it sends the step's prompt as the user's message.",
+  "",
+  "Offer only what you would do here, now, if the user said yes. Work that",
+  "belongs somewhere else is a follow-up, not a next step. Offering nothing is a",
+  "real answer: when nothing follows naturally, do not invent something to fill",
+  "the row.",
+].join("\n");
+
+/**
+ * The standing rule for offers, injected beside CAPTURE_RULE when the setting
+ * is on. Same reasoning as that one: a tool snippet alone is an offer agents
+ * do not take up, and the buttons are only worth having if they are there
+ * after the turns where a reply ends with a question.
+ */
+const NEXT_RULE = [
+  "Next steps: when you end a turn by asking whether to do something next in",
+  "this thread, call `offer_next_steps` with it so the user can answer with one",
+  "click. Write each prompt as the user's own instruction to you (\"Open a PR",
+  "for this branch against main\"), and keep labels to a few words. At most",
+  `${NEXT_STEPS_MAX}. Set \`goal_met\` when what this thread set out to do is done.`,
+  "",
+  "An offer is not a follow-up. Something you would do here on a yes is a next",
+  "step; something you are not going to do here is a follow-up. Do not record",
+  "the same work as both.",
+].join("\n");
+
 export default async function plugin(bb: BbPluginApi) {
   bb.log.info("loaded");
 
@@ -653,6 +777,16 @@ export default async function plugin(bb: BbPluginApi) {
       description:
         "Adds a standing rule to every thread's instructions. Without it, agents " +
         "have the tool but are not told to use it.",
+      default: true,
+    },
+    offerNextSteps: {
+      type: "boolean",
+      label: "Let agents offer next steps",
+      description:
+        "When an agent's reply ends with \u201cwant me to\u2026?\u201d, the answers " +
+        "appear as buttons under it. Pressing one sends it as your " +
+        "message; nothing is sent until you do. Turn it off and agents are not " +
+        "told about the buttons, and any offer they make anyway is refused.",
       default: true,
     },
     mentionInAtMenu: {
@@ -759,9 +893,9 @@ export default async function plugin(bb: BbPluginApi) {
       type: "boolean",
       label: 'Offer "Suggest what\'s next"',
       description:
-        "The button shown once a thread's follow-ups are all closed. It is the " +
-        "only thing this plugin does that writes a message into your own " +
-        "conversation. Turn it off and it never will.",
+        "The button shown once a thread's follow-ups are all closed. It writes " +
+        "a message into your own conversation when you press it, as a next-step " +
+        "button does. Turn it off and it is not offered.",
       default: true,
     },
     suggestHouseStyle: {
@@ -854,6 +988,52 @@ export default async function plugin(bb: BbPluginApi) {
       readTombstones(threadId),
     ]);
     return doneFollowUps(items, tombstones);
+  }
+
+  /** The offer under this thread's latest reply, or null. */
+  async function readOffer(threadId: string): Promise<NextOffer | null> {
+    return parseOffer(await bb.storage.kv.get<unknown>(nextKey(threadId)));
+  }
+
+  /**
+   * Replace the offer, or delete it with null, and tell the card. A delete of
+   * an offer that is not there writes and publishes nothing: a turn starting
+   * clears the offer, and most turns start on a thread that has none.
+   */
+  async function writeOffer(threadId: string, offer: NextOffer | null): Promise<void> {
+    if (offer === null) {
+      if ((await bb.storage.kv.get<unknown>(nextKey(threadId))) === undefined) return;
+      await bb.storage.kv.delete(nextKey(threadId));
+    } else {
+      await bb.storage.kv.set(nextKey(threadId), offer);
+    }
+    bb.realtime.publish(NEXT_CHANGED, { threadId });
+  }
+
+  /**
+   * Send a message into this thread as the user, the way pressing Enter would.
+   *
+   * `auto` starts a turn on an idle thread and queues behind a busy one. The
+   * card only offers buttons on an idle thread, but a turn can begin between
+   * the render and the click, and naming a mode that could not cope with that
+   * would be trusting the gap. Shared by every button that sends: a next step,
+   * "Do" on the top follow-up, and Suggest.
+   */
+  async function sendAsUser(
+    threadId: string,
+    input: Array<{ text: string; agentOnly?: boolean }>,
+  ): Promise<"sent" | "queued"> {
+    const result = await bb.sdk.threads.send({
+      threadId,
+      mode: "auto",
+      input: input.map((part) => ({
+        type: "text" as const,
+        text: part.text,
+        mentions: [],
+        ...(part.agentOnly === true ? { visibility: "agent-only" as const } : {}),
+      })),
+    });
+    return result.delivery === "queued" ? "queued" : "sent";
   }
 
   /**
@@ -1537,7 +1717,22 @@ export default async function plugin(bb: BbPluginApi) {
     if (current.markInProgressOnSend) {
       await markInProgress(parsed.threadId, parsed.id);
     }
-    const lines = [`Follow-up (${row.reason}): ${row.text}`];
+    return { context: rowContext(row, current.backfillAsk) };
+  }
+
+  /**
+   * One row's whole record, as the agent that is about to work on it reads it.
+   * Shared by the mention pill and the card's "Do" button, which are two ways
+   * of handing the same row to the same agent.
+   */
+  function rowContext(row: FollowUp, backfillAsk: boolean): string {
+    // A row a person wrote has no reason, and "(null)" is what interpolating
+    // one used to print.
+    const lines = [
+      row.reason === null
+        ? `Follow-up: ${row.text}`
+        : `Follow-up (${row.reason}): ${row.text}`,
+    ];
     if (row.file !== null) lines.push(`Anchored to: ${row.file}`);
     if (row.detail !== null && row.detail !== "") lines.push("", row.detail);
     // The one moment the row's id is provably in front of the agent that will
@@ -1553,9 +1748,9 @@ export default async function plugin(bb: BbPluginApi) {
     // things a jotted note leaves out. A standing instruction could not do it —
     // `contributeInstructions` is frozen for the life of a provider session, so
     // a note written mid-thread would not reach the agent until it restarted.
-    const backfill = current.backfillAsk ? backfillRequest(row) : null;
+    const backfill = backfillAsk ? backfillRequest(row) : null;
     if (backfill !== null) lines.push("", backfill);
-    return { context: lines.join("\n") };
+    return lines.join("\n");
   }
 
   bb.ui.registerMentionProvider({
@@ -2005,6 +2200,88 @@ export default async function plugin(bb: BbPluginApi) {
     done: await listDone(threadId),
   });
 
+  bb.agents.registerTool({
+    name: "offer_next_steps",
+    description:
+      "Offer what you would do next in this thread as buttons under your reply, " +
+      "so the user can say yes with one click. Call it once, as the last thing " +
+      "in a turn whose reply ends by offering to do something.",
+    instructions: OFFER_TOOL_INSTRUCTIONS,
+    presentation: {
+      label: { pending: "Offering next steps", completed: "Offered next steps" },
+      icon: { glyph: "TextWrap" },
+      // The buttons are the record. A row saying the agent offered them, under
+      // a reply with the buttons right below it, says the same thing twice on
+      // every turn that has an offer.
+      suppress: true,
+    },
+    parameters: z.object({
+      steps: z
+        .array(
+          z.object({
+            label: z
+              .string()
+              .trim()
+              .min(1)
+              .max(NEXT_LABEL_MAX)
+              .describe("The button's text, a few words: 'Open a PR'."),
+            prompt: z
+              .string()
+              .trim()
+              .min(1)
+              .max(NEXT_PROMPT_MAX)
+              .describe(
+                "What pressing it sends, as the user's own instruction to you: " +
+                  "'Open a PR for this branch against main.'",
+              ),
+          }),
+        )
+        .max(NEXT_STEPS_MAX)
+        .describe(
+          `Up to ${NEXT_STEPS_MAX}, most likely first. An empty list clears ` +
+            "whatever you offered earlier in this turn.",
+        ),
+      goal_met: z
+        .boolean()
+        .optional()
+        .describe(
+          "True when what this thread set out to do is done. It changes what " +
+            "the card leads with; closing the thread stays the user's call.",
+        ),
+    }),
+    async execute({ steps, goal_met }, { threadId }) {
+      if (!(await settings.get()).offerNextSteps) {
+        return (
+          "The user has turned next-step buttons off, so nothing was offered. " +
+          "Ask in your reply instead."
+        );
+      }
+      const offer = makeOffer(steps, goal_met === true, new Date().toISOString());
+      await writeOffer(threadId, offer);
+      if (offer === null) return "Cleared. No buttons will show under your reply.";
+      bb.log.info(
+        `offered ${offer.steps.length} next step(s) on ${threadId}` +
+          (offer.goalMet ? " (goal met)" : ""),
+      );
+      const shown =
+        offer.steps.length === 0
+          ? "No buttons, but the card will say this thread's goal is met."
+          : `${offer.steps.length} button${offer.steps.length === 1 ? "" : "s"} will ` +
+            "show under your reply until the next turn starts: " +
+            offer.steps.map((step) => `"${step.label}"`).join(", ") +
+            ". Pressing one sends its prompt as the user's message.";
+      return `Offered. ${shown}`;
+    },
+  });
+
+  // An offer answers the reply it sits under, so it goes the moment the next
+  // turn starts — whoever starts it: a pressed button, a typed message, a
+  // queued one, or another plugin. Clearing here rather than when a button is
+  // pressed is what makes that true of all of them.
+  bb.events.on("thread.active", ({ thread }) => {
+    void writeOffer(thread.id, null);
+  });
+
   bb.rpc.register(rpcContract, {
     getFollowUpCountsV1: async ({ threadIds }) => {
       // Deduped, and first-seen order kept: a caller assembling a sidebar may
@@ -2131,35 +2408,93 @@ export default async function plugin(bb: BbPluginApi) {
         return { outcome: "disabled" as const };
       }
       try {
-        const result = await bb.sdk.threads.send({
-          threadId,
-          // `auto` is what pressing Enter does: start on an idle thread, and
-          // fall back to the host's own busy handling otherwise. The card only
-          // appears on an idle thread, so this starts — but naming a mode that
-          // could not cope with a turn beginning between the render and the
-          // click would be trusting the gap.
-          mode: "auto",
-          input: [
-            { type: "text", text: SUGGEST_ASK, mentions: [] },
-            // Reaches the model, never renders in the transcript. See the note
-            // on SUGGEST_ASK for why the ask and the method are separate inputs
-            // and for the check that this visibility actually holds.
-            {
-              type: "text",
-              text: suggestMethod((await settings.get()).suggestHouseStyle),
-              mentions: [],
-              visibility: "agent-only",
-            },
-          ],
-        });
         // A busy thread queues rather than refusing, and that is still a send
         // as far as the caller is concerned — but the card should say which,
         // because a queued turn has not started thinking yet.
-        const outcome = result.delivery === "queued" ? ("queued" as const) : ("sent" as const);
+        const outcome = await sendAsUser(threadId, [
+          { text: SUGGEST_ASK },
+          // Reaches the model, never renders in the transcript. See the note
+          // on SUGGEST_ASK for why the ask and the method are separate inputs
+          // and for the check that this visibility actually holds.
+          {
+            text: suggestMethod((await settings.get()).suggestHouseStyle),
+            agentOnly: true,
+          },
+        ]);
         bb.log.info(`asked ${threadId} what to pick up next (${outcome})`);
         return { outcome };
       } catch (error) {
         bb.log.error(`suggest-next failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+    },
+    followups_next_get: async ({ threadId }) => {
+      // Off means no buttons, including for an offer stored before the switch
+      // was flipped: the setting says what the card shows, not only what agents
+      // are allowed to write.
+      if (!(await settings.get()).offerNextSteps) return { offer: null };
+      return { offer: await readOffer(threadId) };
+    },
+    followups_next_take: async ({ threadId, offeredAt, index }) => {
+      const offer = await readOffer(threadId);
+      const step = stepAt(offer, offeredAt, index);
+      if (step === null) return { outcome: "stale" as const };
+      // Cleared before sending, not after: a double press must not send twice,
+      // and the turn the send starts would clear it anyway.
+      await writeOffer(threadId, null);
+      try {
+        const outcome = await sendAsUser(threadId, [{ text: step.prompt }]);
+        bb.log.info(`took next step on ${threadId} (${outcome}): ${step.label}`);
+        return { outcome };
+      } catch (error) {
+        // Put it back, so the button is there to press again.
+        await writeOffer(threadId, offer);
+        bb.log.error(`next step failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+    },
+    followups_next_keep: async ({ threadId, offeredAt, index }) => {
+      const offer = await readOffer(threadId);
+      const step = stepAt(offer, offeredAt, index);
+      if (offer === null || step === null) {
+        return { outcome: "stale" as const, offer, ...(await bothLists(threadId)) };
+      }
+      // Recorded as the user's, because keeping it was: the agent offered to do
+      // it now, and the person deferred it. That is also what lets the agent
+      // be asked for the file and detail when the row is picked up later.
+      const { outcome } = await addUserFollowUp(threadId, {
+        ...stepAsFollowUp(step),
+        reason: "deferred",
+      });
+      // Out of the offer whatever the outcome. A duplicate is already on the
+      // list and a dismissed one was deliberately removed from it; either way
+      // the button has been answered.
+      const next = withoutStep(offer, index);
+      await writeOffer(threadId, next);
+      return { outcome, offer: next, ...(await bothLists(threadId)) };
+    },
+    followups_next_clear: async ({ threadId }) => {
+      await writeOffer(threadId, null);
+      return { ok: true as const };
+    },
+    followups_next_do: async ({ threadId, id }) => {
+      const current = await settings.get();
+      const row = (await listFollowUps(threadId)).find((entry) => entry.id === id);
+      if (row === undefined) return { outcome: "gone" as const };
+      try {
+        // The visible line reads as something typed; the record goes with it
+        // agent-only, as the mention pill's context does.
+        const outcome = await sendAsUser(threadId, [
+          { text: doAsk(row) },
+          { text: rowContext(row, current.backfillAsk), agentOnly: true },
+        ]);
+        // After the send, unlike a mention, which is claimed as it resolves:
+        // a send that failed has handed nothing to anyone.
+        if (current.markInProgressOnSend) await markInProgress(threadId, id);
+        bb.log.info(`handed the top follow-up to ${threadId} (${outcome}): ${row.text}`);
+        return { outcome };
+      } catch (error) {
+        bb.log.error(`do follow-up failed on ${threadId}: ${String(error)}`);
         return { outcome: "failed" as const };
       }
     },
@@ -2184,15 +2519,21 @@ export default async function plugin(bb: BbPluginApi) {
     }),
   });
 
-  // Standing rule in every thread's instructions. Synchronous and allocation-free
-  // on the hot path: this runs at thread.start and turn.submit.
-  let captureRuleEnabled = (await settings.get()).captureRule;
+  // Standing rules in every thread's instructions. Synchronous and
+  // allocation-free on the hot path: this runs at thread.start and turn.submit,
+  // so the four possible answers are built once, whenever a switch moves.
+  const standingRules = (values: { captureRule: boolean; offerNextSteps: boolean }) => {
+    const rules = [
+      values.captureRule ? CAPTURE_RULE : null,
+      values.offerNextSteps ? NEXT_RULE : null,
+    ].filter((rule): rule is string => rule !== null);
+    return rules.length === 0 ? null : rules.join("\n\n");
+  };
+  let instructions = standingRules(await settings.get());
   settings.onChange((next) => {
-    captureRuleEnabled = next.captureRule;
+    instructions = standingRules(next);
   });
-  bb.agents.contributeInstructions(() =>
-    captureRuleEnabled ? CAPTURE_RULE : null,
-  );
+  bb.agents.contributeInstructions(() => instructions);
 
   // `bb follow-up`, declared rather than parsed by hand: defineCli renders
   // `--help` from these declarations, rejects an option a command does not

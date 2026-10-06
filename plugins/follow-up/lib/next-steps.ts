@@ -1,0 +1,170 @@
+// Next steps: what the agent offered to do next, as buttons under its reply.
+//
+// Pure, like followups.ts: no plugin API, so every rule here is testable
+// without a running bb. Keep `bb.*` calls in server.ts.
+//
+// Replies end with "Want me to open a PR?" and the answer is "yes", typed by
+// hand. An offer turns that question into something to press. It is the other
+// half of a follow-up: a follow-up is work the agent is *not* doing here, a
+// next step is work it would do here the moment you said so.
+//
+// An offer belongs to one turn. `offer_next_steps` writes it while the agent is
+// still working, and the next turn starting clears it, whoever starts that turn.
+// A button on screen is therefore always an answer to the reply right above it.
+// A button under a reply five turns up would be the "yes" you would have typed
+// back then, and sending it now is almost always a mistake — which is why
+// there is no per-message variant of this.
+import { isInProgress, mainActionFor, normalizeKey, type FollowUp } from "./followups.ts";
+
+/**
+ * At most this many. A chip row has to fit beside nothing on a phone, and an
+ * agent offering five things has not decided what comes next.
+ */
+export const NEXT_STEPS_MAX = 3;
+/** A chip's text. Short enough that three fit on one line in the card. */
+export const NEXT_LABEL_MAX = 60;
+/** What a press sends, as the user's own message. */
+export const NEXT_PROMPT_MAX = 1000;
+
+export interface NextStep {
+  /** The chip's text: "Open a PR". */
+  label: string;
+  /**
+   * What pressing it sends, as the user's message: the instruction they would
+   * have typed to say yes. Distinct from the label because "Open a PR" is a
+   * good button and a thin instruction.
+   */
+  prompt: string;
+}
+
+export interface NextOffer {
+  steps: NextStep[];
+  /**
+   * The agent's judgement that what this thread set out to do is done. A
+   * report, not a verdict: it changes what the card leads with and nothing
+   * else. Closing the thread stays a person's call.
+   */
+  goalMet: boolean;
+  /**
+   * When it was offered, and the offer's identity. A press names the offer it
+   * was looking at, so a click that lands after the agent replaced its offer
+   * cannot send a step from the new one by index.
+   */
+  offeredAt: string;
+}
+
+/**
+ * The offer as stored, or null when there is nothing to show.
+ *
+ * Trims, drops empty steps and labels that repeat (by the same case- and
+ * punctuation-blind key follow-ups dedupe on), and keeps the first
+ * `NEXT_STEPS_MAX`. An offer with no steps survives only if it says the goal
+ * is met — that alone is something to show.
+ */
+export function makeOffer(
+  steps: readonly NextStep[],
+  goalMet: boolean,
+  offeredAt: string,
+): NextOffer | null {
+  const seen = new Set<string>();
+  const kept: NextStep[] = [];
+  for (const step of steps) {
+    const label = step.label.trim();
+    const prompt = step.prompt.trim();
+    if (label === "" || prompt === "") continue;
+    const key = normalizeKey(label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push({ label, prompt });
+    if (kept.length === NEXT_STEPS_MAX) break;
+  }
+  if (kept.length === 0 && !goalMet) return null;
+  return { steps: kept, goalMet, offeredAt };
+}
+
+/**
+ * A stored offer, re-validated on read.
+ *
+ * kv values survive upgrades, so a shape that stops parsing reads as "no
+ * offer" rather than throwing inside a render or an RPC. Steps are re-run
+ * through `makeOffer`'s rules for the same reason: what is stored is trusted
+ * only as far as it still parses.
+ */
+export function parseOffer(value: unknown): NextOffer | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.offeredAt !== "string") return null;
+  if (typeof candidate.goalMet !== "boolean") return null;
+  if (!Array.isArray(candidate.steps)) return null;
+  const steps: NextStep[] = [];
+  for (const step of candidate.steps) {
+    if (typeof step !== "object" || step === null) return null;
+    const { label, prompt } = step as Record<string, unknown>;
+    if (typeof label !== "string" || typeof prompt !== "string") return null;
+    steps.push({ label, prompt });
+  }
+  return makeOffer(steps, candidate.goalMet, candidate.offeredAt);
+}
+
+/**
+ * The step a press named, or null when the press is stale.
+ *
+ * Stale means the offer it was looking at is gone or has been replaced. A
+ * matching index into a different offer would send something nobody pressed.
+ */
+export function stepAt(
+  offer: NextOffer | null,
+  offeredAt: string,
+  index: number,
+): NextStep | null {
+  if (offer === null || offer.offeredAt !== offeredAt) return null;
+  return offer.steps[index] ?? null;
+}
+
+/**
+ * The offer with one step taken out — kept as a follow-up rather than sent.
+ * Same identity, so the remaining chips stay pressable.
+ */
+export function withoutStep(offer: NextOffer, index: number): NextOffer | null {
+  const steps = offer.steps.filter((_, at) => at !== index);
+  if (steps.length === 0 && !offer.goalMet) return null;
+  return { ...offer, steps };
+}
+
+/**
+ * The follow-up the card offers to do next, when the agent offered nothing.
+ *
+ * The top of the list, as long as it is something to do here: an out-of-scope
+ * row leads with handing off, so it is not "next" in this thread, and a row
+ * already in progress has been sent once. Only the top row is considered. The
+ * list's order is the user's priority, and skipping past the top row to find
+ * an eligible one would put the plugin's judgement above theirs.
+ */
+export function doCandidate(rows: readonly FollowUp[]): FollowUp | null {
+  const top = rows[0];
+  if (top === undefined) return null;
+  if (mainActionFor(top.reason) !== "insert") return null;
+  if (isInProgress(top)) return null;
+  if (top.handoffState === "running") return null;
+  return top;
+}
+
+/**
+ * The visible half of pressing "Do": one line that reads as something the
+ * user would have typed. The row's full record goes with it agent-only.
+ */
+export function doAsk(row: FollowUp): string {
+  return `Pick up the follow-up "${row.text}".`;
+}
+
+/**
+ * A step kept as a follow-up instead: its label is the row's text, and its
+ * prompt, the fuller instruction, is the detail. Prompts that just repeat the
+ * label leave the row without detail rather than saying it twice.
+ */
+export function stepAsFollowUp(step: NextStep): { text: string; detail: string | null } {
+  return {
+    text: step.label,
+    detail: normalizeKey(step.prompt) === normalizeKey(step.label) ? null : step.prompt,
+  };
+}

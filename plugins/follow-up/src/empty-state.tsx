@@ -141,6 +141,8 @@ export function EmptyState({
   threadId,
   done,
   animate,
+  offerSuggest = true,
+  goalMet = false,
 }: {
   threadId: string;
   /** The Done rows, read only to warn before archiving takes a child with it. */
@@ -152,6 +154,16 @@ export function EmptyState({
    * way would spend the rare tier on something that happens every turn.
    */
   animate: boolean;
+  /**
+   * False when the agent already offered next steps above this card: Suggest
+   * would ask it the question it has just answered.
+   */
+  offerSuggest?: boolean;
+  /**
+   * The agent said what this thread set out to do is done. Archive is then the
+   * likeliest next move, so it stops being the quietest button here.
+   */
+  goalMet?: boolean;
 }) {
   const navigate = useBbNavigate();
   const archive = useArchive();
@@ -255,7 +267,7 @@ export function EmptyState({
           "motion-reduce:translate-y-0",
         )}
       >
-        <SuggestNext threadId={threadId} />
+        {offerSuggest && <SuggestNext threadId={threadId} />}
         {/* The handoff tab with no row attached: same composer, same project and
             checkout, no follow-up to mark. See handoff-panel.tsx. */}
         <Button
@@ -275,7 +287,7 @@ export function EmptyState({
         {archive !== null && (
           <>
             <Button
-              variant={armed ? "secondary" : "ghost"}
+              variant={armed || goalMet ? "secondary" : "ghost"}
               size="sm"
               className={cn(
                 "h-7 gap-1.5 px-2 text-xs",

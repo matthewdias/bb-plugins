@@ -29,6 +29,9 @@ describe("app.tsx", () => {
       "toggle-followups",
       "open-followups-panel",
       "open-handoff-panel",
+      "take-next-step-1",
+      "take-next-step-2",
+      "take-next-step-3",
       "record-draft",
       "insert-followup",
     ]);

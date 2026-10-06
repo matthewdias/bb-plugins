@@ -1,0 +1,124 @@
+// The rules for what an agent's offer of next steps may hold, and for which
+// follow-up the card offers to do when the agent offered nothing.
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  doAsk,
+  doCandidate,
+  makeOffer,
+  NEXT_STEPS_MAX,
+  parseOffer,
+  stepAsFollowUp,
+  stepAt,
+  withoutStep,
+} from "../lib/next-steps.ts";
+import type { FollowUp, Reason } from "../lib/followups.ts";
+
+const AT = "2026-10-06T12:00:00.000Z";
+const step = (label: string, prompt = `${label}, please.`) => ({ label, prompt });
+const row = (id: string, reason: Reason | null, extra: Partial<FollowUp> = {}): FollowUp => ({
+  id,
+  text: `Follow-up ${id}`,
+  reason,
+  file: null,
+  detail: null,
+  createdAt: AT,
+  ...extra,
+});
+
+test("makeOffer: keeps at most three, in the order offered", () => {
+  const offer = makeOffer(
+    [step("One"), step("Two"), step("Three"), step("Four")],
+    false,
+    AT,
+  );
+  assert.equal(NEXT_STEPS_MAX, 3);
+  assert.deepEqual(offer?.steps.map((entry) => entry.label), ["One", "Two", "Three"]);
+});
+
+test("makeOffer: a label that repeats another, ignoring case and punctuation, is dropped", () => {
+  const offer = makeOffer([step("Open a PR"), step("open a PR."), step("Add a test")], false, AT);
+  assert.deepEqual(offer?.steps.map((entry) => entry.label), ["Open a PR", "Add a test"]);
+});
+
+test("makeOffer: trims, and drops a step with nothing to show or send", () => {
+  const offer = makeOffer(
+    [{ label: "  Open a PR ", prompt: " Open one. " }, { label: "  ", prompt: "x" }, { label: "Blank", prompt: " " }],
+    false,
+    AT,
+  );
+  assert.deepEqual(offer?.steps, [{ label: "Open a PR", prompt: "Open one." }]);
+});
+
+test("makeOffer: nothing offered is no offer, unless the goal is met", () => {
+  assert.equal(makeOffer([], false, AT), null);
+  assert.deepEqual(makeOffer([], true, AT), { steps: [], goalMet: true, offeredAt: AT });
+});
+
+test("parseOffer: a stored offer round-trips", () => {
+  const offer = makeOffer([step("Open a PR")], true, AT);
+  assert.deepEqual(parseOffer(JSON.parse(JSON.stringify(offer))), offer);
+});
+
+test("parseOffer: a shape that no longer parses reads as no offer", () => {
+  for (const value of [
+    undefined,
+    null,
+    "offer",
+    { steps: [], goalMet: false },
+    { steps: "x", goalMet: false, offeredAt: AT },
+    { steps: [{ label: 1, prompt: "x" }], goalMet: false, offeredAt: AT },
+    { steps: [step("A")], goalMet: "yes", offeredAt: AT },
+  ]) {
+    assert.equal(parseOffer(value), null, JSON.stringify(value));
+  }
+});
+
+test("stepAt: a press against a replaced offer is stale, not a different step", () => {
+  const offer = makeOffer([step("A"), step("B")], false, AT);
+  assert.deepEqual(stepAt(offer, AT, 1), step("B"));
+  assert.equal(stepAt(offer, "2026-10-06T11:00:00.000Z", 1), null);
+  assert.equal(stepAt(offer, AT, 2), null);
+  assert.equal(stepAt(null, AT, 0), null);
+});
+
+test("withoutStep: the rest stay, under the same identity", () => {
+  const offer = makeOffer([step("A"), step("B")], false, AT)!;
+  assert.deepEqual(withoutStep(offer, 0), { steps: [step("B")], goalMet: false, offeredAt: AT });
+  assert.equal(withoutStep(withoutStep(offer, 0)!, 0), null);
+  // A met goal is still worth showing with no steps left.
+  const met = makeOffer([step("A")], true, AT)!;
+  assert.deepEqual(withoutStep(met, 0), { steps: [], goalMet: true, offeredAt: AT });
+});
+
+test("doCandidate: the top row, when it is work for this thread", () => {
+  assert.equal(doCandidate([row("a", "deferred"), row("b", "cleanup")])?.id, "a");
+  assert.equal(doCandidate([row("a", null)])?.id, "a");
+  assert.equal(doCandidate([]), null);
+});
+
+test("doCandidate: only the top row — the list's order is the user's priority", () => {
+  // Out of scope leads with a handoff, so it is not next *here*; and the row
+  // under it is not promoted past it.
+  assert.equal(doCandidate([row("a", "out-of-scope"), row("b", "deferred")]), null);
+  assert.equal(doCandidate([row("a", "deferred", { sentAt: AT }), row("b", "deferred")]), null);
+  assert.equal(
+    doCandidate([row("a", "deferred", { handoffState: "running" }), row("b", "deferred")]),
+    null,
+  );
+});
+
+test("doAsk: one line that reads as typed", () => {
+  assert.equal(doAsk(row("a", "deferred")), 'Pick up the follow-up "Follow-up a".');
+});
+
+test("stepAsFollowUp: the label is the row, the prompt its detail unless it says the same", () => {
+  assert.deepEqual(stepAsFollowUp(step("Open a PR", "Open a PR against main.")), {
+    text: "Open a PR",
+    detail: "Open a PR against main.",
+  });
+  assert.deepEqual(stepAsFollowUp(step("Open a PR", "open a PR")), {
+    text: "Open a PR",
+    detail: null,
+  });
+});

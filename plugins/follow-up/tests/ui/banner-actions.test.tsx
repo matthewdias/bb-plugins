@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import { renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { toast } from "sonner";
 import { FollowUpBanner } from "../../src/banner.tsx";
@@ -126,7 +126,10 @@ describe("editing a row in place", () => {
         { threadId: "thr_edit", id: "r2", text: "Tidy the config loader and its tests" },
       ]),
     );
-    expect(await slot.findByText("Tidy the config loader and its tests")).toBeDefined();
+    // In the list: the Next row above it offers the same row as "Do".
+    expect(
+      await within(slot.getByRole("list")).findByText("Tidy the config loader and its tests"),
+    ).toBeDefined();
   });
 
   it("Escape puts the text back without saving", async () => {
@@ -134,7 +137,7 @@ describe("editing a row in place", () => {
     const field = await startEditing(slot);
     fireEvent.change(field, { target: { value: "Something else" } });
     fireEvent.keyDown(field, { key: "Escape" });
-    expect(await slot.findByText(later.text)).toBeDefined();
+    expect(await within(slot.getByRole("list")).findByText(later.text)).toBeDefined();
     expect(slot.queryByRole("textbox")).toBeNull();
     expect(amendCalls(slot)).toEqual([]);
   });
