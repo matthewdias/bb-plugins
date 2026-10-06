@@ -99,10 +99,15 @@ export const triageStore = {
     set({ updates: { ...state.updates, cards: state.updates.cards.filter((card) => card.key !== key) } });
   },
 
+  /** Put an update card back on top, as undo does; its queued job is gone. */
   putBackUpdate(card: UpdateCard): void {
     generation++;
     set({
-      updates: { ...state.updates, cards: [card, ...state.updates.cards.filter((other) => other.key !== card.key)] },
+      updates: {
+        ...state.updates,
+        cards: [card, ...state.updates.cards.filter((other) => other.key !== card.key)],
+        queued: state.updates.queued.filter((job) => job.pluginId !== card.pluginId),
+      },
     });
   },
 

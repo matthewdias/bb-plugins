@@ -50,6 +50,10 @@ function rpcFake() {
     if (method === "update_decide") return { previous: null };
     if (method === "update_undo") return { undone: true, reason: null };
     if (method === "update_changes") return changesAnswer;
+    // The page reloads after an undo: answer with the decks as they stand.
+    if (method === "deck_new") return { cards: triageStore.getSnapshot().cards, cutoff: 0 };
+    if (method === "deck_saved") return { cards: triageStore.getSnapshot().saved };
+    if (method === "updates_deck") return triageStore.getSnapshot().updates;
     return { checked: 1 };
   });
   return { rpc: { call } as unknown as TriageRpc, call };
@@ -151,7 +155,7 @@ describe("update decisions", () => {
     expect(actions).toEqual(["queue", "skip", "snooze"]);
     expect(triageStore.getSnapshot().updates.cards).toEqual([]);
     await undoLastUpdate(rpc);
-    expect(call).toHaveBeenLastCalledWith("update_undo", { pluginId: "gamma", restore: null });
+    expect(call).toHaveBeenCalledWith("update_undo", { pluginId: "gamma", restore: null });
     expect(triageStore.getSnapshot().updates.cards.map((c) => c.pluginId)).toEqual(["gamma"]);
   });
 });
@@ -233,5 +237,50 @@ describe("fetching the top card's changes", () => {
     changesAnswer = { kind: "none" };
     fireEvent.click(screen.getByRole("button", { name: "Load changes" }));
     await waitFor(() => expect(call).toHaveBeenLastCalledWith("update_changes", expect.objectContaining({ pluginId: "alpha", force: true })));
+  });
+});
+
+describe("undoing a queued update", () => {
+  it("takes it off the queue, even though the server's refresh lands mid-undo", async () => {
+    let queued = [job("alpha")];
+    let release: () => void = () => {};
+    let refreshing: Promise<void> = Promise.resolve();
+    const call = vi.fn(async (method: string, _input?: unknown) => {
+      if (method === "deck_new") return { cards: [], cutoff: 0 };
+      if (method === "deck_saved") return { cards: [] };
+      if (method === "updates_deck") {
+        // After the undo the server has the card back, and (say) bb has since
+        // marked a plugin unchecked: only a reload brings that.
+        const answer =
+          queued.length === 0
+            ? state({ cards: [card("alpha")], unavailable: [{ pluginId: "icons", displayName: "Icons", detail: null }] })
+            : state({ queued });
+        await refreshing;
+        return answer;
+      }
+      if (method === "update_decide") return { previous: null };
+      if (method === "update_undo") {
+        // The server cancels the job and announces it; the page starts a
+        // refresh on that announcement, which is still in flight when this
+        // call returns.
+        queued = [];
+        refreshing = new Promise((resolve) => (release = resolve));
+        void triageStore.load(rpc);
+        return { undone: true, reason: null };
+      }
+      return { kind: "none" };
+    });
+    const rpc = { call } as unknown as TriageRpc;
+    await triageStore.load(rpc);
+    expect(triageStore.getSnapshot().updates.queued.map((j) => j.pluginId)).toEqual(["alpha"]);
+
+    await decideUpdate(rpc, card("alpha"), "right");
+    await undoLastUpdate(rpc);
+    // At once, while every refresh is still waiting on the server.
+    expect(triageStore.getSnapshot().updates.queued).toEqual([]);
+    expect(triageStore.getSnapshot().updates.cards.map((c) => c.pluginId)).toEqual(["alpha"]);
+    release();
+    // The rest of the page caught up with the server too.
+    await waitFor(() => expect(triageStore.getSnapshot().updates.unavailable.map((u) => u.pluginId)).toEqual(["icons"]));
   });
 });

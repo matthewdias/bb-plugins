@@ -121,6 +121,10 @@ async function undoEntry(rpc: TriageRpc, entry: Made): Promise<void> {
     triageStore.take(entry.card.key);
     if (sent.previous?.action === "save") triageStore.addSaved(entry.card);
     else triageStore.putBack(entry.card);
+    // The server announced the undo, and the refresh that announcement
+    // started was dropped by the put-back above, which guards against older
+    // loads. Fetch again so the rest of the page catches up too.
+    void triageStore.load(rpc);
   } catch (cause) {
     entry.undoing = false;
     toast.error(`Couldn't undo: ${message(cause)}`);
