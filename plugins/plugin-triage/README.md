@@ -59,6 +59,28 @@ or removes it from Saved.
 
 **Show incompatible** adds plugins that need a newer bb, with the reason.
 
+**Updates** deals the installed plugins that have a newer compatible version,
+as cards showing the version now and the one on offer, any newer release bb
+won't take and why, and the last attempt if it failed. **Changes** opens the
+commits between the two on GitHub; **Details** opens the plugin in bb's
+detail pane.
+
+| | Drag | Key |
+| --- | --- | --- |
+| Queue the update | right | → |
+| Skip this version (it comes back when a newer one is out) | left | ← |
+| Remind me in a week | up | ↑ |
+| Undo | | Z |
+
+Queued updates wait for **Update all**, then run in the background as one
+batch, one plugin at a time, which is how bb applies them. The batch keeps
+going if you close the window, and Plugin Triage updates itself last, since
+its own update reloads the page. A toast reports each result, a failed or
+rolled-back update puts its card back with the reason, and **Recent** lists
+what the last batches did. Plugins bb couldn't check are listed apart, each
+with a **Retry**; **Check now** asks bb to look again for everything, which
+takes a while.
+
 ## What counts as new
 
 The first visit looks back 14 days, and anything published before that counts

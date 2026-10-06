@@ -5,22 +5,36 @@
 import type { PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../lib/contract";
 import type { NewCard } from "../lib/new-deck";
+import type { UpdateJob } from "../lib/queue";
+import type { Unavailable, UpdateCard } from "../lib/updates-deck";
 
 export type TriageRpc = PluginRpcClient<typeof rpcContract>;
+
+export interface UpdatesState {
+  cards: UpdateCard[];
+  unavailable: Unavailable[];
+  queued: UpdateJob[];
+  running: boolean;
+  history: UpdateJob[];
+}
 
 export interface DeckState {
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
   cards: NewCard[];
   saved: NewCard[];
+  updates: UpdatesState;
   includeIncompatible: boolean;
 }
+
+const NO_UPDATES: UpdatesState = { cards: [], unavailable: [], queued: [], running: false, history: [] };
 
 let state: DeckState = {
   status: "idle",
   error: null,
   cards: [],
   saved: [],
+  updates: NO_UPDATES,
   includeIncompatible: false,
 };
 const listeners = new Set<() => void>();
@@ -45,12 +59,13 @@ export const triageStore = {
     const mine = ++generation;
     if (state.status === "idle" || state.status === "error") set({ status: "loading", error: null });
     try {
-      const [deck, saved] = await Promise.all([
+      const [deck, saved, updates] = await Promise.all([
         rpc.call("deck_new", { includeIncompatible: state.includeIncompatible }),
         rpc.call("deck_saved", {}),
+        rpc.call("updates_deck", {}),
       ]);
       if (mine !== generation) return;
-      set({ status: "ready", error: null, cards: deck.cards, saved: saved.cards });
+      set({ status: "ready", error: null, cards: deck.cards, saved: saved.cards, updates });
     } catch (cause) {
       if (mine !== generation) return;
       set({ status: "error", error: cause instanceof Error ? cause.message : String(cause) });
@@ -78,6 +93,19 @@ export const triageStore = {
     set({ cards: [card, ...state.cards.filter((other) => other.key !== card.key)] });
   },
 
+  /** Take an update card off the Updates deck before the server answers. */
+  takeUpdate(key: string): void {
+    generation++;
+    set({ updates: { ...state.updates, cards: state.updates.cards.filter((card) => card.key !== key) } });
+  },
+
+  putBackUpdate(card: UpdateCard): void {
+    generation++;
+    set({
+      updates: { ...state.updates, cards: [card, ...state.updates.cards.filter((other) => other.key !== card.key)] },
+    });
+  },
+
   addSaved(card: NewCard): void {
     set({ saved: [card, ...state.saved.filter((other) => other.key !== card.key)] });
   },
@@ -86,6 +114,6 @@ export const triageStore = {
 /** Tests only. */
 export function resetTriageStore(): void {
   generation++;
-  state = { status: "idle", error: null, cards: [], saved: [], includeIncompatible: false };
+  state = { status: "idle", error: null, cards: [], saved: [], updates: NO_UPDATES, includeIncompatible: false };
   for (const listener of listeners) listener();
 }

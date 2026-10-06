@@ -20,6 +20,12 @@ close the window. A toast tells you when each one lands.
 **Undo.** An install waits a few seconds before it starts. Press Z, or Undo
 on its toast, to take the last decision back.
 
+**Updates in one batch.** An Updates deck deals each installed plugin with a
+newer version, showing the version now and next and, for GitHub sources, a
+link to the commits in between. Drag right to queue it, left to skip that
+version, up to be reminded in a week. Then press Update all: the queue runs
+in the background, one plugin at a time, and each result is reported.
+
 **Saved for later.** The Saved list keeps the plugins you swiped up, with
 buttons to install one, open its store page, or forget it.
 

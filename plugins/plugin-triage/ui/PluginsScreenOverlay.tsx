@@ -42,6 +42,21 @@ function useInstallToasts() {
     for (const job of jobs) {
       const was = before.get(job.id);
       if (was === job.state || (was !== "pending" && was !== "running" && was !== undefined)) continue;
+      if (job.kind === "update") {
+        if (job.state === "done") {
+          haptic("success");
+          toast.success(job.result === "current" ? `${job.displayName} was already up to date` : `Updated ${job.displayName}`, {
+            id: `triage-update-${job.pluginId}`,
+          });
+        } else if (job.state === "failed") {
+          haptic("error");
+          toast.error(`Couldn't update ${job.displayName}`, {
+            id: `triage-update-${job.pluginId}`,
+            description: job.error ?? undefined,
+          });
+        }
+        continue;
+      }
       if (job.state === "done") {
         haptic("success");
         toast.success(`Installed ${job.displayName}`, {
@@ -102,8 +117,8 @@ export function PluginsScreenOverlay() {
   });
 
   useEffect(() => {
-    engine.current?.setCount(deck.status === "ready" ? deck.cards.length : null);
-  }, [deck.cards.length, deck.status]);
+    engine.current?.setCount(deck.status === "ready" ? deck.cards.length + deck.updates.cards.length : null);
+  }, [deck.cards.length, deck.updates.cards.length, deck.status]);
 
   // bb scopes a plugin's stylesheet to elements under [data-bb-plugin], and a
   // portal leaves that subtree, so the page has to name the plugin itself.
