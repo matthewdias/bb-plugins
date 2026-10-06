@@ -4,8 +4,11 @@
 // "Back to app" returns to the last page outside that screen, which would be
 // this one, and a redirect would send you straight back in.
 import { useSyncExternalStore } from "react";
-import { useSettings } from "@get-bb/plugin-sdk/app";
+import { experimental_Icon as Icon, useSettings } from "@get-bb/plugin-sdk/app";
+import { Button } from "@/components/ui/button";
 import { countText, countedDecks, waitingCount } from "../lib/count";
+import { TRIAGE_HREF } from "../screen/dom";
+import { navigateInApp } from "./navigate";
 import { TriagePage } from "./TriagePage";
 import { triageStore } from "./triage-store";
 
@@ -30,4 +33,14 @@ export function TriageSidebarCount() {
 /** The item's page: the Triage page, under bb's title bar. */
 export function TriageSidebarPanel() {
   return <TriagePage heading={false} />;
+}
+
+/** In bb's title bar over the item's page: the same Triage, in the Plugins screen. */
+export function TriageSidebarHeader() {
+  return (
+    <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => navigateInApp(TRIAGE_HREF)}>
+      <Icon name="ArrowUpRight" aria-hidden />
+      Open in Plugins
+    </Button>
+  );
 }

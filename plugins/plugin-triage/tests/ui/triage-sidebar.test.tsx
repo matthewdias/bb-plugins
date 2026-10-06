@@ -4,12 +4,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetTriageStore, triageStore, type TriageRpc } from "../../ui/triage-store";
 
 let settings: Record<string, boolean> | undefined;
-vi.mock("@get-bb/plugin-sdk/app", () => ({ useSettings: () => ({ values: settings, isLoading: false }) }));
+vi.mock("@get-bb/plugin-sdk/app", () => ({
+  useSettings: () => ({ values: settings, isLoading: false }),
+  experimental_Icon: () => null,
+}));
 vi.mock("../../ui/TriagePage", () => ({
   TriagePage: ({ heading }: { heading?: boolean }) => <main data-heading={String(heading ?? true)}>Triage page</main>,
 }));
 
-const { TriageSidebarCount, TriageSidebarPanel } = await import("../../ui/TriageSidebar");
+const { TriageSidebarCount, TriageSidebarHeader, TriageSidebarPanel } = await import("../../ui/TriageSidebar");
 
 const rpc = {
   call: vi.fn(async (method: string) => {
@@ -55,5 +58,16 @@ describe("the Triage sidebar item", () => {
     expect(screen.getByText("Triage page").getAttribute("data-heading")).toBe("false");
     expect(window.location.pathname + window.location.search).toBe("/plugins/plugin-triage/triage");
     expect(heard).not.toHaveBeenCalled();
+  });
+
+  it("links from bb's title bar to the same Triage in the Plugins screen", () => {
+    window.history.replaceState({}, "", "/plugins/plugin-triage/triage");
+    const heard = vi.fn();
+    window.addEventListener("popstate", heard);
+    render(<TriageSidebarHeader />);
+    screen.getByRole("button", { name: "Open in Plugins" }).click();
+    window.removeEventListener("popstate", heard);
+    expect(window.location.pathname + window.location.search).toBe("/plugins?view=triage");
+    expect(heard).toHaveBeenCalledTimes(1);
   });
 });
