@@ -5,6 +5,7 @@
   "plugins": [
     { "name": "follow-up", "source": "./plugins/follow-up" },
     { "name": "mark-unread", "source": "./plugins/mark-unread" },
+    { "name": "plugin-triage", "source": "./plugins/plugin-triage" },
     { "name": "question-dock", "source": "./plugins/question-dock" },
     { "name": "side-chats", "source": "./plugins/side-chats" },
     { "name": "swipe-controls", "source": "./plugins/swipe-controls" },
