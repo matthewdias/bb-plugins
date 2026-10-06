@@ -291,6 +291,47 @@ describe("resizing a float", () => {
   });
 });
 
+describe("a plugin's own form", () => {
+  function mountPluginForm(testId = "plugin-interaction-shell") {
+    const parts = mountThread({ testId, paneWidth: 800 });
+    const body = parts.section.querySelector<HTMLElement>("#body")!;
+    body.innerHTML = `
+      <div class="mt-2"><div class="plugin-root" style="display: contents"><fieldset>
+        <form style="display: flex; flex-direction: column; max-height: 70dvh">
+          <div class="scroller">questions</div><div class="footer">Next</div>
+        </form>
+      </fieldset></div></div>`;
+    return { ...parts, body, form: body.querySelector("form")! };
+  }
+
+  it("fits the card, so its own scroller scrolls and its buttons stay put", () => {
+    const { section, body, form } = mountPluginForm();
+    start();
+    expect(form.hasAttribute("data-qd-fill-target")).toBe(true);
+    expect(body.getAttribute("data-qd-fill")).toBe("column");
+    expect(section.hasAttribute("data-qd-fill")).toBe(false);
+    // The fieldset and the wrapper that already draws no box step aside.
+    expect(body.querySelector("fieldset")!.getAttribute("data-qd-fill")).toBe("contents");
+    expect(body.querySelector(".plugin-root")!.getAttribute("data-qd-fill")).toBe("contents");
+    expect(body.querySelector(".mt-2")!.getAttribute("data-qd-fill")).toBe("column");
+  });
+
+  it("is let go when the card goes back to bb's bar", () => {
+    const { section, body, form } = mountPluginForm();
+    start();
+    section.removeAttribute("data-expanded");
+    controller.update();
+    expect(form.hasAttribute("data-qd-fill-target")).toBe(false);
+    expect(body.hasAttribute("data-qd-fill")).toBe(false);
+  });
+
+  it("leaves bb's own question form alone", () => {
+    const { form } = mountPluginForm("user-question-banner");
+    start();
+    expect(form.hasAttribute("data-qd-fill-target")).toBe(false);
+  });
+});
+
 describe("on a phone", () => {
   beforeEach(() => setCompact(true));
 

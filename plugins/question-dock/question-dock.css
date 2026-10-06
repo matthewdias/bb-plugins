@@ -75,6 +75,38 @@ section[data-qd-mode] > div[id][class*="overflow-y-auto"] {
   overscroll-behavior: contain;
 }
 
+/* A plugin form that brings its own capped card, scroller and footer (the
+   controller marks it, and the path to it, in fitPluginForm): the path is
+   a column that shrinks to the lifted card, the card's body stops
+   scrolling, and the form's own scroller takes over with its buttons
+   pinned below it. Short forms stay short. */
+section[data-qd-mode] [data-qd-fill="contents"] {
+  display: contents !important;
+}
+section[data-qd-mode] [data-qd-fill="column"] {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 0 1 auto;
+  min-height: 0 !important;
+}
+section[data-qd-mode] > div[data-qd-fill] {
+  overflow: hidden !important;
+}
+section[data-qd-mode] [data-qd-fill-target] {
+  max-height: none !important;
+  flex: 0 1 auto;
+  min-height: 0 !important;
+}
+
+/* iOS zooms the page when a text box under 16px takes focus, and stays
+   zoomed: the card then looks wider than the phone. bb's and plugins' text
+   boxes are 14px, so on a touch screen they are 16px in a lifted card. */
+@media (pointer: coarse) {
+  section[data-qd-mode] :is(textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]), [contenteditable="true"]) {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
 /* The header is the handle. bb's own button fills it; a press stays a click
    until it moves. */
 section[data-qd-mode] > div:first-child {

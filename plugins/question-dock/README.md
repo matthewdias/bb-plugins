@@ -50,7 +50,10 @@ A press on the header is still bb's expand/collapse click. It only becomes a
 drag after the pointer moves.
 
 Plan reviews and plugin forms (Grill's rounds, for one) use the same card
-and move the same way. Approvals stay beside the composer. When a thread has
+and move the same way. A plugin form that brings its own scroller and
+buttons is fitted to the card, so its buttons stay at the bottom and only
+its questions scroll. On a touch screen, text boxes in a moved card use
+16px text, so iOS doesn't zoom the page when one takes focus. Approvals stay beside the composer. When a thread has
 two cards at once, which is rare, the first moves and the second stays.
 
 ## Settings

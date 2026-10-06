@@ -277,6 +277,7 @@ export class DockController {
       const entry: Lifted = { section, pane, footer, mode };
       if (current && (current.pane !== pane || current.footer !== footer)) this.unlift(current);
       this.lift(entry);
+      fitPluginForm(section, this.win);
       this.place(entry);
     }
   }
@@ -358,6 +359,7 @@ export class DockController {
     section.removeAttribute(DRAGGING_ATTR);
     section.removeAttribute(ANCHOR_ATTR);
     section.removeAttribute(ZONE_ATTR);
+    unfitPluginForm(section);
     for (const name of VARS) section.style.removeProperty(name);
     const others = [...this.lifted.values()];
     if (!others.some((other) => other.footer === footer)) footer.removeAttribute(FOOTER_ATTR);
@@ -805,6 +807,55 @@ function bottomInset(pane: HTMLElement): number {
   const view = pane.ownerDocument.defaultView;
   if (!shell || !view) return 0;
   return parsePx(view.getComputedStyle(shell).paddingBottom);
+}
+
+const FILL_ATTR = "data-qd-fill";
+const FILL_TARGET_ATTR = "data-qd-fill-target";
+
+/**
+ * Let a plugin's own form fit the lifted card.
+ *
+ * A plugin form (Grill's, for one) can bring its own card: a capped height,
+ * a scroller and a footer of buttons pinned below it. Inside a lifted card
+ * that cap is the wrong one, so the card's body scrolled the whole form and
+ * took the buttons out of view. This finds the form's capped box and marks
+ * it and the elements between it and the card's body; the stylesheet makes
+ * that path a column that shrinks to fit, so the form's own scroller
+ * scrolls and its buttons stay at the bottom of the card. bb's own question
+ * form has no such box and is left alone.
+ */
+export function fitPluginForm(section: HTMLElement, win: Window): void {
+  const body = section.querySelector<HTMLElement>(':scope > div[id][class*="overflow-y-auto"]');
+  const current = section.querySelector<HTMLElement>(`[${FILL_TARGET_ATTR}]`);
+  if (!body || section.getAttribute("data-testid") !== "plugin-interaction-shell") {
+    if (current) unfitPluginForm(section);
+    return;
+  }
+  if (current && body.contains(current)) return;
+  unfitPluginForm(section);
+  const target = [...body.querySelectorAll<HTMLElement>("div, form")].find((element) => {
+    const style = win.getComputedStyle(element);
+    return style.maxHeight !== "none" && style.maxHeight !== "" && style.display === "flex" && style.flexDirection === "column";
+  });
+  if (!target) return;
+  // Read every box's display before marking any: the stylesheet changes it.
+  const path: Array<[HTMLElement, string]> = [];
+  for (let node = target.parentElement; node && node !== section; node = node.parentElement) {
+    // A fieldset cannot be the flex column the form shrinks in, and a
+    // wrapper that already draws no box need not become one: both step
+    // aside, and the form shrinks against the next real box.
+    const passThrough = node.tagName === "FIELDSET" || win.getComputedStyle(node).display === "contents";
+    path.push([node, passThrough ? "contents" : "column"]);
+  }
+  target.setAttribute(FILL_TARGET_ATTR, "");
+  for (const [node, how] of path) node.setAttribute(FILL_ATTR, how);
+}
+
+export function unfitPluginForm(section: HTMLElement): void {
+  for (const element of section.querySelectorAll(`[${FILL_ATTR}], [${FILL_TARGET_ATTR}]`)) {
+    element.removeAttribute(FILL_ATTR);
+    element.removeAttribute(FILL_TARGET_ATTR);
+  }
 }
 
 function isTextEntry(element: Element | null): boolean {
