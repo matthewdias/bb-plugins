@@ -25,10 +25,7 @@ async function host(options: { sendFails?: boolean; delivery?: "sent" | "queued"
   return { harness, call, offer, sent, signals };
 }
 
-const steps = [
-  { label: "Open a PR", prompt: "Open a PR for this branch against main." },
-  { label: "Add a test", prompt: "Add a test for the empty export." },
-];
+const steps = ["Open a PR against main", "Add a test for the empty export"];
 
 test("next: an offer is stored, read back and signalled", async () => {
   const { call, offer, signals } = await host();
@@ -63,8 +60,12 @@ test("next: an empty list clears an earlier offer; a met goal alone is kept", as
 
 test("next: more than three steps is refused by the tool's schema", async () => {
   const { offer } = await host();
-  const four = [1, 2, 3, 4].map((n) => ({ label: `Step ${n}`, prompt: `Do step ${n}.` }));
-  await assert.rejects(() => offer({ steps: four }));
+  await assert.rejects(() => offer({ steps: ["One", "Two", "Three", "Four"] }));
+});
+
+test("next: a step too long to show whole on its button is refused", async () => {
+  const { offer } = await host();
+  await assert.rejects(() => offer({ steps: ["x".repeat(81)] }));
 });
 
 test("next: switched off, the tool refuses and the card is shown nothing", async () => {
@@ -75,7 +76,7 @@ test("next: switched off, the tool refuses and the card is shown nothing", async
   assert.equal((await call("followups_next_get", { threadId: THREAD })).offer, null);
 });
 
-test("next: taking a step sends its prompt as the user's message and clears the offer", async () => {
+test("next: taking a step sends exactly the button's text as the user's message", async () => {
   const { call, offer, sent } = await host();
   await offer({ steps });
   const { offer: read } = await call("followups_next_get", { threadId: THREAD });
@@ -89,7 +90,8 @@ test("next: taking a step sends its prompt as the user's message and clears the 
     {
       threadId: THREAD,
       mode: "auto",
-      input: [{ type: "text", text: "Add a test for the empty export.", mentions: [] }],
+      // The step and nothing else — no hidden prompt, no agent-only part.
+      input: [{ type: "text", text: "Add a test for the empty export", mentions: [] }],
     },
   ]);
   assert.equal((await call("followups_next_get", { threadId: THREAD })).offer, null);
@@ -109,7 +111,7 @@ test("next: a press against a replaced offer is stale and sends nothing", async 
   const { offer: first } = await call("followups_next_get", { threadId: THREAD });
   // Distinct timestamps: the offer's identity is when it was made.
   await new Promise((resolve) => setTimeout(resolve, 5));
-  await offer({ steps: [{ label: "Something else", prompt: "Do something else." }] });
+  await offer({ steps: ["Something else"] });
   const result = await call("followups_next_take", {
     threadId: THREAD,
     offeredAt: first.offeredAt,
@@ -159,13 +161,13 @@ test("next: keeping a step records it as a deferred follow-up and leaves the res
   const [row] = kept.followUps;
   assert.deepEqual(
     [row.text, row.detail, row.reason, row.createdBy],
-    ["Open a PR", "Open a PR for this branch against main.", "deferred", "user"],
+    ["Open a PR against main", null, "deferred", "user"],
   );
 });
 
 test("next: a step already on the list leaves the offer anyway", async () => {
   const { call, offer } = await host();
-  await call("followups_add", { threadId: THREAD, text: "Open a PR" });
+  await call("followups_add", { threadId: THREAD, text: "Open a PR against main" });
   await offer({ steps });
   const { offer: read } = await call("followups_next_get", { threadId: THREAD });
   const kept = await call("followups_next_keep", {

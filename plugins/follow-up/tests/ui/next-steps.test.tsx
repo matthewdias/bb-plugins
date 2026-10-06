@@ -21,11 +21,7 @@ const row = (id: string, text: string, reason: Reason | null): FollowUp => ({
   createdAt: AT,
 });
 
-const offerOf = (...labels: string[]): NextOffer => ({
-  steps: labels.map((label) => ({ label, prompt: `${label} — the full instruction.` })),
-  goalMet: false,
-  offeredAt: AT,
-});
+const offerOf = (...steps: string[]): NextOffer => ({ steps, goalMet: false, offeredAt: AT });
 
 function renderBanner(
   threadId: string,
@@ -50,7 +46,7 @@ function renderBanner(
       return {
         outcome: "added",
         offer: state.offer,
-        followUps: [...rows, row("kept", kept.label, "deferred")],
+        followUps: [...rows, row("kept", kept, "deferred")],
         done: [],
       };
     },
@@ -80,10 +76,19 @@ describe("the agent's offer", () => {
     ]);
   });
 
+  it("never truncates a step: all of what a press sends is on screen", async () => {
+    const long = "Open a PR for this branch against main and request a review";
+    const slot = renderBanner("thr_whole", { offer: offerOf(long) });
+    const chip = await slot.findByRole("button", { name: `Send "${long}"` });
+    expect(chip.textContent).toBe(long);
+    expect(chip.className).not.toMatch(/max-w-/);
+    expect(chip.querySelector(".truncate")).toBeNull();
+  });
+
   it("a press sends that step, naming the offer it belonged to", async () => {
     const slot = renderBanner("thr_take", { offer: offerOf("Open a PR", "Add a test") });
     fireEvent.click(
-      await slot.findByRole("button", { name: 'Send "Add a test — the full instruction."' }),
+      await slot.findByRole("button", { name: 'Send "Add a test"' }),
     );
     await waitFor(() =>
       expect(calls(slot, "followups_next_take")).toEqual([
@@ -96,24 +101,22 @@ describe("the agent's offer", () => {
   it("⌥-click puts the step in the composer instead of sending it", async () => {
     const slot = renderBanner("thr_edit", { offer: offerOf("Open a PR") });
     fireEvent.click(
-      await slot.findByRole("button", { name: 'Send "Open a PR — the full instruction."' }),
+      await slot.findByRole("button", { name: 'Send "Open a PR"' }),
       { altKey: true },
     );
-    expect(slot.inspection.composer.text).toContain("Open a PR — the full instruction.");
+    expect(slot.inspection.composer.text).toContain("Open a PR");
     expect(slot.inspection.composer.focusCount).toBeGreaterThan(0);
     expect(calls(slot, "followups_next_take")).toEqual([]);
   });
 
   it("holding a chip on a touch screen edits instead of sending", async () => {
     const slot = renderBanner("thr_hold", { offer: offerOf("Open a PR") });
-    const chip = await slot.findByRole("button", {
-      name: 'Send "Open a PR — the full instruction."',
-    });
+    const chip = await slot.findByRole("button", { name: 'Send "Open a PR"' });
     fireEvent.pointerDown(chip, { pointerType: "touch" });
     await new Promise((resolve) => setTimeout(resolve, 550));
     fireEvent.pointerUp(chip, { pointerType: "touch" });
     fireEvent.click(chip);
-    expect(slot.inspection.composer.text).toContain("Open a PR — the full instruction.");
+    expect(slot.inspection.composer.text).toContain("Open a PR");
     expect(calls(slot, "followups_next_take")).toEqual([]);
   });
 
@@ -168,7 +171,7 @@ describe("Do, when the agent offered nothing", () => {
 
   it("is not offered beside the agent's own steps", async () => {
     const slot = renderBanner("thr_do_offer", { rows: [top], offer: offerOf("Open a PR") });
-    await slot.findByRole("button", { name: 'Send "Open a PR — the full instruction."' });
+    await slot.findByRole("button", { name: 'Send "Open a PR"' });
     expect(slot.queryByRole("button", { name: 'Do "Tidy the loader" now' })).toBeNull();
   });
 

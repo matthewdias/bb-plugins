@@ -57,11 +57,9 @@ import {
 import {
   doAsk,
   makeOffer,
-  NEXT_LABEL_MAX,
-  NEXT_PROMPT_MAX,
+  NEXT_STEP_MAX,
   NEXT_STEPS_MAX,
   parseOffer,
-  stepAsFollowUp,
   stepAt,
   withoutStep,
   type NextOffer,
@@ -113,7 +111,7 @@ const followUpSchema = z.object({
 
 const nextOfferSchema = z
   .object({
-    steps: z.array(z.object({ label: z.string(), prompt: z.string() }).strict()),
+    steps: z.array(z.string()),
     goalMet: z.boolean(),
     offeredAt: z.string(),
   })
@@ -252,7 +250,7 @@ export const rpcContract = defineRpcContract({
     output: z.object({ offer: nextOfferSchema.nullable() }).strict(),
   },
   /**
-   * Press a step: send its prompt as the user's message. `offeredAt` names the
+   * Press a step: send its text as the user's message. `offeredAt` names the
    * offer the button belonged to, so a press that lands after the offer was
    * replaced is `stale` rather than a different step sent by index.
    */
@@ -728,7 +726,9 @@ const OFFER_TOOL_INSTRUCTIONS = [
   "When your reply would end by offering to do something in this thread — \"Want",
   "me to open a PR?\", \"Shall I add the test?\" — call offer_next_steps with it,",
   "once, as the last thing you do in the turn. Each step becomes a button under",
-  "your reply; pressing it sends the step's prompt as the user's message.",
+  "your reply, and pressing it sends that same text as the user's message — the",
+  "button shows exactly what will be sent, so write each step as the user's own",
+  "instruction: \"Open a PR against main\", not \"PR\".",
   "",
   "Offer only what you would do here, now, if the user said yes. Work that",
   "belongs somewhere else is a follow-up, not a next step. Offering nothing is a",
@@ -745,9 +745,9 @@ const OFFER_TOOL_INSTRUCTIONS = [
 const NEXT_RULE = [
   "Next steps: when you end a turn by asking whether to do something next in",
   "this thread, call `offer_next_steps` with it so the user can answer with one",
-  "click. Write each prompt as the user's own instruction to you (\"Open a PR",
-  "for this branch against main\"), and keep labels to a few words. At most",
-  `${NEXT_STEPS_MAX}. Set \`goal_met\` when what this thread set out to do is done.`,
+  "click. Each step is both the button and the message it sends, so write it",
+  "as the user's own short instruction to you (\"Open a PR against main\"). At",
+  `most ${NEXT_STEPS_MAX}. Set \`goal_met\` when what this thread set out to do is done.`,
   "",
   "An offer is not a follow-up. Something you would do here on a yes is a next",
   "step; something you are not going to do here is a follow-up. Do not record",
@@ -2218,23 +2218,15 @@ export default async function plugin(bb: BbPluginApi) {
     parameters: z.object({
       steps: z
         .array(
-          z.object({
-            label: z
-              .string()
-              .trim()
-              .min(1)
-              .max(NEXT_LABEL_MAX)
-              .describe("The button's text, a few words: 'Open a PR'."),
-            prompt: z
-              .string()
-              .trim()
-              .min(1)
-              .max(NEXT_PROMPT_MAX)
-              .describe(
-                "What pressing it sends, as the user's own instruction to you: " +
-                  "'Open a PR for this branch against main.'",
-              ),
-          }),
+          z
+            .string()
+            .trim()
+            .min(1)
+            .max(NEXT_STEP_MAX)
+            .describe(
+              "The button's text, which is also exactly what pressing it sends " +
+                "as the user's message: 'Open a PR against main'.",
+            ),
         )
         .max(NEXT_STEPS_MAX)
         .describe(
@@ -2268,8 +2260,8 @@ export default async function plugin(bb: BbPluginApi) {
           ? "No buttons, but the card will say this thread's goal is met."
           : `${offer.steps.length} button${offer.steps.length === 1 ? "" : "s"} will ` +
             "show under your reply until the next turn starts: " +
-            offer.steps.map((step) => `"${step.label}"`).join(", ") +
-            ". Pressing one sends its prompt as the user's message.";
+            offer.steps.map((step) => `"${step}"`).join(", ") +
+            ". Pressing one sends that text as the user's message.";
       return `Offered. ${shown}`;
     },
   });
@@ -2443,8 +2435,9 @@ export default async function plugin(bb: BbPluginApi) {
       // and the turn the send starts would clear it anyway.
       await writeOffer(threadId, null);
       try {
-        const outcome = await sendAsUser(threadId, [{ text: step.prompt }]);
-        bb.log.info(`took next step on ${threadId} (${outcome}): ${step.label}`);
+        // The step itself and nothing else: the button showed exactly this.
+        const outcome = await sendAsUser(threadId, [{ text: step }]);
+        bb.log.info(`took next step on ${threadId} (${outcome}): ${step}`);
         return { outcome };
       } catch (error) {
         // Put it back, so the button is there to press again.
@@ -2463,7 +2456,7 @@ export default async function plugin(bb: BbPluginApi) {
       // it now, and the person deferred it. That is also what lets the agent
       // be asked for the file and detail when the row is picked up later.
       const { outcome } = await addUserFollowUp(threadId, {
-        ...stepAsFollowUp(step),
+        text: step,
         reason: "deferred",
       });
       // Out of the offer whatever the outcome. A duplicate is already on the

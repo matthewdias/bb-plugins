@@ -58,10 +58,14 @@ refuses and says so rather than evicting older rows.
 **Next.** Between turns, a row at the top of the card answers the reply right
 above it. When an agent's reply ends by offering to do something ("Want me to
 open a PR?"), it offers the same thing through `offer_next_steps`, and each
-step becomes a button: press it and its prompt is sent as your message, with
+step becomes a button: press it and its text is sent as your message, with
 nothing to type. Hold ⌥ while clicking, or press and hold on a phone, to put
-the prompt in the composer instead and edit it first. The ⋯ beside the buttons
-keeps a step as a follow-up for later, or clears them.
+it in the composer instead and edit it first. The ⋯ beside the buttons keeps a
+step as a follow-up for later, or clears them.
+
+A button sends exactly what it shows, never more. The agent writes the words
+and a press sends them under your name, so there is no hidden prompt behind a
+short label, and a step too long to show whole is refused rather than cut off.
 
 An offer belongs to one reply. It goes the moment the next turn starts,
 however that turn starts, so a button is never the answer to an older reply.

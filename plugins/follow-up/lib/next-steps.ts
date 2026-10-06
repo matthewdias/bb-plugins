@@ -14,6 +14,12 @@
 // A button under a reply five turns up would be the "yes" you would have typed
 // back then, and sending it now is almost always a mistake — which is why
 // there is no per-message variant of this.
+//
+// What a button shows is exactly what it sends. A press puts words in the
+// conversation under the user's name, and the agent wrote them, so there is no
+// separate "prompt" behind a short label: an agent steered by something it read
+// could otherwise label a button "Open a PR" and have it send anything, with
+// the user's authority, on a phone where nothing would show the difference.
 import { isInProgress, mainActionFor, normalizeKey, type FollowUp } from "./followups.ts";
 
 /**
@@ -21,24 +27,16 @@ import { isInProgress, mainActionFor, normalizeKey, type FollowUp } from "./foll
  * agent offering five things has not decided what comes next.
  */
 export const NEXT_STEPS_MAX = 3;
-/** A chip's text. Short enough that three fit on one line in the card. */
-export const NEXT_LABEL_MAX = 60;
-/** What a press sends, as the user's own message. */
-export const NEXT_PROMPT_MAX = 1000;
-
-export interface NextStep {
-  /** The chip's text: "Open a PR". */
-  label: string;
-  /**
-   * What pressing it sends, as the user's message: the instruction they would
-   * have typed to say yes. Distinct from the label because "Open a PR" is a
-   * good button and a thin instruction.
-   */
-  prompt: string;
-}
+/**
+ * One step's text: the button, and the message pressing it sends. Short enough
+ * to be shown whole — a chip never truncates it, because a cut-off button would
+ * send words the user did not see.
+ */
+export const NEXT_STEP_MAX = 80;
 
 export interface NextOffer {
-  steps: NextStep[];
+  /** Each the user's instruction, as they would have typed it to say yes. */
+  steps: string[];
   /**
    * The agent's judgement that what this thread set out to do is done. A
    * report, not a verdict: it changes what the card leads with and nothing
@@ -56,26 +54,25 @@ export interface NextOffer {
 /**
  * The offer as stored, or null when there is nothing to show.
  *
- * Trims, drops empty steps and labels that repeat (by the same case- and
- * punctuation-blind key follow-ups dedupe on), and keeps the first
- * `NEXT_STEPS_MAX`. An offer with no steps survives only if it says the goal
- * is met — that alone is something to show.
+ * Trims, drops empty steps, steps too long to show whole, and steps that
+ * repeat (by the same case- and punctuation-blind key follow-ups dedupe on),
+ * and keeps the first `NEXT_STEPS_MAX`. An offer with no steps survives only if
+ * it says the goal is met — that alone is something to show.
  */
 export function makeOffer(
-  steps: readonly NextStep[],
+  steps: readonly string[],
   goalMet: boolean,
   offeredAt: string,
 ): NextOffer | null {
   const seen = new Set<string>();
-  const kept: NextStep[] = [];
-  for (const step of steps) {
-    const label = step.label.trim();
-    const prompt = step.prompt.trim();
-    if (label === "" || prompt === "") continue;
-    const key = normalizeKey(label);
+  const kept: string[] = [];
+  for (const raw of steps) {
+    const step = raw.trim();
+    if (step === "" || step.length > NEXT_STEP_MAX) continue;
+    const key = normalizeKey(step);
     if (seen.has(key)) continue;
     seen.add(key);
-    kept.push({ label, prompt });
+    kept.push(step);
     if (kept.length === NEXT_STEPS_MAX) break;
   }
   if (kept.length === 0 && !goalMet) return null;
@@ -96,14 +93,8 @@ export function parseOffer(value: unknown): NextOffer | null {
   if (typeof candidate.offeredAt !== "string") return null;
   if (typeof candidate.goalMet !== "boolean") return null;
   if (!Array.isArray(candidate.steps)) return null;
-  const steps: NextStep[] = [];
-  for (const step of candidate.steps) {
-    if (typeof step !== "object" || step === null) return null;
-    const { label, prompt } = step as Record<string, unknown>;
-    if (typeof label !== "string" || typeof prompt !== "string") return null;
-    steps.push({ label, prompt });
-  }
-  return makeOffer(steps, candidate.goalMet, candidate.offeredAt);
+  if (!candidate.steps.every((step) => typeof step === "string")) return null;
+  return makeOffer(candidate.steps as string[], candidate.goalMet, candidate.offeredAt);
 }
 
 /**
@@ -116,7 +107,7 @@ export function stepAt(
   offer: NextOffer | null,
   offeredAt: string,
   index: number,
-): NextStep | null {
+): string | null {
   if (offer === null || offer.offeredAt !== offeredAt) return null;
   return offer.steps[index] ?? null;
 }
@@ -155,16 +146,4 @@ export function doCandidate(rows: readonly FollowUp[]): FollowUp | null {
  */
 export function doAsk(row: FollowUp): string {
   return `Pick up the follow-up "${row.text}".`;
-}
-
-/**
- * A step kept as a follow-up instead: its label is the row's text, and its
- * prompt, the fuller instruction, is the detail. Prompts that just repeat the
- * label leave the row without detail rather than saying it twice.
- */
-export function stepAsFollowUp(step: NextStep): { text: string; detail: string | null } {
-  return {
-    text: step.label,
-    detail: normalizeKey(step.prompt) === normalizeKey(step.label) ? null : step.prompt,
-  };
 }

@@ -7,7 +7,7 @@
 // would be a fourth thing to read that says the same as a row you can see.
 //
 // A press sends at once: removing the typing is the whole point. ⌥-click, or a
-// long press on touch, puts the prompt in the composer instead, so a step that
+// long press on touch, puts the step in the composer instead, so a step that
 // is nearly right can be edited before it goes.
 import {
   useCallback,
@@ -22,7 +22,7 @@ import { useComposer, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../server";
 import type { FollowUp } from "../lib/followups.ts";
-import type { NextOffer, NextStep } from "../lib/next-steps.ts";
+import type { NextOffer } from "../lib/next-steps.ts";
 import { setRows } from "./store.ts";
 import { SEND_FAILED, setOffer, STALE_OFFER, takeStep } from "./use-next-steps.ts";
 import { REFUSAL_DETAIL } from "./record-draft.ts";
@@ -86,15 +86,22 @@ function Chip({
   label,
   hint,
   ariaLabel,
+  whole,
   emphasis,
   disabled,
   onSend,
   onEdit,
 }: {
   label: ReactNode;
-  /** The full text a press sends, shown on hover: a label is a summary of it. */
+  /** Hover text. Desktop only: a phone has no hover. */
   hint: string | null;
   ariaLabel: string;
+  /**
+   * Never truncate. An agent's step is sent word for word as the user's
+   * message, so all of it has to be on screen — a cut-off button would send
+   * words nobody saw. The row scrolls sideways instead.
+   */
+  whole: boolean;
   emphasis: boolean;
   disabled: boolean;
   onSend: () => void;
@@ -106,7 +113,7 @@ function Chip({
       <Button
         variant={emphasis ? "secondary" : "ghost"}
         size="sm"
-        className="h-7 max-w-[18rem] gap-1.5 px-2 text-xs"
+        className={cn("h-7 gap-1.5 px-2 text-xs", !whole && "max-w-[18rem]")}
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
         {...hold.handlers}
@@ -117,7 +124,7 @@ function Chip({
         }}
         aria-label={ariaLabel}
       >
-        <span className="truncate">{label}</span>
+        <span className={whole ? undefined : "truncate"}>{label}</span>
       </Button>
     </span>
   );
@@ -225,8 +232,7 @@ export function NextSteps({
   );
 
   // Hover text, so desktop only: a phone has no hover, and holds to edit.
-  const hint = (step: NextStep) =>
-    isCompact ? null : `${step.prompt}\n\n⌥-click to edit it in the composer first.`;
+  const hint = isCompact ? null : "⌥-click to edit it in the composer first.";
 
   return (
     <div className="flex min-w-0 items-center gap-1">
@@ -240,14 +246,15 @@ export function NextSteps({
         <span className="shrink-0 px-1 text-xs font-medium text-foreground">Next</span>
         {steps.map((step, index) => (
           <Chip
-            key={`${offer?.offeredAt}-${step.label}`}
-            label={step.label}
-            hint={hint(step)}
-            ariaLabel={`Send "${step.prompt}"`}
+            key={`${offer?.offeredAt}-${step}`}
+            label={step}
+            hint={hint}
+            ariaLabel={`Send "${step}"`}
+            whole
             emphasis={index === 0}
             disabled={busy}
             onSend={() => void take(index)}
-            onEdit={() => edit(step.prompt)}
+            onEdit={() => edit(step)}
           />
         ))}
         {showDo && candidate !== null && (
@@ -263,6 +270,9 @@ export function NextSteps({
                 : "Send this follow-up to the agent now.\n\n⌥-click to put it in the composer first."
             }
             ariaLabel={`Do "${candidate.text}" now`}
+            // May truncate: the message it sends quotes the row in full, and
+            // the row itself is right below in the list.
+            whole={false}
             emphasis
             disabled={busy}
             onSend={() => void doRow(candidate)}
@@ -294,12 +304,12 @@ export function NextSteps({
           <DropdownMenuContent align="end">
             {steps.map((step, index) => (
               <DropdownMenuItem
-                key={`keep-${step.label}`}
+                key={`keep-${step}`}
                 onSelect={() => void keep(index)}
-                aria-label={`Keep "${step.label}" as a follow-up`}
+                aria-label={`Keep "${step}" as a follow-up`}
               >
                 <Icon name="ListTodo" className="size-3.5" aria-hidden />
-                <span className="max-w-[16rem] truncate">Keep &ldquo;{step.label}&rdquo; for later</span>
+                <span className="max-w-[16rem] truncate">Keep &ldquo;{step}&rdquo; for later</span>
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
