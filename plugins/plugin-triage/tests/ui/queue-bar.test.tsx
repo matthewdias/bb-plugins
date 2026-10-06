@@ -21,6 +21,7 @@ function rpcFake(unqueue: unknown = { removed: true, reason: null }) {
     if (method === "deck_new" || method === "deck_saved") return { cards: [] };
     if (method === "updates_deck") return { cards: [], unavailable: [], history: [] };
     if (method === "queue_status") return { jobs: [], running: false };
+    if (method === "cleanup_deck") return { cards: [], graveyard: [] };
     return {};
   });
   return { rpc: { call } as unknown as TriageRpc, call };
@@ -75,5 +76,7 @@ describe("the queue bar", () => {
   it("names the kinds it holds", () => {
     expect(queueSummary([install("a")])).toBe("1 to install");
     expect(queueSummary([update("a"), update("b")])).toBe("2 to update");
+    const remove = { id: "r", kind: "remove", key: "remove:x", pluginId: "x", displayName: "x", state: "pending", held: true } as Job;
+    expect(queueSummary([install("a"), remove])).toBe("1 to install, 1 to remove");
   });
 });

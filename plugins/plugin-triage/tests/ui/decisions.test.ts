@@ -18,6 +18,8 @@ function deckAnswer(method: string): unknown {
   if (method === "deck_new") return { cards: snapshot.cards, cutoff: 0 };
   if (method === "deck_saved") return { cards: snapshot.saved };
   if (method === "updates_deck") return snapshot.updates;
+  if (method === "cleanup_deck") return snapshot.cleanup;
+  if (method === "queue_status") return snapshot.queue;
   return undefined;
 }
 

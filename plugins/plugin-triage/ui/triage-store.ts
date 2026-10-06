@@ -5,8 +5,9 @@
 import type { PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../lib/contract";
 import type { NewCard } from "../lib/new-deck";
-import type { Job, UpdateJob } from "../lib/queue";
+import type { Job, RemoveJob, UpdateJob } from "../lib/queue";
 import type { Unavailable, UpdateCard } from "../lib/updates-deck";
+import type { CleanupCard } from "../lib/cleanup-deck";
 
 export type TriageRpc = PluginRpcClient<typeof rpcContract>;
 
@@ -14,6 +15,12 @@ export interface UpdatesState {
   cards: UpdateCard[];
   unavailable: Unavailable[];
   history: UpdateJob[];
+}
+
+export interface CleanupState {
+  cards: CleanupCard[];
+  /** Finished removals, newest first. */
+  history: RemoveJob[];
 }
 
 /** Installs and updates queued or under way, in the order they will run. */
@@ -29,12 +36,14 @@ export interface DeckState {
   cards: NewCard[];
   saved: NewCard[];
   updates: UpdatesState;
+  cleanup: CleanupState;
   queue: QueueState;
   includeIncompatible: boolean;
 }
 
 const NO_UPDATES: UpdatesState = { cards: [], unavailable: [], history: [] };
 const NO_QUEUE: QueueState = { jobs: [], running: false };
+const NO_CLEANUP: CleanupState = { cards: [], history: [] };
 
 let state: DeckState = {
   status: "idle",
@@ -42,6 +51,7 @@ let state: DeckState = {
   cards: [],
   saved: [],
   updates: NO_UPDATES,
+  cleanup: NO_CLEANUP,
   queue: NO_QUEUE,
   includeIncompatible: false,
 };
@@ -67,14 +77,15 @@ export const triageStore = {
     const mine = ++generation;
     if (state.status === "idle" || state.status === "error") set({ status: "loading", error: null });
     try {
-      const [deck, saved, updates, queue] = await Promise.all([
+      const [deck, saved, updates, cleanup, queue] = await Promise.all([
         rpc.call("deck_new", { includeIncompatible: state.includeIncompatible }),
         rpc.call("deck_saved", {}),
         rpc.call("updates_deck", {}),
+        rpc.call("cleanup_deck", {}),
         rpc.call("queue_status", {}),
       ]);
       if (mine !== generation) return;
-      set({ status: "ready", error: null, cards: deck.cards, saved: saved.cards, updates, queue });
+      set({ status: "ready", error: null, cards: deck.cards, saved: saved.cards, updates, cleanup, queue });
     } catch (cause) {
       if (mine !== generation) return;
       set({ status: "error", error: cause instanceof Error ? cause.message : String(cause) });
@@ -123,6 +134,20 @@ export const triageStore = {
     });
   },
 
+  takeCleanup(key: string): void {
+    generation++;
+    set({ cleanup: { ...state.cleanup, cards: state.cleanup.cards.filter((card) => card.key !== key) } });
+  },
+
+  /** Put a Cleanup card back on top, as undo does; its queued removal is gone. */
+  putBackCleanup(card: CleanupCard): void {
+    generation++;
+    set({
+      cleanup: { ...state.cleanup, cards: [card, ...state.cleanup.cards.filter((other) => other.key !== card.key)] },
+      queue: { ...state.queue, jobs: state.queue.jobs.filter((job) => job.key !== card.key) },
+    });
+  },
+
   addSaved(card: NewCard): void {
     set({
       saved: [card, ...state.saved.filter((other) => other.key !== card.key)],
@@ -134,6 +159,6 @@ export const triageStore = {
 /** Tests only. */
 export function resetTriageStore(): void {
   generation++;
-  state = { status: "idle", error: null, cards: [], saved: [], updates: NO_UPDATES, queue: NO_QUEUE, includeIncompatible: false };
+  state = { status: "idle", error: null, cards: [], saved: [], updates: NO_UPDATES, cleanup: NO_CLEANUP, queue: NO_QUEUE, includeIncompatible: false };
   for (const listener of listeners) listener();
 }

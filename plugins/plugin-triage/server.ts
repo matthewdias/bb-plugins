@@ -29,6 +29,7 @@ import {
   recover,
   type InstallJob,
   type Job,
+  type RemoveJob,
   type UpdateJob,
 } from "./lib/queue.ts";
 import {
@@ -45,11 +46,26 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { LOW_BUDGET, changesKey, fetchChanges, type Budget, type Changes } from "./lib/changes.ts";
 import { gitHubLogin } from "./lib/github-auth.ts";
+import {
+  KEEP_MS,
+  TRIAL_MS,
+  buildCleanupDeck,
+  cleanupKey,
+  type CleanupDecision,
+  type CleanupDecisions,
+  type Installed,
+} from "./lib/cleanup-deck.ts";
+import { removalCost } from "./lib/removal-cost.ts";
+import { observe, type Observations, type PluginSample } from "./lib/usage.ts";
 
 export { rpcContract };
 
 const DECISIONS = "decisions";
 const UPDATE_DECISIONS = "updateDecisions";
+const CLEANUP_DECISIONS = "cleanupDecisions";
+const OBSERVATIONS = "usage";
+/** Finished removals the Cleanup tab lists. */
+const REMOVALS_SHOWN = 20;
 /** Finished updates the Updates tab lists. */
 const HISTORY_SHOWN = 20;
 /** The marketplace of plugins bundled with bb. */
@@ -98,6 +114,19 @@ export default async function plugin(bb: BbPluginApi) {
   const readDecisions = async () => (await kv.get<Decisions>(DECISIONS)) ?? {};
   const readJobs = async () => (await kv.get<Job[]>(JOBS)) ?? [];
   const readUpdateDecisions = async () => (await kv.get<UpdateDecisions>(UPDATE_DECISIONS)) ?? {};
+  const readCleanupDecisions = async () => (await kv.get<CleanupDecisions>(CLEANUP_DECISIONS)) ?? {};
+
+  // Usage: bb's handler counts, sampled hourly and on load, into when each
+  // plugin was last seen doing something (see lib/usage.ts).
+  async function sample(): Promise<void> {
+    const { plugins } = await bb.sdk.plugins.list();
+    await locked(async () => {
+      const previous = (await kv.get<Observations>(OBSERVATIONS)) ?? {};
+      await kv.set(OBSERVATIONS, observe(previous, plugins as PluginSample[], Date.now()));
+    });
+  }
+  bb.background.schedule("usage", "17 * * * *", sample);
+  void sample().catch((error) => bb.log.warn(`usage sample failed: ${message(error)}`));
 
   function changed(reason: string): void {
     bb.realtime.publish(CHANGED_CHANNEL, { reason });
@@ -168,8 +197,19 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
+  async function remove(job: RemoveJob): Promise<Outcome> {
+    try {
+      const { plugins } = await bb.sdk.plugins.list();
+      if (!plugins.some((p) => p.id === job.pluginId)) return { ok: true, pluginId: job.pluginId };
+      await bb.sdk.plugins.remove({ pluginId: job.pluginId });
+      return { ok: true, pluginId: job.pluginId };
+    } catch (error) {
+      return { ok: false, error: message(error) };
+    }
+  }
+
   async function runJob(job: Job, signal: AbortSignal): Promise<void> {
-    const outcome = job.kind === "update" ? await update(job) : await install(job);
+    const outcome = job.kind === "update" ? await update(job) : job.kind === "remove" ? await remove(job) : await install(job);
     // Reloaded mid-job (this plugin updating itself, say): the next load
     // finds the job still running, runs it again, and records that outcome.
     // An update that did land comes back "current" then.
@@ -184,6 +224,11 @@ export default async function plugin(bb: BbPluginApi) {
           delete decisions[job.pluginId];
           await kv.set(UPDATE_DECISIONS, decisions);
         }
+      } else if (job.kind === "remove") {
+        // Removed, it leaves the deck; failed, its card comes back.
+        const decisions = await readCleanupDecisions();
+        delete decisions[job.pluginId];
+        await kv.set(CLEANUP_DECISIONS, decisions);
       } else if (!outcome.ok) {
         // The card goes back in the deck, carrying the failure.
         const decisions = await readDecisions();
@@ -191,7 +236,12 @@ export default async function plugin(bb: BbPluginApi) {
         await kv.set(DECISIONS, decisions);
       }
     });
-    const what = job.kind === "update" ? `update of ${job.pluginId}` : `install of ${job.entryId}@${job.marketplace}`;
+    const what =
+      job.kind === "update"
+        ? `update of ${job.pluginId}`
+        : job.kind === "remove"
+          ? `removal of ${job.pluginId}`
+          : `install of ${job.entryId}@${job.marketplace}`;
     if (outcome.ok) bb.log.info(`${what}: ${outcome.result ?? "done"}`);
     else bb.log.warn(`${what} failed: ${outcome.error}`);
     changed("job");
@@ -468,7 +518,8 @@ export default async function plugin(bb: BbPluginApi) {
         const job = liveJob(jobs, key);
         if (job === null) return { removed: false, reason: "It's no longer queued." };
         if (job.state === "running") {
-          return { removed: false, reason: job.kind === "update" ? "It's already updating." : "It's already installing." };
+          const doing = { update: "updating", install: "installing", remove: "being removed" }[job.kind];
+          return { removed: false, reason: `It's already ${doing}.` };
         }
         await kv.set(JOBS, cancelPending(jobs, key, Date.now()).jobs);
         // The card goes back to what it was before it was queued.
@@ -477,6 +528,11 @@ export default async function plugin(bb: BbPluginApi) {
           if (job.previous == null) delete decisions[key];
           else decisions[key] = job.previous as Decisions[string];
           await kv.set(DECISIONS, decisions);
+        } else if (job.kind === "remove") {
+          const decisions = await readCleanupDecisions();
+          if (job.previous == null) delete decisions[job.pluginId];
+          else decisions[job.pluginId] = job.previous as CleanupDecision;
+          await kv.set(CLEANUP_DECISIONS, decisions);
         } else {
           const decisions = await readUpdateDecisions();
           if (job.previous == null) delete decisions[job.pluginId];
@@ -487,6 +543,99 @@ export default async function plugin(bb: BbPluginApi) {
       });
       if (result.removed) changed("undo");
       return result;
+    },
+
+    cleanup_deck: async () => {
+      const [list, observations, decisions, jobs] = await Promise.all([
+        bb.sdk.plugins.list(),
+        kv.get<Observations>(OBSERVATIONS),
+        readCleanupDecisions(),
+        readJobs(),
+      ]);
+      return {
+        cards: buildCleanupDeck({
+          plugins: list.plugins as Installed[],
+          observations: observations ?? {},
+          decisions,
+          jobs,
+          now: Date.now(),
+          selfId: bb.pluginId,
+        }),
+        history: jobs
+          .filter((job): job is RemoveJob => job.kind === "remove" && (job.state === "done" || job.state === "failed"))
+          .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
+          .slice(0, REMOVALS_SHOWN),
+      };
+    },
+
+    cleanup_decide: async ({ pluginId, displayName, action }) => {
+      // Turning a plugin off or on is instant and its own undo, so it is done
+      // now; removal waits in the queue for Run all.
+      if (action === "trial") await bb.sdk.plugins.disable({ pluginId });
+      if (action === "enable") await bb.sdk.plugins.enable({ pluginId });
+      const previous = await locked(async () => {
+        const decisions = await readCleanupDecisions();
+        const previous = decisions[pluginId] ?? null;
+        const now = Date.now();
+        if (action === "trial") decisions[pluginId] = { action: "trial", at: now, until: now + TRIAL_MS };
+        else if (action === "keep" || action === "enable") decisions[pluginId] = { action: "keep", at: now, until: now + KEEP_MS };
+        else {
+          const job: RemoveJob = {
+            id: `job_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+            kind: "remove",
+            key: cleanupKey(pluginId),
+            pluginId,
+            displayName,
+            createdAt: now,
+            runAfter: now,
+            held: true,
+            previous,
+            state: "pending",
+            startedAt: null,
+            finishedAt: null,
+            error: null,
+          };
+          await kv.set(JOBS, enqueue(await readJobs(), job));
+        }
+        await kv.set(CLEANUP_DECISIONS, decisions);
+        return previous;
+      });
+      changed("cleanup-decision");
+      return { previous };
+    },
+
+    cleanup_undo: async ({ pluginId, action, restore }) => {
+      const result = await locked(async () => {
+        if (action === "remove") {
+          const jobs = await readJobs();
+          const live = liveJob(jobs, cleanupKey(pluginId));
+          if (live?.state === "running") return { undone: false, reason: "It's already being removed." };
+          await kv.set(JOBS, cancelPending(jobs, cleanupKey(pluginId), Date.now()).jobs);
+        }
+        const decisions = await readCleanupDecisions();
+        if (restore == null) delete decisions[pluginId];
+        else decisions[pluginId] = restore as CleanupDecision;
+        await kv.set(CLEANUP_DECISIONS, decisions);
+        return { undone: true, reason: null };
+      });
+      if (result.undone) {
+        if (action === "trial") await bb.sdk.plugins.enable({ pluginId });
+        if (action === "enable") await bb.sdk.plugins.disable({ pluginId });
+        changed("undo");
+      }
+      return result;
+    },
+
+    cleanup_cost: async ({ pluginId }) => {
+      const { plugins } = await bb.sdk.plugins.list();
+      const schedules = plugins.find((p) => p.id === pluginId)?.schedules?.length ?? 0;
+      let settings = null;
+      try {
+        settings = await bb.sdk.plugins.getSettings({ pluginId });
+      } catch {
+        // No settings, nothing to lose there.
+      }
+      return removalCost(settings as never, schedules);
     },
 
     updates_check: async ({ pluginId }) => {

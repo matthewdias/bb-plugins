@@ -54,6 +54,7 @@ function rpcFake() {
     if (method === "deck_saved") return { cards: triageStore.getSnapshot().saved };
     if (method === "updates_deck") return triageStore.getSnapshot().updates;
     if (method === "queue_status") return triageStore.getSnapshot().queue;
+    if (method === "cleanup_deck") return triageStore.getSnapshot().cleanup;
     return { checked: 1 };
   });
   return { rpc: { call } as unknown as TriageRpc, call };
@@ -236,6 +237,7 @@ describe("undoing a queued update", () => {
         await refreshing;
         return answer;
       }
+      if (method === "cleanup_deck") return { cards: [], graveyard: [] };
       if (method === "queue_status") {
         const answer = { jobs: queued, running: false };
         await refreshing;

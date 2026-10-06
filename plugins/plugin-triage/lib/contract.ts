@@ -3,9 +3,11 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import type { Decision, NewCard } from "./new-deck.ts";
-import type { Job, UpdateJob } from "./queue.ts";
+import type { Job, RemoveJob, UpdateJob } from "./queue.ts";
 import type { Unavailable, UpdateCard, UpdateDecision } from "./updates-deck.ts";
 import type { Changes } from "./changes.ts";
+import type { CleanupCard, CleanupDecision } from "./cleanup-deck.ts";
+import type { RemovalCost } from "./removal-cost.ts";
 import type { SourceSummary } from "./source.ts";
 
 const entryRef = { entryId: z.string().min(1), marketplace: z.string().min(1) };
@@ -107,6 +109,38 @@ export const rpcContract = defineRpcContract({
   unqueue: {
     input: z.object({ key: z.string().min(1) }),
     output: z.custom<{ removed: boolean; reason: string | null }>(() => true),
+  },
+  cleanup_deck: {
+    input: z.object({}),
+    /** `history`: finished removals, newest first. */
+    output: z.custom<{ cards: CleanupCard[]; history: RemoveJob[] }>(() => true),
+  },
+  cleanup_decide: {
+    input: z.object({
+      pluginId: z.string().min(1),
+      displayName: z.string().min(1),
+      action: z.enum(["keep", "trial", "enable", "remove"]),
+    }),
+    output: z.custom<{ previous: CleanupDecision | null }>(() => true),
+  },
+  cleanup_undo: {
+    input: z.object({
+      pluginId: z.string().min(1),
+      action: z.enum(["keep", "trial", "enable", "remove"]),
+      restore: z
+        .discriminatedUnion("action", [
+          z.object({ action: z.literal("keep"), at: z.number(), until: z.number() }),
+          z.object({ action: z.literal("trial"), at: z.number(), until: z.number() }),
+        ])
+        .nullable()
+        .optional(),
+    }),
+    output: z.custom<{ undone: boolean; reason: string | null }>(() => true),
+  },
+  /** What uninstalling this plugin would delete for good. */
+  cleanup_cost: {
+    input: z.object({ pluginId: z.string().min(1) }),
+    output: z.custom<RemovalCost>(() => true),
   },
   updates_check: {
     input: z.object({ pluginId: z.string().min(1).optional() }),

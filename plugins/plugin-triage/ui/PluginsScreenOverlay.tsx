@@ -42,6 +42,16 @@ function useInstallToasts() {
     for (const job of jobs) {
       const was = before.get(job.id);
       if (was === job.state || (was !== "pending" && was !== "running" && was !== undefined)) continue;
+      if (job.kind === "remove") {
+        if (job.state === "done") {
+          haptic("success");
+          toast.success(`Removed ${job.displayName}`, { id: `triage-remove-${job.pluginId}` });
+        } else if (job.state === "failed") {
+          haptic("error");
+          toast.error(`Couldn't remove ${job.displayName}`, { id: `triage-remove-${job.pluginId}`, description: job.error ?? undefined });
+        }
+        continue;
+      }
       if (job.kind === "update") {
         if (job.state === "done") {
           haptic("success");
