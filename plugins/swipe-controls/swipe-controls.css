@@ -1,0 +1,171 @@
+/*
+ * Swipe Controls. Plain class names, not Tailwind: the views are built as
+ * DOM outside React (lib/views.ts).
+ *
+ * The action colours are Mail's hues, since bb's theme has no blue and its
+ * primary is neutral. Each is a custom property so a theme can set its own.
+ */
+:root {
+  --bbsc-read: oklch(60% 0.18 255);
+  --bbsc-pin: var(--warning, oklch(70% 0.16 50));
+  --bbsc-archive: oklch(55% 0.2 295);
+  --bbsc-action-foreground: oklch(100% 0 0);
+}
+
+.bbsc-row {
+  position: fixed;
+  z-index: 60;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: 6px;
+  font-family: var(--font-sans, system-ui, sans-serif);
+}
+
+.bbsc-lead,
+.bbsc-trail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  overflow: hidden;
+  width: 0;
+}
+
+.bbsc-lead {
+  left: 0;
+  align-items: center;
+  background: var(--bbsc-read);
+  color: var(--bbsc-action-foreground);
+}
+
+.bbsc-trail {
+  right: 0;
+}
+
+.bbsc-row[data-open] .bbsc-trail {
+  pointer-events: auto;
+}
+
+.bbsc-lead-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  white-space: nowrap;
+  opacity: 0.75;
+  transform: scale(0.9);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.bbsc-lead[data-armed] .bbsc-lead-action {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.bbsc-action {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--bbsc-action-foreground);
+  font: inherit;
+  cursor: pointer;
+  transition: flex-grow 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.bbsc-action[data-action="pin"] {
+  background: var(--bbsc-pin);
+}
+
+.bbsc-action[data-action="archive"] {
+  background: var(--bbsc-archive);
+}
+
+/* Armed for a full swipe: Archive takes the whole strip. */
+.bbsc-trail[data-full] .bbsc-action[data-action="pin"] {
+  flex-grow: 0;
+}
+
+.bbsc-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.bbsc-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.bbsc-icon[hidden] {
+  display: none;
+}
+
+.bbsc-label {
+  display: none;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Tall touch rows have room for a name under each icon. */
+.bbsc-row[data-labels] .bbsc-label {
+  display: inline;
+}
+
+.bbsc-row[data-labels] .bbsc-action {
+  flex-direction: column;
+}
+
+.bbsc-arrow {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: var(--popover, oklch(100% 0 0));
+  color: var(--muted-foreground, oklch(50% 0 0));
+  box-shadow:
+    0 0 0 1px var(--border, oklch(0% 0 0 / 0.1)),
+    0 4px 12px oklch(0% 0 0 / 0.12);
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    opacity 200ms ease;
+}
+
+.bbsc-arrow[hidden] {
+  display: none;
+}
+
+.bbsc-arrow .bbsc-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.bbsc-arrow[data-ready] {
+  background: var(--foreground, oklch(20% 0 0));
+  color: var(--background, oklch(100% 0 0));
+}
+
+.bbsc-arrow[data-leaving] {
+  opacity: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bbsc-lead-action,
+  .bbsc-action,
+  .bbsc-arrow {
+    transition: none;
+  }
+}

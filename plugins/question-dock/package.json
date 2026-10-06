@@ -1,0 +1,54 @@
+{
+  "name": "bb-plugin-question-dock",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "bb-plugin",
+    "questions",
+    "ask-user-question",
+    "composer",
+    "mobile"
+  ],
+  "homepage": "https://github.com/matthewdias/bb-plugins/tree/main/plugins/question-dock#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matthewdias/bb-plugins.git",
+    "directory": "plugins/question-dock"
+  },
+  "bugs": {
+    "url": "https://github.com/matthewdias/bb-plugins/issues"
+  },
+  "engines": {
+    "bb": ">=0.45",
+    "bbPluginSdk": ">=0.6.15"
+  },
+  "bb": {
+    "name": "Question Dock",
+    "description": "Moves an agent's question out of the chat's way: docked beside the thread on a wide window, floating where you drag it on a narrow one, and as a sheet on a phone.",
+    "branding": {
+      "icon": "PanelRight"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.15",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^30.1.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/*.test.ts && vitest run",
+    "build": "bb plugin build",
+    "dev": "bb plugin dev ."
+  }
+}
