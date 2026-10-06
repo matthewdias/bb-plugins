@@ -2,11 +2,10 @@
 // updates from the Updates deck. Pure transitions over a plain array, so the
 // runner, the RPC handlers and the tests all agree on what each state allows.
 //
-// An install waits out a grace period before it runs, which is what lets a
-// swipe be undone. An update waits longer: it is held until the batch is
-// started, so a run of swipes becomes one background batch. bb serializes
-// plugin installs and updates itself, so the runner takes one job at a time
-// and gains nothing from more.
+// A swipe queues a job held until the batch is started, so a run of swipes
+// across both decks becomes one background batch, and every decision can be
+// taken back until then. bb serializes plugin installs and updates itself,
+// so the runner takes one job at a time and gains nothing from more.
 
 export type JobState = "pending" | "running" | "done" | "failed" | "cancelled";
 
@@ -22,8 +21,12 @@ interface JobBase {
   key: string;
   displayName: string;
   createdAt: number;
-  /** Not before this time (epoch ms): the undo window. */
+  /** Not before this time (epoch ms). */
   runAfter: number;
+  /** Queued but not started: waits for the batch. Absent on jobs from before batches. */
+  held?: boolean;
+  /** What the card was before this decision (a save, say), restored if it is taken off the queue. */
+  previous?: unknown;
   state: JobState;
   startedAt: number | null;
   finishedAt: number | null;
@@ -46,18 +49,14 @@ export interface UpdateJob extends JobBase {
   from: VersionLabel;
   /** The version offered when queued; the one bb landed on, once done. */
   to: VersionLabel;
-  /** Queued but not started: waits for the batch. */
-  held: boolean;
   /** What bb did: updated, or found it already current. */
   result: "updated" | "current" | null;
 }
 
 export type Job = InstallJob | UpdateJob;
 
-const isHeld = (job: Job) => job.kind === "update" && job.held;
+const isHeld = (job: Job) => job.held === true;
 
-/** How long a swipe can still be undone. */
-export const GRACE_MS = 5_000;
 /** Finished jobs kept for the page and its toasts. */
 export const FINISHED_KEPT = 50;
 
@@ -80,42 +79,52 @@ export function cancelPending(jobs: readonly Job[], key: string, now: number): {
   return { jobs: next, cancelled };
 }
 
+/** Jobs queued or under way, in the order they will run. */
+export function liveJobs(jobs: readonly Job[], last: string | null = null): Job[] {
+  const rank = (job: Job) => (last !== null && job.pluginId === last ? 2 : job.kind === "install" ? 0 : 1);
+  return jobs
+    .filter((job) => !isFinished(job))
+    .map((job, index) => ({ job, index }))
+    .sort((a, b) => rank(a.job) - rank(b.job) || a.index - b.index)
+    .map(({ job }) => job);
+}
+
 export function liveJob(jobs: readonly Job[], key: string): Job | null {
   return jobs.find((job) => job.key === key && !isFinished(job)) ?? null;
 }
 
 /**
- * The oldest pending job whose wait is over, if nothing is running. A job
- * for `last` (this plugin, whose own update reloads it mid-batch) waits
- * until no other job is ready.
+ * The pending job to run next, if nothing is running: installs before
+ * updates, each in the order queued. A job for `last` (this plugin, whose
+ * own update reloads it mid-batch) waits until no other job is ready.
  */
 export function nextRunnable(jobs: readonly Job[], now: number, last: string | null = null): Job | null {
   if (jobs.some((job) => job.state === "running")) return null;
+  const rank = (job: Job) => [last !== null && job.pluginId === last ? 1 : 0, job.kind === "install" ? 0 : 1, job.runAfter];
   let next: Job | null = null;
-  const later = (job: Job) => last !== null && job.pluginId === last;
   for (const job of jobs) {
     if (job.state !== "pending" || isHeld(job) || job.runAfter > now) continue;
-    if (
-      next === null ||
-      (later(next) && !later(job)) ||
-      (later(next) === later(job) && job.runAfter < next.runAfter)
-    ) {
+    if (next === null) {
       next = job;
+      continue;
     }
+    const [a, b] = [rank(job), rank(next)];
+    const i = a.findIndex((value, k) => value !== b[k]);
+    if (i !== -1 && a[i]! < b[i]!) next = job;
   }
   return next;
 }
 
 /**
- * Starts the batch: every held update becomes ready at the same moment, so
- * all are candidates together and nextRunnable's order (queue order, this
- * plugin last) decides. Staggered times would let whichever came first run
- * alone, this plugin included.
+ * Starts the batch: every held job becomes ready at the same moment, so all
+ * are candidates together and nextRunnable's order (installs, then updates,
+ * this plugin last) decides. Staggered times would let whichever came first
+ * run alone, this plugin included.
  */
 export function releaseHeld(jobs: readonly Job[], now: number): { jobs: Job[]; released: number } {
   let released = 0;
   const next = jobs.map((job) => {
-    if (job.kind !== "update" || !job.held || job.state !== "pending") return job;
+    if (!isHeld(job) || job.state !== "pending") return job;
     released++;
     return { ...job, held: false, runAfter: now };
   });

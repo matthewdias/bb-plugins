@@ -93,13 +93,7 @@ export async function decide(rpc: TriageRpc, card: NewCard, direction: Direction
   });
   const entry: Made = { card, action, settled };
   made.push(entry);
-  if ((await settled) !== null && action === "install") {
-    toast(`Installing ${card.displayName}`, {
-      id: `triage-install-${card.key}`,
-      description: "Starts in a few seconds, in the background.",
-      action: { label: "Undo", onClick: () => void undoEntry(rpc, entry) },
-    });
-  }
+  await settled;
 }
 
 async function undoEntry(rpc: TriageRpc, entry: Made): Promise<void> {
@@ -117,7 +111,6 @@ async function undoEntry(rpc: TriageRpc, entry: Made): Promise<void> {
     }
     made.splice(made.indexOf(entry), 1);
     haptic("impact-light");
-    toast.dismiss(`triage-install-${entry.card.key}`);
     triageStore.take(entry.card.key);
     if (sent.previous?.action === "save") triageStore.addSaved(entry.card);
     else triageStore.putBack(entry.card);

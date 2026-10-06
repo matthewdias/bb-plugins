@@ -117,8 +117,11 @@ export function PluginsScreenOverlay() {
   });
 
   useEffect(() => {
-    engine.current?.setCount(deck.status === "ready" ? deck.cards.length + deck.updates.cards.length : null);
-  }, [deck.cards.length, deck.updates.cards.length, deck.status]);
+    // Queued items count too: a queue nobody ran shows on the tab.
+    engine.current?.setCount(
+      deck.status === "ready" ? deck.cards.length + deck.updates.cards.length + deck.queue.jobs.length : null,
+    );
+  }, [deck.cards.length, deck.updates.cards.length, deck.queue.jobs.length, deck.status]);
 
   // bb scopes a plugin's stylesheet to elements under [data-bb-plugin], and a
   // portal leaves that subtree, so the page has to name the plugin itself.

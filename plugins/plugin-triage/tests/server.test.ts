@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { GRACE_MS, type Job } from "../lib/queue";
+import type { Job } from "../lib/queue";
 import type { NewCard } from "../lib/new-deck";
 import { NOW, entry } from "./fixtures";
 
@@ -49,12 +49,17 @@ async function host(options: { install?: (args: { entryId: string }) => unknown 
       // What the card showed, as the page always sends with an install.
       ...(action === "install" ? { confirmedSource: sourceOf(entryId) } : {}),
     });
+  /** Runs the queue, as Run all does, and lets the runner work through it. */
+  const run = async () => {
+    await rpc("queue_start", {});
+    await advance(10);
+  };
   /** Lets the runner wake, take a job and finish it. */
   const advance = async (ms: number) => {
     await vi.advanceTimersByTimeAsync(ms);
     for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0);
   };
-  return { bb, harness, service, rpc, deck, jobs, decide, advance };
+  return { bb, harness, service, rpc, deck, jobs, decide, advance, run };
 }
 
 beforeEach(() => {
@@ -105,15 +110,15 @@ describe("the New deck over RPC", () => {
 });
 
 describe("installing", () => {
-  it("waits out the grace period, then installs in the background", async () => {
-    const { harness, decide, jobs, advance, service } = await host();
+  it("holds a queued install until the queue runs, then installs in the background", async () => {
+    const { harness, decide, jobs, advance, run, service } = await host();
     const { job } = await decide("alpha", "install");
-    expect(job).toMatchObject({ state: "pending", runAfter: NOW + GRACE_MS });
+    expect(job).toMatchObject({ state: "pending", held: true });
 
-    await advance(GRACE_MS - 100);
+    await advance(60_000);
     expect(harness.sdk.callsTo("plugins.catalog.install")).toHaveLength(0);
 
-    await advance(200);
+    await run();
     expect(harness.sdk.callsTo("plugins.catalog.install")).toEqual([
       [{ entryId: "alpha", marketplace: "bb-community", confirmedSource: sourceOf("alpha") }],
     ]);
@@ -122,7 +127,7 @@ describe("installing", () => {
   });
 
   it("sends the confirmed source back with the install", async () => {
-    const { harness, rpc, advance, service } = await host();
+    const { harness, rpc, advance, run, service } = await host();
     const confirmedSource = { kind: "git", url: "https://github.com/someone/alpha.git", range: "^0.1.0" };
     await rpc("decide", {
       key: "alpha@bb-community",
@@ -133,18 +138,18 @@ describe("installing", () => {
       action: "install",
       confirmedSource,
     });
-    await advance(GRACE_MS);
+    await run();
     expect(harness.sdk.callsTo("plugins.catalog.install")[0]).toEqual([
       { entryId: "alpha", marketplace: "bb-community", confirmedSource },
     ]);
     service.controller.abort();
   });
 
-  it("is undone inside the grace period, and the card comes back", async () => {
-    const { harness, rpc, decide, deck, advance, service } = await host();
+  it("is undone until the queue runs, and the card comes back", async () => {
+    const { harness, rpc, decide, deck, advance, run, service } = await host();
     await decide("alpha", "install");
     expect(await rpc("undo", { key: "alpha@bb-community" })).toEqual({ undone: true, reason: null });
-    await advance(GRACE_MS * 2);
+    await run();
     expect(harness.sdk.callsTo("plugins.catalog.install")).toHaveLength(0);
     expect(await deck()).toEqual(["alpha", "beta"]);
     service.controller.abort();
@@ -170,9 +175,9 @@ describe("installing", () => {
   });
 
   it("can't be undone once installed", async () => {
-    const { rpc, decide, advance, service } = await host();
+    const { rpc, decide, advance, run, service } = await host();
     await decide("alpha", "install");
-    await advance(GRACE_MS);
+    await run();
     const result = await rpc<{ undone: boolean; reason: string }>("undo", { key: "alpha@bb-community" });
     expect(result.undone).toBe(false);
     expect(result.reason).toMatch(/already installed/i);
@@ -180,26 +185,26 @@ describe("installing", () => {
   });
 
   it("puts a failed install's card back, carrying the failure", async () => {
-    const { rpc, decide, advance, service } = await host({
+    const { rpc, decide, advance, run, service } = await host({
       install: () => {
         throw new Error("build failed: missing zod");
       },
     });
     await decide("alpha", "install");
-    await advance(GRACE_MS);
+    await run();
     const { cards } = await rpc<{ cards: NewCard[] }>("deck_new", {});
     expect(cards.find((card) => card.entryId === "alpha")?.lastFailure).toBe("build failed: missing zod");
     service.controller.abort();
   });
 
   it("counts bb's 'already installed' as done", async () => {
-    const { decide, jobs, advance, service } = await host({
+    const { decide, jobs, advance, run, service } = await host({
       install: () => {
         throw new Error('HTTP 422: plugin "alpha" is already installed; use `bb plugin update alpha`');
       },
     });
     await decide("alpha", "install");
-    await advance(GRACE_MS);
+    await run();
     expect((await jobs())[0]).toMatchObject({ state: "done", pluginId: "alpha" });
     service.controller.abort();
   });
@@ -207,7 +212,7 @@ describe("installing", () => {
   it("works through several installs one at a time", async () => {
     let running = 0;
     let most = 0;
-    const { decide, jobs, advance, service } = await host({
+    const { rpc, decide, jobs, advance, service } = await host({
       install: async (args) => {
         running++;
         most = Math.max(most, running);
@@ -218,7 +223,8 @@ describe("installing", () => {
     });
     await decide("alpha", "install");
     await decide("beta", "install");
-    await advance(GRACE_MS + 3000);
+    await rpc("queue_start", {});
+    await advance(3000);
     expect(most).toBe(1);
     expect((await jobs()).map((job) => job.state)).toEqual(["done", "done"]);
     service.controller.abort();
@@ -228,7 +234,7 @@ describe("installing", () => {
     let land: (value: unknown) => void = () => {};
     const first = await host({ install: () => new Promise((resolve) => (land = resolve)) });
     await first.decide("alpha", "install");
-    await first.advance(GRACE_MS);
+    await first.run();
     expect((await first.jobs())[0]!.state).toBe("running");
 
     // Same storage, new load. The old run's install then lands: its handle is
@@ -277,6 +283,33 @@ describe("installing", () => {
       action: "install",
     });
     expect((await jobs())[0]).toMatchObject({ entryId: "docs", state: "pending" });
+    service.controller.abort();
+  });
+
+  it("takes a queued install off the queue, putting a saved card back in Saved", async () => {
+    const { rpc, decide, deck, run, harness, service } = await host();
+    await decide("beta", "save");
+    await decide("beta", "install");
+    await decide("alpha", "install");
+    const status = await rpc<{ jobs: Job[]; running: boolean }>("queue_status", {});
+    expect(status.jobs.map((j) => j.key)).toEqual(["beta@bb-community", "alpha@bb-community"]);
+    expect(status.running).toBe(false);
+
+    expect(await rpc("unqueue", { key: "beta@bb-community" })).toEqual({ removed: true, reason: null });
+    expect(await rpc("unqueue", { key: "alpha@bb-community" })).toEqual({ removed: true, reason: null });
+    const saved = await rpc<{ cards: NewCard[] }>("deck_saved", {});
+    expect(saved.cards.map((c) => c.entryId)).toEqual(["beta"]);
+    expect(await deck()).toEqual(["alpha"]);
+    await run();
+    expect(harness.sdk.callsTo("plugins.catalog.install")).toHaveLength(0);
+    service.controller.abort();
+  });
+
+  it("won't take an install off once it is installing", async () => {
+    const { rpc, decide, run, service } = await host({ install: () => new Promise(() => {}) });
+    await decide("alpha", "install");
+    await run();
+    expect(await rpc("unqueue", { key: "alpha@bb-community" })).toEqual({ removed: false, reason: "It's already installing." });
     service.controller.abort();
   });
 });

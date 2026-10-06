@@ -66,10 +66,6 @@ export const rpcContract = defineRpcContract({
     output: z.custom<{
       cards: UpdateCard[];
       unavailable: Unavailable[];
-      /** Updates queued or under way, in the order they will run. */
-      queued: UpdateJob[];
-      /** Whether a batch is under way. */
-      running: boolean;
       /** Finished updates, newest first. */
       history: UpdateJob[];
     }>(() => true),
@@ -98,9 +94,19 @@ export const rpcContract = defineRpcContract({
     }),
     output: z.custom<Changes>(() => true),
   },
-  updates_start: {
+  queue_status: {
+    input: z.object({}),
+    /** Installs and updates queued or under way, in the order they will run. */
+    output: z.custom<{ jobs: Job[]; running: boolean }>(() => true),
+  },
+  queue_start: {
     input: z.object({}),
     output: z.custom<{ started: number }>(() => true),
+  },
+  /** Take one job off the queue; its card goes back to what it was. */
+  unqueue: {
+    input: z.object({ key: z.string().min(1) }),
+    output: z.custom<{ removed: boolean; reason: string | null }>(() => true),
   },
   updates_check: {
     input: z.object({ pluginId: z.string().min(1).optional() }),

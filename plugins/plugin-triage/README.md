@@ -18,7 +18,7 @@ Then open **Plugins** and choose **Triage** in its sidebar.
 
 | | Drag | Key |
 | --- | --- | --- |
-| Install in the background | right | → |
+| Queue the install | right | → |
 | Dismiss | left | ← |
 | Save for later | up | ↑ |
 | Show the overview | | Space or Enter |
@@ -45,16 +45,20 @@ when one lands (firmer for an install), and a success or error buzz when an
 install finishes. bb's own haptics setting turns it off. In a phone's browser
 Android vibrates instead; iOS Safari has no way to.
 
-An install waits five seconds before it starts, so a slip can be undone. bb
-installs plugins one at a time, so several queued installs run in turn. The
-queue lives on the bb server: it keeps going if you close the window, and it
-picks up where it left off if the plugin reloads. A toast reports each result
-in every open window. A failed install puts the card back in the deck with the
-error.
+A swipe right doesn't install anything yet: it queues the plugin. The queue
+bar above every tab sums up what is waiting ("2 to install, 1 to update"),
+**Run all** starts it, and tapping the bar lists each item with a ✕ to take it
+back off; until then **Z** also takes back the last decision. A run installs
+first, then updates, one at a time as bb applies them, with Plugin Triage's
+own update last. It lives on the bb server: it keeps going if you close the
+window, and picks up where it left off if the plugin reloads. A toast reports
+each result in every open window, and a failed install puts its card back
+with the error. Queued items count toward the number on the Triage row, so a
+queue nobody ran doesn't go unnoticed.
 
 **Saved** lists the plugins you saved, most recent first, as cards like bb's
 own. Click one to open its full listing in bb's detail pane beside the list,
-or install it from the card. The ⋯ menu vets it with an agent, opens its page,
+or queue it from the card's Install button. The ⋯ menu vets it with an agent, opens its page,
 or removes it from Saved.
 
 **Show incompatible** adds plugins that need a newer bb, with the reason.
@@ -87,12 +91,10 @@ and kept; and when fewer than ten requests are left in the hour, cards offer
 | Remind me in a week | up | ↑ |
 | Undo | | Z |
 
-Queued updates wait for **Update all**, then run in the background as one
-batch, one plugin at a time, which is how bb applies them. The batch keeps
-going if you close the window, and Plugin Triage updates itself last, since
-its own update reloads the page. A toast reports each result, a failed or
+Queued updates join the same queue as installs and run with **Run all**,
+Plugin Triage's own update last, since it reloads the page. A failed or
 rolled-back update puts its card back with the reason, and **Recent** lists
-what the last batches did. Plugins bb couldn't check are listed apart, each
+what the last runs did. Plugins bb couldn't check are listed apart, each
 with a **Retry**; **Check now** asks bb to look again for everything, which
 takes a while.
 

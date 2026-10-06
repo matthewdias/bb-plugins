@@ -1,12 +1,11 @@
-// The Updates tab: a deck of pending updates, the batch they are queued into,
-// what bb couldn't check, and what the last batches did.
+// The Updates tab: a deck of pending updates, what bb couldn't check, and
+// what the last batches did. The batch itself is the page's QueueBar.
 import { useEffect, useState } from "react";
 import { experimental_Icon as Icon, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Changes } from "../lib/changes";
-import type { UpdateJob } from "../lib/queue";
 import type { UpdateCard as Card } from "../lib/updates-deck";
 import { CardStack, type DeckActions } from "./CardStack";
 import { ago } from "./EntryCard";
@@ -98,21 +97,8 @@ function message(cause: unknown): string {
 
 export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updates: UpdatesState; keyboard: boolean }) {
   const navigate = useBbNavigate();
-  const [starting, setStarting] = useState(false);
   const [checking, setChecking] = useState<string | "all" | null>(null);
   const { changes, load: loadChanges } = useChanges(rpc, updates.cards[0] ?? null);
-
-  async function start() {
-    setStarting(true);
-    try {
-      const { started } = await rpc.call("updates_start", {});
-      if (started > 0) haptic("impact-medium");
-    } catch (cause) {
-      toast.error(`Couldn't start the updates: ${message(cause)}`);
-    } finally {
-      setStarting(false);
-    }
-  }
 
   async function check(pluginId?: string) {
     setChecking(pluginId ?? "all");
@@ -127,10 +113,6 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {updates.queued.length > 0 && (
-        <BatchBar queued={updates.queued} running={updates.running} starting={starting} onStart={() => void start()} />
-      )}
-
       {updates.cards.length > 0 ? (
         // The lists below share this scroll area, so the deck keeps a height
         // of its own rather than being squeezed under its buttons.
@@ -158,9 +140,7 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
       ) : (
         <div className="mx-auto flex max-w-sm flex-col items-center gap-2 pt-10 text-center">
           <Icon name="CircleCheck" className="size-8 text-muted-foreground" aria-hidden />
-          <p className="text-sm font-medium">
-            {updates.queued.length > 0 ? "Nothing else to decide" : "Everything's up to date"}
-          </p>
+          <p className="text-sm font-medium">Nothing to update</p>
           <p className="text-xs text-muted-foreground">bb checks for updates on its own. Check now to look again.</p>
           <Button variant="outline" size="sm" className="mt-2" onClick={() => void check()} disabled={checking !== null}>
             {checking === "all" ? "Checking… (this takes a while)" : "Check now"}
@@ -201,43 +181,6 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
             </Row>
           ))}
         </Section>
-      )}
-    </div>
-  );
-}
-
-function BatchBar({
-  queued,
-  running,
-  starting,
-  onStart,
-}: {
-  queued: UpdateJob[];
-  running: boolean;
-  starting: boolean;
-  onStart: () => void;
-}) {
-  const current = queued.find((job) => job.state === "running");
-  return (
-    <div className="mx-auto flex w-full max-w-md shrink-0 items-center gap-3 rounded-xl border border-border bg-card px-3 py-2" role="status">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">
-          {running
-            ? current
-              ? `Updating ${current.displayName}…`
-              : "Starting…"
-            : `${queued.length} update${queued.length === 1 ? "" : "s"} queued`}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">
-          {running
-            ? `${queued.length} to go · keeps going if you close bb`
-            : queued.map((job) => job.displayName).join(", ")}
-        </p>
-      </div>
-      {!running && (
-        <Button size="sm" onClick={onStart} disabled={starting}>
-          Update all
-        </Button>
       )}
     </div>
   );
