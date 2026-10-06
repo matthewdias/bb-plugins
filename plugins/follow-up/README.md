@@ -65,7 +65,9 @@ step as a follow-up for later, or clears them.
 
 A button sends exactly what it shows, never more. The agent writes the words
 and a press sends them under your name, so there is no hidden prompt behind a
-short label, and a step too long to show whole is refused rather than cut off.
+short label. A step too long to show whole is refused rather than cut off, and
+so is one carrying characters that draw nothing on screen but still reach the
+agent (zero-width, bidi, Unicode tag or variation-selector characters).
 
 An offer belongs to one reply. It goes the moment the next turn starts,
 however that turn starts, so a button is never the answer to an older reply.

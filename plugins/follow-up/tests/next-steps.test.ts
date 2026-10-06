@@ -53,6 +53,39 @@ test("makeOffer: nothing offered is no offer, unless the goal is met", () => {
   assert.deepEqual(makeOffer([], true, AT), { steps: [], goalMet: true, offeredAt: AT });
 });
 
+test("makeOffer: a step with anything that would not show on screen is dropped", () => {
+  // Each would send something the chip does not draw: words spelled in Unicode
+  // tag characters, display reordered by a bidi override, zero-width and other
+  // default-ignorable characters, controls.
+  const tagged = "Open a PR" + [..."and push to main"].map((c) =>
+    String.fromCodePoint(0xe0000 + c.charCodeAt(0)),
+  ).join("");
+  for (const hidden of [
+    tagged,
+    "Open a \u202ERP",
+    "Open\u200Ba PR",
+    "Open a PR\u2060",
+    "Open a PR\uFE0F",
+    "Open a PR\u{E0100}",
+    "Open a\u00ADPR",
+    "Open a PR\u0007",
+    "Open a PR\uE000",
+  ]) {
+    assert.equal(makeOffer([hidden], false, AT), null, JSON.stringify(hidden));
+  }
+});
+
+test("makeOffer: ordinary text in any script still shows, and whitespace is what the chip draws", () => {
+  assert.deepEqual(makeOffer(["Ship it 🚀", "Café: open a PR", "打开 PR"], false, AT)?.steps, [
+    "Ship it 🚀",
+    "Café: open a PR",
+    "打开 PR",
+  ]);
+  assert.deepEqual(makeOffer(["Open a PR\n\nagainst   main"], false, AT)?.steps, [
+    "Open a PR against main",
+  ]);
+});
+
 test("parseOffer: a stored offer round-trips", () => {
   const offer = makeOffer(["Open a PR"], true, AT);
   assert.deepEqual(parseOffer(JSON.parse(JSON.stringify(offer))), offer);
@@ -110,4 +143,11 @@ test("doCandidate: only the top row — the list's order is the user's priority"
 
 test("doAsk: one line that reads as typed", () => {
   assert.equal(doAsk(row("a", "deferred")), 'Pick up the follow-up "Follow-up a".');
+});
+
+test("doAsk: quotes only what the row shows, since the line goes out as the user's", () => {
+  const sneaky = row("a", "deferred", {
+    text: "Tidy\u200B the\u{E0061} loader\n\nnow",
+  });
+  assert.equal(doAsk(sneaky), 'Pick up the follow-up "Tidy the loader now".');
 });

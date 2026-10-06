@@ -34,6 +34,44 @@ export const NEXT_STEPS_MAX = 3;
  */
 export const NEXT_STEP_MAX = 80;
 
+/**
+ * Characters that draw nothing, or change how what is around them draws:
+ * controls, format characters (zero-width spaces and joiners, bidi overrides,
+ * Unicode tag characters), private-use and unassigned code points, line and
+ * paragraph separators, and every default-ignorable code point (variation
+ * selectors among them). A model reads all of them. Tag characters in
+ * particular spell ASCII a model will follow and a screen will not show, so a
+ * button whose text held any of these would send words the user never saw.
+ *
+ * The cost is a step with a ZWJ emoji sequence or a VS16 heart cannot be
+ * offered. A button label can live without either.
+ */
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+const HIDDEN_ALL = new RegExp(HIDDEN.source, "gu");
+
+/**
+ * A step as it will be shown and sent: each run of whitespace one space,
+ * which is how the chip draws it anyway, and trimmed.
+ */
+export function normalizeStep(step: string): string {
+  return step.replace(/\s+/g, " ").trim();
+}
+
+/** Would every character of this normalized step show on screen? */
+export function isShowable(step: string): boolean {
+  return !HIDDEN.test(step);
+}
+
+/**
+ * Text with everything that would not show removed, for quoting agent-written
+ * text inside a message sent under the user's name.
+ */
+export function visibleText(text: string): string {
+  // Whitespace first: a newline is a control character too, and stripping it
+  // before it became a space would fuse the words either side of it.
+  return normalizeStep(normalizeStep(text).replace(HIDDEN_ALL, ""));
+}
+
 export interface NextOffer {
   /** Each the user's instruction, as they would have typed it to say yes. */
   steps: string[];
@@ -54,10 +92,13 @@ export interface NextOffer {
 /**
  * The offer as stored, or null when there is nothing to show.
  *
- * Trims, drops empty steps, steps too long to show whole, and steps that
+ * Normalizes whitespace, then drops empty steps, steps with anything that
+ * would not show (see `HIDDEN`), steps too long to show whole, and steps that
  * repeat (by the same case- and punctuation-blind key follow-ups dedupe on),
- * and keeps the first `NEXT_STEPS_MAX`. An offer with no steps survives only if
- * it says the goal is met — that alone is something to show.
+ * and keeps the first `NEXT_STEPS_MAX`. Dropped, not cleaned: a step that
+ * arrived carrying hidden characters is not one to offer at all. An offer with
+ * no steps survives only if it says the goal is met — that alone is something
+ * to show.
  */
 export function makeOffer(
   steps: readonly string[],
@@ -67,8 +108,8 @@ export function makeOffer(
   const seen = new Set<string>();
   const kept: string[] = [];
   for (const raw of steps) {
-    const step = raw.trim();
-    if (step === "" || step.length > NEXT_STEP_MAX) continue;
+    const step = normalizeStep(raw);
+    if (step === "" || step.length > NEXT_STEP_MAX || !isShowable(step)) continue;
     const key = normalizeKey(step);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -143,7 +184,10 @@ export function doCandidate(rows: readonly FollowUp[]): FollowUp | null {
 /**
  * The visible half of pressing "Do": one line that reads as something the
  * user would have typed. The row's full record goes with it agent-only.
+ *
+ * The row's text is usually an agent's, and this line goes out under the
+ * user's name, so only what would show on screen is quoted.
  */
 export function doAsk(row: FollowUp): string {
-  return `Pick up the follow-up "${row.text}".`;
+  return `Pick up the follow-up "${visibleText(row.text)}".`;
 }

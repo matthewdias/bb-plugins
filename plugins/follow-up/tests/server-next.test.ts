@@ -68,6 +68,15 @@ test("next: a step too long to show whole on its button is refused", async () =>
   await assert.rejects(() => offer({ steps: ["x".repeat(81)] }));
 });
 
+test("next: a step carrying characters that do not show is refused, with the reason", async () => {
+  const { call, offer } = await host();
+  await assert.rejects(
+    () => offer({ steps: ["Open a PR\u{E0061}\u{E006E}\u{E0064}"] }),
+    /do not show on screen/,
+  );
+  assert.equal((await call("followups_next_get", { threadId: THREAD })).offer, null);
+});
+
 test("next: switched off, the tool refuses and the card is shown nothing", async () => {
   const { harness, call, offer } = await host();
   await offer({ steps });

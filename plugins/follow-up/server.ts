@@ -56,9 +56,11 @@ import {
 } from "./lib/expansion-execution.ts";
 import {
   doAsk,
+  isShowable,
   makeOffer,
   NEXT_STEP_MAX,
   NEXT_STEPS_MAX,
+  normalizeStep,
   parseOffer,
   stepAt,
   withoutStep,
@@ -2223,6 +2225,15 @@ export default async function plugin(bb: BbPluginApi) {
             .trim()
             .min(1)
             .max(NEXT_STEP_MAX)
+            // A refinement rather than a transform, so the parameters still
+            // convert to the JSON Schema a provider is handed. `makeOffer`
+            // normalizes whitespace the same way when it stores the step.
+            .refine((step) => isShowable(normalizeStep(step)), {
+              message:
+                "contains characters that do not show on screen (zero-width, " +
+                "bidi, tag, variation-selector or control characters); a " +
+                "button has to show everything it sends",
+            })
             .describe(
               "The button's text, which is also exactly what pressing it sends " +
                 "as the user's message: 'Open a PR against main'.",
