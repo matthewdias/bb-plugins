@@ -50,9 +50,9 @@ const sideChatTab = {
 const infoTab = { id: "thread-info:thread-info:none", kind: "thread-info" };
 // This plugin's own "Side chats" tab showing the same side chat.
 const ownTab = {
-  id: "plugin-panel:promote-side-chat:x",
+  id: "plugin-panel:side-chats:x",
   kind: "plugin-panel",
-  pluginId: "promote-side-chat",
+  pluginId: "side-chats",
   actionId: "side-chats",
   title: "Why is CI red?",
   paramsJson: JSON.stringify({ threadId: SIDE, anchor: null }),
@@ -66,7 +66,7 @@ interface Options {
 }
 
 async function host(options: Options = {}) {
-  const { bb, harness } = createFakePluginHost({ pluginId: "promote-side-chat" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "side-chats" });
   const threads: Record<string, Row> = options.threads ?? { [SIDE]: thread() };
   const timelines: Record<string, unknown> = options.timelines ?? { [SIDE]: userSaid("Why is CI red?") };
   const order: string[] = [];
@@ -128,7 +128,7 @@ test("promote: forks a visible thread with no lifecycle owner, in the shared env
   assert.deepEqual(args, {
     sourceThreadId: SIDE,
     origin: "plugin",
-    originPluginId: "promote-side-chat",
+    originPluginId: "side-chats",
     visibility: "visible",
     title: "Why is CI red?",
     environment: { type: "reuse", environmentId: "env_main" },

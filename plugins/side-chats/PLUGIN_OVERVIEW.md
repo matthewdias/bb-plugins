@@ -24,7 +24,7 @@ edit files alongside the main thread. The new thread shows the side chat's
 messages, its agent remembers the conversation, and it's titled with your first
 question. The side chat is archived and its tab closes.
 
-**A `bb promote-side-chat` command.** `list` shows a thread's side chats and
+**A `bb side-chats` command.** `list` shows a thread's side chats and
 what each is doing; `promote` and `archive` act on one.
 
 ## How it works

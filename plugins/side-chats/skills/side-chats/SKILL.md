@@ -1,6 +1,6 @@
 ---
-name: promote-side-chat
-description: List, promote, or archive a bb thread's side chats with `bb promote-side-chat`. Use when the user asks which side chats a thread has or whether one has replied, or asks to promote, keep, or turn a side chat into its own thread, or to archive or discard one.
+name: side-chats
+description: List, promote, or archive a bb thread's side chats with `bb side-chats`. Use when the user asks which side chats a thread has or whether one has replied, or asks to promote, keep, or turn a side chat into its own thread, or to archive or discard one.
 ---
 
 # Managing a thread's side chats
@@ -15,12 +15,12 @@ Promote or archive only when the user asks. Each creates or removes something
 the user sees, so it is their call, not a cleanup step.
 
 ```bash
-bb promote-side-chat                       # side chats of this thread
-bb promote-side-chat list --thread <id>    # side chats of another thread
-bb promote-side-chat promote <side-chat-id>
-bb promote-side-chat promote <side-chat-id> --worktree   # new worktree, default branch
-bb promote-side-chat promote <side-chat-id> --title "Fix CI"
-bb promote-side-chat archive <side-chat-id>
+bb side-chats                       # side chats of this thread
+bb side-chats list --thread <id>    # side chats of another thread
+bb side-chats promote <side-chat-id>
+bb side-chats promote <side-chat-id> --worktree   # new worktree, default branch
+bb side-chats promote <side-chat-id> --title "Fix CI"
+bb side-chats archive <side-chat-id>
 ```
 
 - `list` prints `<side-chat-id>  <first thing the user asked>`, newest first,

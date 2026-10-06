@@ -1,4 +1,4 @@
-// Promote Side Chat — frontend entry.
+// Side Chats — frontend entry.
 //
 // A control in the thread header, shown only while the thread has side chats,
 // and a "Side chats" panel that lists them or shows one. Everything they do
@@ -10,7 +10,7 @@ import { PANEL_ACTION } from "./src/use-side-chats.ts";
 
 export default definePluginApp((app) => {
   app.slots.experimental_threadHeaderAction({
-    id: "promote-side-chat",
+    id: "side-chats",
     title: "Side chats",
     component: SideChatsControl,
   });

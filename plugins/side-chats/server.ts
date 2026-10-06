@@ -1,4 +1,4 @@
-// Promote Side Chat — server.
+// Side Chats — server.
 //
 // Lists a thread's side chats with what each is doing, archives one, and
 // promotes one. Promotion forks a side chat as a visible thread with no lifecycle owner,
@@ -8,7 +8,7 @@
 // conversation in both its timeline and its agent's context, so nothing is
 // lost by moving to a new thread.
 //
-// The header control, the panel (app.tsx) and `bb promote-side-chat` all end
+// The header control, the panel (app.tsx) and `bb side-chats` all end
 // here.
 import {
   cliCommand,
@@ -313,7 +313,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.cli.register(
     defineCli({
-      name: "promote-side-chat",
+      name: "side-chats",
       summary: "List, promote and archive a thread's side chats",
       root: list,
       commands: {
@@ -324,7 +324,7 @@ export default async function plugin(bb: BbPluginApi) {
             {
               name: "id",
               required: true,
-              description: "The side chat's thread id, as `bb promote-side-chat list` prints it",
+              description: "The side chat's thread id, as `bb side-chats list` prints it",
             },
           ],
           options: {
@@ -359,7 +359,7 @@ export default async function plugin(bb: BbPluginApi) {
             {
               name: "id",
               required: true,
-              description: "The side chat's thread id, as `bb promote-side-chat list` prints it",
+              description: "The side chat's thread id, as `bb side-chats list` prints it",
             },
           ],
           options: { json: { type: "boolean", description: "Print the result as JSON" } },

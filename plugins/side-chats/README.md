@@ -1,4 +1,4 @@
-# Promote Side Chat
+# Side Chats
 
 A side chat is a good place to ask about something without derailing the
 thread. bb gives you no list of them, though: close a side chat's tab and it's
@@ -13,11 +13,11 @@ conversation forward and stays when the main thread is archived.
 
 ```sh
 bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
-  --subdirectory plugins/promote-side-chat --tag-prefix promote-side-chat/
+  --subdirectory plugins/side-chats --tag-prefix side-chats/
 ```
 
 With `--tag-prefix`, the range `*` resolves to the newest
-`promote-side-chat/vX.Y.Z` tag, so this line stays correct as the plugin
+`side-chats/vX.Y.Z` tag, so this line stays correct as the plugin
 releases and `bb plugin update` follows it.
 
 ## What it does
@@ -77,25 +77,25 @@ you read it in this plugin's panel, or within 20 seconds while one is showing.
 ## For agents
 
 ```sh
-bb promote-side-chat                          # this thread's side chats
-bb promote-side-chat list --thread thr_…      # another thread's
-bb promote-side-chat promote thr_side         # promote one, same checkout
-bb promote-side-chat promote thr_side --worktree --title "Fix CI"
-bb promote-side-chat archive thr_side         # discard one
+bb side-chats                          # this thread's side chats
+bb side-chats list --thread thr_…      # another thread's
+bb side-chats promote thr_side         # promote one, same checkout
+bb side-chats promote thr_side --worktree --title "Fix CI"
+bb side-chats archive thr_side         # discard one
 ```
 
 `list` marks a side chat `[replying]` or `[new reply]`. Each command takes
-`--json`. The bundled `promote-side-chat` skill tells agents to promote or
+`--json`. The bundled `side-chats` skill tells agents to promote or
 archive only when the user asks.
 
 ## Development
 
 ```sh
 npm install
-npm run typecheck --workspace=bb-plugin-promote-side-chat
-npm test --workspace=bb-plugin-promote-side-chat
-cd plugins/promote-side-chat && bb plugin install . && bb plugin dev
-bb plugin logs promote-side-chat -f
+npm run typecheck --workspace=bb-plugin-side-chats
+npm test --workspace=bb-plugin-side-chats
+cd plugins/side-chats && bb plugin install . && bb plugin dev
+bb plugin logs side-chats -f
 ```
 
 ## License
