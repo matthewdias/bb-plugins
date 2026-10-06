@@ -52,9 +52,10 @@ back off; until then **Z** also takes back the last decision. A run installs
 first, then updates, one at a time as bb applies them, with Plugin Triage's
 own update last. It lives on the bb server: it keeps going if you close the
 window, and picks up where it left off if the plugin reloads. A toast reports
-each result in every open window, and a failed install puts its card back
-with the error. Queued items count toward the number on the Triage row, so a
-queue nobody ran doesn't go unnoticed.
+each result in every open window, a finished install's with **Open settings**,
+and a failed install puts its card back
+with the error. Queued items count toward the number waiting, so a queue
+nobody ran doesn't go unnoticed.
 
 **Saved** lists the plugins you saved, most recent first, as cards like bb's
 own. Click one to open its full listing in bb's detail pane beside the list,
@@ -120,8 +121,21 @@ schedules with it, so the card on top says what that would take, read from bb
 ("Uninstalling deletes its 2 changed settings (Mode and Theme), its secret API
 key and its scheduled work, for good"). Installing it again starts from the
 defaults. Finished removals are listed under **Recent**, failures with why,
-and a plugin that couldn't be removed goes back in the deck. Cleanup's cards
-don't add to the number on the Triage row.
+and a plugin that couldn't be removed goes back in the deck.
+
+## The count
+
+Plugin Triage adds a **Triage** item to bb's sidebar, showing how many cards
+are waiting; opening it goes to the Triage tab. The Triage row in the Plugins
+screen shows the same number. By default it counts new plugins and updates,
+and anything queued from them. **Count new plugins**, **Count updates** and
+**Count cleanup suggestions** in the plugin's settings choose which decks
+count; Cleanup is off by default. bb puts a new sidebar item in the More menu
+at first, so pin it with **Customize sidebar**. bb doesn't show sidebar counts
+at phone width.
+
+bb has no way for a plugin to badge bb's own Plugins item, which is why the
+count is on an item of Plugin Triage's own.
 
 ## What counts as new
 

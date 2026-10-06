@@ -55,6 +55,7 @@ import {
   type CleanupDecisions,
   type Installed,
 } from "./lib/cleanup-deck.ts";
+import { COUNT_SETTINGS } from "./lib/count.ts";
 import { removalCost } from "./lib/removal-cost.ts";
 import { observe, type Observations, type PluginSample } from "./lib/usage.ts";
 
@@ -90,6 +91,24 @@ export default async function plugin(bb: BbPluginApi) {
       description:
         "Uses the login the GitHub CLI holds (gh auth token), as bb itself does for git, or GH_TOKEN if it is set. The token is only sent to api.github.com, for read-only lookups of the commits an update brings, and lifts GitHub's limit from 60 requests an hour to 5,000. Off, change lists are looked up without a login.",
       default: true,
+    },
+    countNew: {
+      type: "boolean",
+      label: "Count new plugins",
+      description: "Include new plugins from the store in the count on the Triage sidebar item and the Triage row.",
+      default: COUNT_SETTINGS.countNew.default,
+    },
+    countUpdates: {
+      type: "boolean",
+      label: "Count updates",
+      description: "Include plugins with updates in the count.",
+      default: COUNT_SETTINGS.countUpdates.default,
+    },
+    countCleanup: {
+      type: "boolean",
+      label: "Count cleanup suggestions",
+      description: "Include broken, turned-off and unused plugins in the count.",
+      default: COUNT_SETTINGS.countCleanup.default,
     },
   });
 

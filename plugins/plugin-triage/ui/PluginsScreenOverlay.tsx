@@ -6,7 +6,7 @@
 //
 // Being mounted everywhere also makes it the place that hears about finished
 // installs, so their toasts appear wherever you are.
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -18,6 +18,7 @@ import { haptic } from "./haptics";
 import { jobToast } from "./job-toasts";
 import { navigateInApp } from "./navigate";
 import { TriagePage } from "./TriagePage";
+import { useWaitingCount } from "./TriageSidebar";
 import { triageStore } from "./triage-store";
 
 declare const __BB_PLUGIN_ID__: string | undefined;
@@ -66,7 +67,6 @@ export function PluginsScreenOverlay() {
   const rpc = useRpc<typeof rpcContract>();
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const engine = useRef<ScreenEngine | null>(null);
-  const deck = useSyncExternalStore(triageStore.subscribe, triageStore.getSnapshot);
   const onJobs = useInstallToasts();
 
   useEffect(() => {
@@ -94,12 +94,10 @@ export function PluginsScreenOverlay() {
     if ((payload as { reason?: string } | null)?.reason === "job") onJobs();
   });
 
+  const count = useWaitingCount();
   useEffect(() => {
-    // Queued items count too: a queue nobody ran shows on the tab.
-    engine.current?.setCount(
-      deck.status === "ready" ? deck.cards.length + deck.updates.cards.length + deck.queue.jobs.length : null,
-    );
-  }, [deck.cards.length, deck.updates.cards.length, deck.queue.jobs.length, deck.status]);
+    engine.current?.setCount(count);
+  }, [count]);
 
   // bb scopes a plugin's stylesheet to elements under [data-bb-plugin], and a
   // portal leaves that subtree, so the page has to name the plugin itself.

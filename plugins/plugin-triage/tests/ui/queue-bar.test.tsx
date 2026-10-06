@@ -21,7 +21,7 @@ function rpcFake(unqueue: unknown = { removed: true, reason: null }) {
     if (method === "deck_new" || method === "deck_saved") return { cards: [] };
     if (method === "updates_deck") return { cards: [], unavailable: [], history: [] };
     if (method === "queue_status") return { jobs: [], running: false };
-    if (method === "cleanup_deck") return { cards: [], graveyard: [] };
+    if (method === "cleanup_deck") return { cards: [], history: [] };
     return {};
   });
   return { rpc: { call } as unknown as TriageRpc, call };

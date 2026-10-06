@@ -42,8 +42,10 @@ before you trust it: what it registers, what it reaches over the network,
 what data it touches, and whether it does what its listing says. Plugins run
 with full access to bb, so this is worth doing for anything you don't know.
 
-**A count on the tab.** The Triage row in the Plugins sidebar shows how many
-cards are waiting.
+**A count in the sidebar.** A Triage item in bb's sidebar, and the Triage
+row in the Plugins screen, show how many cards are waiting; opening the item
+goes to the Triage tab. Choose in settings whether new plugins, updates and
+cleanup suggestions count.
 
 ## How it works
 
