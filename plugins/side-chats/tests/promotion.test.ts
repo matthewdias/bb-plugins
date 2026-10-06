@@ -10,6 +10,7 @@ import {
   refusalFor,
   sideChatState,
   titleFor,
+  unarchiveRefusalFor,
   type ThreadFacts,
 } from "../lib/promotion.ts";
 
@@ -142,4 +143,20 @@ test("anchorFrom: reads the replied-to text back out of the seeded fallback titl
   assert.equal(anchorFrom("Replying to this earlier message in the conversation:   "), null);
   assert.equal(anchorFrom("Some other fallback"), null);
   assert.equal(anchorFrom(null), null);
+});
+
+test("unarchiveRefusalFor: an archived side chat comes back unless promoted or orphaned", () => {
+  const archived = sideChat({ archivedAt: 5 });
+  const live = { mainArchived: false, promotedTo: null };
+  assert.equal(unarchiveRefusalFor(archived, live), null);
+  assert.match(unarchiveRefusalFor(sideChat(), live) ?? "", /is not archived/);
+  assert.match(
+    unarchiveRefusalFor(archived, { ...live, promotedTo: "thr_new" }) ?? "",
+    /promoted to thr_new/,
+  );
+  assert.match(unarchiveRefusalFor(archived, { ...live, mainArchived: true }) ?? "", /Unarchive it first/);
+  assert.match(
+    unarchiveRefusalFor(sideChat({ archivedAt: 5, originPluginId: null }), live) ?? "",
+    /not a side chat/,
+  );
 });

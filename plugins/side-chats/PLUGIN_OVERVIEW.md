@@ -16,7 +16,8 @@ the first thing you asked in it.
 composer and **Send to main thread**, and Promote and Archive above it. The
 same list is under **Side chats** in the panel's launcher.
 
-**Archive.** Discard a side chat you're done with, without promoting it.
+**Archive.** Discard a side chat you're done with, without promoting it, with
+Undo on the toast if you change your mind.
 
 **Promote, or promote into a new worktree.** Turn a side chat into an ordinary
 thread in the main thread's checkout, or in a fresh worktree for work that will
@@ -25,7 +26,7 @@ messages, its agent remembers the conversation, and it's titled with your first
 question. The side chat is archived and its tab closes.
 
 **A `bb side-chats` command.** `list` shows a thread's side chats and
-what each is doing; `promote` and `archive` act on one.
+what each is doing; `promote`, `archive` and `unarchive` act on one.
 
 ## How it works
 

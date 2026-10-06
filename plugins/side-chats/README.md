@@ -41,7 +41,10 @@ it. Viewing it there marks its reply read.
 
 **Archive.** Discards a side chat you're done with, without promoting it, and
 closes its tabs. One that is mid-reply is stopped. bb would otherwise keep a
-side chat with messages until its main thread is archived.
+side chat with messages until its main thread is archived. The toast offers
+**Undo** for 8 seconds; archived from its own tab, Undo opens that tab again
+too. A side chat can't come back once its main thread is archived, or if it was
+promoted, since the promoted thread carries its conversation.
 
 **Two ways to promote.** **Promote to thread** keeps the new thread in the main
 thread's checkout, where the side chat already ran. **Promote into new
@@ -82,6 +85,7 @@ bb side-chats list --thread thr_…      # another thread's
 bb side-chats promote thr_side         # promote one, same checkout
 bb side-chats promote thr_side --worktree --title "Fix CI"
 bb side-chats archive thr_side         # discard one
+bb side-chats unarchive thr_side       # bring it back
 ```
 
 `list` marks a side chat `[replying]` or `[new reply]`. Each command takes

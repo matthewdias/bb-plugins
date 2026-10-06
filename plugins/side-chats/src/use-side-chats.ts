@@ -10,6 +10,16 @@ import { oneLine, SIDE_CHATS_CHANGED } from "@/lib/promotion";
 /** The `threadPanelAction` that lists side chats, or shows one. */
 export const PANEL_ACTION = "side-chats";
 
+/** What opening a side chat in the panel needs. A summary from the list is one. */
+export interface OpenTarget {
+  id: string;
+  preview: string | null;
+  anchor: string | null;
+}
+
+/** How long the archive toast, and so its Undo, stays up. */
+const UNDO_MS = 8_000;
+
 /** How often to look again while an unread reply is showing. */
 const UNREAD_POLL_MS = 20_000;
 
@@ -119,29 +129,51 @@ export function useSideChats(threadId: string) {
     [act, navigate, rpc],
   );
 
-  const archive = useCallback(
-    (sideChatThreadId: string) =>
-      act(sideChatThreadId, async () => {
-        try {
-          await rpc.call("archiveSideChat", { sideChatThreadId });
-          toast.success("Side chat archived");
-        } catch (cause) {
-          toast.error(`Couldn't archive the side chat: ${describe(cause)}`);
-        }
-      }),
-    [act, rpc],
-  );
-
   const open = useCallback(
-    (chat: SideChatSummary) => {
+    (chat: OpenTarget) => {
       const opened = navigate.openThreadPanel({
         actionId: PANEL_ACTION,
-        title: oneLine(chat.preview, 28),
+        title: chat.preview === null ? "Side chat" : oneLine(chat.preview, 28),
         params: { threadId: chat.id, anchor: chat.anchor },
       });
       if (!opened) toast.error("This view has no side panel to open the side chat in.");
     },
     [navigate],
+  );
+
+  /**
+   * Archive a side chat, with Undo on the toast. Archiving closes the side
+   * chat's tabs, so when it was archived from its own open tab (`reopen`),
+   * Undo opens it again as well as restoring it.
+   *
+   * The toast outlives this hook when the archive closed the tab it was
+   * called from, so Undo uses nothing that needs the component mounted.
+   */
+  const archive = useCallback(
+    (sideChatThreadId: string, reopen?: OpenTarget) =>
+      act(sideChatThreadId, async () => {
+        try {
+          await rpc.call("archiveSideChat", { sideChatThreadId });
+        } catch (cause) {
+          toast.error(`Couldn't archive the side chat: ${describe(cause)}`);
+          return;
+        }
+        const undo = async () => {
+          try {
+            await rpc.call("unarchiveSideChat", { sideChatThreadId });
+          } catch (cause) {
+            toast.error(`Couldn't restore the side chat: ${describe(cause)}`);
+            return;
+          }
+          if (reopen !== undefined) open(reopen);
+          announce(threadId);
+        };
+        toast.success("Side chat archived", {
+          duration: UNDO_MS,
+          action: { label: "Undo", onClick: () => void undo() },
+        });
+      }),
+    [act, open, rpc, threadId],
   );
 
   return { sideChats, loaded, busy, promote, archive, open, refresh: soon };

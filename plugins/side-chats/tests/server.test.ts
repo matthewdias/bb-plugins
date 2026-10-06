@@ -87,6 +87,7 @@ async function host(options: Options = {}) {
     order.push("archive");
     return options.archive?.() ?? { archivedThreadIds: [SIDE] };
   });
+  harness.sdk.stub("threads.unarchive", () => ({ ok: true }));
   harness.sdk.stub("threads.tabs.get", () => ({ revision: 7, tabs: [infoTab, sideChatTab, ownTab] }));
   harness.sdk.stub("threads.tabs.update", () => {
     order.push("tabs");
@@ -387,4 +388,66 @@ test("cli: archive", async () => {
   const refused = await again.cli(["archive", SIDE]);
   assert.equal(refused.exitCode, 1);
   assert.match(refused.stderr, /already archived/);
+});
+
+// An archived side chat whose main thread is live, ready to be brought back.
+const archivedSide = () => ({
+  [SIDE]: thread({ archivedAt: 5 }),
+  [MAIN]: thread({ id: MAIN, originKind: null, originPluginId: null, visibility: "visible", sourceThreadId: null }),
+});
+
+test("unarchive: restores an archived side chat and refreshes its main thread", async () => {
+  const { harness } = await host({ threads: archivedSide() });
+  const result = await harness.callRpc("unarchiveSideChat", { sideChatThreadId: SIDE });
+  assert.deepEqual(result, { sideChatThreadId: SIDE });
+  assert.deepEqual(harness.sdk.callsTo("threads.unarchive")[0]?.[0], { threadId: SIDE });
+  assert.ok(
+    harness.realtimeSignals.some(
+      (signal) => signal.channel === "side-chats-changed" && (signal.payload as Row).threadId === MAIN,
+    ),
+  );
+});
+
+test("unarchive: refuses while the main thread is archived", async () => {
+  const threads = archivedSide();
+  threads[MAIN] = { ...threads[MAIN], archivedAt: 4 };
+  const { harness } = await host({ threads });
+  await assert.rejects(
+    harness.callRpc("unarchiveSideChat", { sideChatThreadId: SIDE }),
+    /main thread .* is archived/,
+  );
+  assert.equal(harness.sdk.callsTo("threads.unarchive").length, 0);
+});
+
+test("unarchive: refuses a side chat that was promoted, naming the thread it became", async () => {
+  const { harness, bb } = await host({ threads: archivedSide() });
+  await bb.storage.kv.set(`promoted:${SIDE}`, { threadId: "thr_promoted9", title: "x" });
+  await assert.rejects(
+    harness.callRpc("unarchiveSideChat", { sideChatThreadId: SIDE }),
+    /promoted to thr_promoted9/,
+  );
+  assert.equal(harness.sdk.callsTo("threads.unarchive").length, 0);
+});
+
+test("unarchive: refuses a side chat that is not archived", async () => {
+  const { harness } = await host();
+  await assert.rejects(harness.callRpc("unarchiveSideChat", { sideChatThreadId: SIDE }), /is not archived/);
+});
+
+test("events: a side chat being unarchived refreshes its main thread", async () => {
+  const { harness } = await host();
+  const before = harness.realtimeSignals.length;
+  await harness.emitThreadEvent("thread.unarchived", { thread: thread() } as never);
+  assert.deepEqual(harness.realtimeSignals.slice(before), [
+    { channel: "side-chats-changed", payload: { threadId: MAIN } },
+  ]);
+});
+
+test("cli: unarchive", async () => {
+  const { cli } = await host({ threads: archivedSide() });
+  assert.deepEqual(await cli(["unarchive", SIDE]), {
+    exitCode: 0,
+    stdout: `Unarchived side chat ${SIDE}\n`,
+    stderr: "",
+  });
 });

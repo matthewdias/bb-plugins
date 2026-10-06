@@ -54,6 +54,10 @@ export const rpcContract = defineRpcContract({
     input: z.object({ sideChatThreadId: threadId }).strict(),
     output: archiveSchema,
   },
+  unarchiveSideChat: {
+    input: z.object({ sideChatThreadId: threadId }).strict(),
+    output: archiveSchema,
+  },
 });
 
 export type SideChatSummary = z.infer<typeof sideChatSummarySchema>;

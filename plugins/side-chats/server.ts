@@ -1,7 +1,7 @@
 // Side Chats — server.
 //
-// Lists a thread's side chats with what each is doing, archives one, and
-// promotes one. Promotion forks a side chat as a visible thread with no lifecycle owner,
+// Lists a thread's side chats with what each is doing, archives one (and
+// brings it back), and promotes one. Promotion forks a side chat as a visible thread with no lifecycle owner,
 // then archives the side chat. Un-hiding the side chat instead would leave it
 // owned by the main thread, which bb never lets go of: archive the main thread
 // and the "promoted" thread goes with it. A fork carries the side chat's
@@ -37,6 +37,7 @@ import {
   SIDE_CHATS_CHANGED,
   sideChatState,
   titleFor,
+  unarchiveRefusalFor,
   type ThreadFacts,
   type TimelineRowLike,
 } from "./lib/promotion.ts";
@@ -249,6 +250,28 @@ export default async function plugin(bb: BbPluginApi) {
     return { sideChatThreadId: sideChatId };
   }
 
+  /** Undo an archive. Its tabs are not reopened: the panel's Undo does that itself. */
+  async function unarchive(sideChatId: string): Promise<Archive> {
+    const sideChat = await getThread(sideChatId);
+    const promoted = await bb.storage.kv.get<{ threadId: string }>(promotedKey(sideChatId));
+    // The main thread only matters for a side chat that could otherwise come back.
+    const mainArchived =
+      isSideChat(sideChat) && sideChat.archivedAt !== null && sideChat.sourceThreadId !== null
+        ? (await getThread(sideChat.sourceThreadId)).archivedAt !== null
+        : false;
+    const refusal = unarchiveRefusalFor(sideChat, {
+      mainArchived,
+      promotedTo: promoted?.threadId ?? null,
+    });
+    if (refusal !== null) throw new Error(refusal);
+    await bb.sdk.threads.unarchive({ threadId: sideChatId });
+    bb.log.info(`unarchived side chat ${sideChatId}`);
+    if (sideChat.sourceThreadId !== null) {
+      bb.realtime.publish(SIDE_CHATS_CHANGED, { threadId: sideChat.sourceThreadId });
+    }
+    return { sideChatThreadId: sideChatId };
+  }
+
   // -------------------------------------------------------------------- rpc
 
   bb.rpc.register(rpcContract, {
@@ -261,15 +284,18 @@ export default async function plugin(bb: BbPluginApi) {
     async archiveSideChat({ sideChatThreadId }) {
       return archive(sideChatThreadId);
     },
+    async unarchiveSideChat({ sideChatThreadId }) {
+      return unarchive(sideChatThreadId);
+    },
   });
 
   // ------------------------------------------------------------ live count
 
   // The header shows a count and what each side chat is doing, so tell it when
   // a thread's side chats change: one is opened, starts or finishes a reply
-  // (an empty one is not listed until its first), or is archived, including by
-  // the cascade when its main thread is archived. Read state reaches the
-  // frontend directly, through bb's own thread subscriptions.
+  // (an empty one is not listed until its first), is archived, including by
+  // the cascade when its main thread is archived, or is unarchived. Being read
+  // raises no event at all, so the frontend rechecks that itself.
   const changed = ({ thread }: { thread: Thread }) => {
     if (thread.originPluginId !== SIDE_CHAT_PLUGIN_ID || thread.sourceThreadId === null) return;
     bb.realtime.publish(SIDE_CHATS_CHANGED, { threadId: thread.sourceThreadId });
@@ -278,6 +304,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.events.on("thread.active", (event) => changed(event as unknown as { thread: Thread }));
   bb.events.on("thread.idle", (event) => changed(event as unknown as { thread: Thread }));
   bb.events.on("thread.archived", (event) => changed(event as unknown as { thread: Thread }));
+  bb.events.on("thread.unarchived", (event) => changed(event as unknown as { thread: Thread }));
 
   // -------------------------------------------------------------------- cli
 
@@ -314,7 +341,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.cli.register(
     defineCli({
       name: "side-chats",
-      summary: "List, promote and archive a thread's side chats",
+      summary: "List, promote, archive and unarchive a thread's side chats",
       root: list,
       commands: {
         list,
@@ -372,6 +399,27 @@ export default async function plugin(bb: BbPluginApi) {
             }
             if (options.json) return { exitCode: 0, stdout: `${JSON.stringify(archived)}\n` };
             return { exitCode: 0, stdout: `Archived side chat ${positionals.id}\n` };
+          },
+        }),
+        unarchive: cliCommand({
+          summary: "Bring back an archived side chat, unless it was promoted or its main thread is archived",
+          positionals: [
+            {
+              name: "id",
+              required: true,
+              description: "The side chat's thread id, as `bb side-chats archive` was given it",
+            },
+          ],
+          options: { json: { type: "boolean", description: "Print the result as JSON" } },
+          async run({ options, positionals }) {
+            let restored: Archive;
+            try {
+              restored = await unarchive(positionals.id);
+            } catch (cause) {
+              throw new PluginCliError(message(cause));
+            }
+            if (options.json) return { exitCode: 0, stdout: `${JSON.stringify(restored)}\n` };
+            return { exitCode: 0, stdout: `Unarchived side chat ${positionals.id}\n` };
           },
         }),
       },

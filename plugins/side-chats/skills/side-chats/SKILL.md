@@ -21,6 +21,7 @@ bb side-chats promote <side-chat-id>
 bb side-chats promote <side-chat-id> --worktree   # new worktree, default branch
 bb side-chats promote <side-chat-id> --title "Fix CI"
 bb side-chats archive <side-chat-id>
+bb side-chats unarchive <side-chat-id>
 ```
 
 - `list` prints `<side-chat-id>  <first thing the user asked>`, newest first,
@@ -35,4 +36,7 @@ bb side-chats archive <side-chat-id>
   empty. Tell the user why instead of retrying.
 - `archive` stops a side chat that is mid-reply. It refuses one already
   archived.
+- `unarchive` brings an archived side chat back. It refuses one whose main
+  thread is archived, and one that was promoted (it names the promoted
+  thread; point the user there instead).
 - Every command takes `--json`.

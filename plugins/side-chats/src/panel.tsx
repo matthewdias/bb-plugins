@@ -15,10 +15,9 @@ import {
   type ThreadChatMessageAction,
 } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import type { SideChatSummary } from "@/lib/contract";
 import { cn } from "@/lib/utils";
 import { StateMark, STATE_LABEL } from "./state-mark.tsx";
-import { age, announce, useSideChats } from "./use-side-chats.ts";
+import { age, announce, useSideChats, type OpenTarget } from "./use-side-chats.ts";
 
 /** Panel params naming a side chat, or null for the list. Persisted, so untrusted. */
 export function parsePanelParams(params: unknown): { threadId: string; anchor: string | null } | null {
@@ -44,20 +43,16 @@ export function SideChatsPanel({ threadId, params }: PluginThreadPanelProps) {
 
 type Actions = ReturnType<typeof useSideChats>;
 
-function Actions({
-  chat,
-  actions,
-  showOpen,
-}: {
-  chat: Pick<SideChatSummary, "id"> & Partial<SideChatSummary>;
-  actions: Actions;
-  showOpen: boolean;
-}) {
+/**
+ * A side chat's buttons. In the list, `inList` adds Open. In the side chat's
+ * own tab, archiving closes that tab, so Undo should bring it back.
+ */
+function Actions({ chat, actions, inList }: { chat: OpenTarget; actions: Actions; inList: boolean }) {
   const disabled = actions.busy !== null;
   return (
     <div className="flex flex-wrap gap-1.5">
-      {showOpen && chat.preview !== undefined ? (
-        <button type="button" className={BUTTON} disabled={disabled} onClick={() => actions.open(chat as SideChatSummary)}>
+      {inList ? (
+        <button type="button" className={BUTTON} disabled={disabled} onClick={() => actions.open(chat)}>
           Open
         </button>
       ) : null}
@@ -69,7 +64,12 @@ function Actions({
         <Icon name="GitBranch" fallback="SideChat" className="size-3.5" aria-hidden />
         Into new worktree
       </button>
-      <button type="button" className={BUTTON} disabled={disabled} onClick={() => void actions.archive(chat.id)}>
+      <button
+        type="button"
+        className={BUTTON}
+        disabled={disabled}
+        onClick={() => void actions.archive(chat.id, inList ? undefined : chat)}
+      >
         <Icon name="Archive" fallback="SideChat" className="size-3.5" aria-hidden />
         Archive
       </button>
@@ -101,7 +101,7 @@ function SideChatList({ threadId }: { threadId: string }) {
               {STATE_LABEL[chat.state] ?? age(chat.updatedAt)}
             </span>
           </div>
-          <Actions chat={chat} actions={actions} showOpen />
+          <Actions chat={chat} actions={actions} inList />
         </li>
       ))}
     </ul>
@@ -162,7 +162,15 @@ function SideChatView({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b border-border px-3 py-2">
-        <Actions chat={{ id: sideChatId }} actions={actions} showOpen={false} />
+        <Actions
+          chat={{
+            id: sideChatId,
+            preview: actions.sideChats.find((chat) => chat.id === sideChatId)?.preview ?? null,
+            anchor,
+          }}
+          actions={actions}
+          inList={false}
+        />
       </div>
       <ThreadChat
         threadId={sideChatId}

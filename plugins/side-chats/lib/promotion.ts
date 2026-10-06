@@ -69,6 +69,27 @@ export function archiveRefusalFor(thread: ThreadFacts): string | null {
   return null;
 }
 
+/**
+ * Why an archived side chat cannot be brought back, or null when it can. bb
+ * refuses to restore one while its main thread is archived. One that was
+ * promoted lives on as the promoted thread; restoring it would put the same
+ * conversation in two places.
+ */
+export function unarchiveRefusalFor(
+  thread: ThreadFacts,
+  context: { mainArchived: boolean; promotedTo: string | null },
+): string | null {
+  if (!isSideChat(thread)) return `${thread.id} is not a side chat.`;
+  if (thread.archivedAt === null) return `Side chat ${thread.id} is not archived.`;
+  if (context.promotedTo !== null) {
+    return `Side chat ${thread.id} was promoted to ${context.promotedTo}; open that thread instead.`;
+  }
+  if (context.mainArchived) {
+    return `The main thread of side chat ${thread.id} is archived. Unarchive it first.`;
+  }
+  return null;
+}
+
 /** Statuses in which a thread is doing, or about to do, a turn. */
 const WORKING = new Set(["pending", "starting", "active", "stopping"]);
 
