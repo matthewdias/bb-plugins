@@ -39,14 +39,13 @@ const job = (pluginId: string, overrides: Partial<UpdateJob> = {}) =>
   ({ id: `j-${pluginId}`, kind: "update", key: `update:${pluginId}`, pluginId, displayName: pluginId, state: "pending", held: true, ...overrides }) as UpdateJob;
 
 function state(overrides: Partial<UpdatesState> = {}): UpdatesState {
-  return { cards: [], unavailable: [], queued: [], running: false, history: [], ...overrides };
+  return { cards: [], unavailable: [], history: [], ...overrides };
 }
 
 let changesAnswer: unknown = { kind: "none" };
 
 function rpcFake() {
   const call = vi.fn(async (method: string, _input?: unknown) => {
-    if (method === "updates_start") return { started: 2 };
     if (method === "update_decide") return { previous: null };
     if (method === "update_undo") return { undone: true, reason: null };
     if (method === "update_changes") return changesAnswer;
@@ -54,6 +53,7 @@ function rpcFake() {
     if (method === "deck_new") return { cards: triageStore.getSnapshot().cards, cutoff: 0 };
     if (method === "deck_saved") return { cards: triageStore.getSnapshot().saved };
     if (method === "updates_deck") return triageStore.getSnapshot().updates;
+    if (method === "queue_status") return triageStore.getSnapshot().queue;
     return { checked: 1 };
   });
   return { rpc: { call } as unknown as TriageRpc, call };
@@ -67,32 +67,10 @@ afterEach(() => {
 });
 
 describe("the Updates tab", () => {
-  it("offers to start a queued batch, and starts it", async () => {
-    const { rpc, call } = rpcFake();
-    render(<UpdatesPanel rpc={rpc} updates={state({ queued: [job("alpha"), job("beta")] })} keyboard />);
-    expect(screen.getByText("2 updates queued")).toBeTruthy();
-    expect(screen.getByText("alpha, beta")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Update all" }));
-    await waitFor(() => expect(call).toHaveBeenCalledWith("updates_start", {}));
-  });
-
-  it("shows progress, not the button, while a batch runs", () => {
-    const { rpc } = rpcFake();
-    render(
-      <UpdatesPanel
-        rpc={rpc}
-        updates={state({ queued: [job("alpha", { state: "running", held: false }), job("beta", { held: false })], running: true })}
-        keyboard
-      />,
-    );
-    expect(screen.getByText("Updating alpha…")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Update all" })).toBeNull();
-  });
-
   it("says when everything is up to date, and checks again on request", async () => {
     const { rpc, call } = rpcFake();
     render(<UpdatesPanel rpc={rpc} updates={state()} keyboard />);
-    expect(screen.getByText("Everything's up to date")).toBeTruthy();
+    expect(screen.getByText("Nothing to update")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Check now" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("updates_check", {}));
   });
@@ -254,7 +232,12 @@ describe("undoing a queued update", () => {
         const answer =
           queued.length === 0
             ? state({ cards: [card("alpha")], unavailable: [{ pluginId: "icons", displayName: "Icons", detail: null }] })
-            : state({ queued });
+            : state();
+        await refreshing;
+        return answer;
+      }
+      if (method === "queue_status") {
+        const answer = { jobs: queued, running: false };
         await refreshing;
         return answer;
       }
@@ -272,12 +255,12 @@ describe("undoing a queued update", () => {
     });
     const rpc = { call } as unknown as TriageRpc;
     await triageStore.load(rpc);
-    expect(triageStore.getSnapshot().updates.queued.map((j) => j.pluginId)).toEqual(["alpha"]);
+    expect(triageStore.getSnapshot().queue.jobs.map((j) => j.pluginId)).toEqual(["alpha"]);
 
     await decideUpdate(rpc, card("alpha"), "right");
     await undoLastUpdate(rpc);
     // At once, while every refresh is still waiting on the server.
-    expect(triageStore.getSnapshot().updates.queued).toEqual([]);
+    expect(triageStore.getSnapshot().queue.jobs).toEqual([]);
     expect(triageStore.getSnapshot().updates.cards.map((c) => c.pluginId)).toEqual(["alpha"]);
     release();
     // The rest of the page caught up with the server too.

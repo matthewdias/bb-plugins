@@ -16,7 +16,7 @@ import {
   type Decisions,
 } from "./lib/new-deck.ts";
 import {
-  GRACE_MS,
+  liveJobs,
   releaseHeld,
   cancelPending,
   enqueue,
@@ -290,7 +290,10 @@ export default async function plugin(bb: BbPluginApi) {
           displayName: input.displayName,
           confirmedSource: input.confirmedSource ?? null,
           createdAt: now,
-          runAfter: now + GRACE_MS,
+          runAfter: now,
+          // Waits for Run all with the rest of the queue.
+          held: true,
+          previous,
           state: "pending",
           startedAt: null,
           finishedAt: null,
@@ -301,7 +304,6 @@ export default async function plugin(bb: BbPluginApi) {
         await kv.set(JOBS, jobs);
         return { job: liveJob(jobs, input.key), previous };
       });
-      poke();
       changed("decision");
       return { job, previous };
     },
@@ -344,15 +346,9 @@ export default async function plugin(bb: BbPluginApi) {
         selfId: bb.pluginId,
       });
       const updates = jobs.filter((job): job is UpdateJob => job.kind === "update");
-      const live = updates.filter((job) => job.state === "pending" || job.state === "running");
       return {
         cards,
         unavailable,
-        // In the order they will run: this plugin's own last.
-        queued: [...live].sort(
-          (a, b) => Number(a.pluginId === bb.pluginId) - Number(b.pluginId === bb.pluginId) || a.createdAt - b.createdAt,
-        ),
-        running: live.some((job) => job.state === "running" || !job.held),
         history: updates
           .filter((job) => job.state === "done" || job.state === "failed")
           .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
@@ -379,6 +375,7 @@ export default async function plugin(bb: BbPluginApi) {
             from: input.from,
             to: input.to,
             held: true,
+            previous,
             result: null,
             createdAt: now,
             runAfter: now,
@@ -449,7 +446,12 @@ export default async function plugin(bb: BbPluginApi) {
       return changes;
     },
 
-    updates_start: async () => {
+    queue_status: async () => {
+      const live = liveJobs(await readJobs(), bb.pluginId);
+      return { jobs: live, running: live.some((job) => job.state === "running" || job.held !== true) };
+    },
+
+    queue_start: async () => {
       const started = await locked(async () => {
         const { jobs, released } = releaseHeld(await readJobs(), Date.now());
         await kv.set(JOBS, jobs);
@@ -458,6 +460,33 @@ export default async function plugin(bb: BbPluginApi) {
       poke();
       changed("job");
       return { started };
+    },
+
+    unqueue: async ({ key }) => {
+      const result = await locked(async () => {
+        const jobs = await readJobs();
+        const job = liveJob(jobs, key);
+        if (job === null) return { removed: false, reason: "It's no longer queued." };
+        if (job.state === "running") {
+          return { removed: false, reason: job.kind === "update" ? "It's already updating." : "It's already installing." };
+        }
+        await kv.set(JOBS, cancelPending(jobs, key, Date.now()).jobs);
+        // The card goes back to what it was before it was queued.
+        if (job.kind === "install") {
+          const decisions = await readDecisions();
+          if (job.previous == null) delete decisions[key];
+          else decisions[key] = job.previous as Decisions[string];
+          await kv.set(DECISIONS, decisions);
+        } else {
+          const decisions = await readUpdateDecisions();
+          if (job.previous == null) delete decisions[job.pluginId];
+          else decisions[job.pluginId] = job.previous as UpdateDecision;
+          await kv.set(UPDATE_DECISIONS, decisions);
+        }
+        return { removed: true, reason: null };
+      });
+      if (result.removed) changed("undo");
+      return result;
     },
 
     updates_check: async ({ pluginId }) => {

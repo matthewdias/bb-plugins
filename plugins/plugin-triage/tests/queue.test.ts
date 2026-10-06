@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  GRACE_MS,
   cancelPending,
   enqueue,
   failuresByKey,
   liveJob,
+  liveJobs,
   markFinished,
   markRunning,
   nextRunnable,
@@ -29,7 +29,7 @@ function job(id: string, overrides: Partial<InstallJob> = {}): InstallJob {
     displayName: id,
     confirmedSource: null,
     createdAt: T,
-    runAfter: T + GRACE_MS,
+    runAfter: T,
     state: "pending",
     startedAt: null,
     finishedAt: null,
@@ -68,7 +68,8 @@ describe("held updates", () => {
   });
 
   it("all become ready when the batch starts, in the order queued", () => {
-    const { jobs, released } = releaseHeld([update("a", { createdAt: T }), job("x"), update("b", { createdAt: T + 1 })], T + 100);
+    const { jobs: released0, released } = releaseHeld([update("a", { createdAt: T }), job("x", { state: "done" }), update("b", { createdAt: T + 1 })], T + 100);
+    const jobs = released0;
     expect(released).toBe(2);
     expect(nextRunnable(jobs, T + 200)?.id).toBe("u-a");
     const second = markFinished(markRunning(jobs, "u-a", T + 200), "u-a", T + 300, { ok: true, pluginId: "a" });
@@ -102,11 +103,30 @@ describe("held updates", () => {
 });
 
 describe("the install queue", () => {
-  it("waits out the grace period before a job is runnable", () => {
-    const jobs = enqueue([], job("a"));
-    expect(nextRunnable(jobs, T)).toBeNull();
-    expect(nextWakeAt(jobs)).toBe(T + GRACE_MS);
-    expect(nextRunnable(jobs, T + GRACE_MS)?.id).toBe("a");
+  it("holds a queued install until the batch starts", () => {
+    const jobs = enqueue([], job("a", { held: true }));
+    expect(nextRunnable(jobs, T + 60_000)).toBeNull();
+    expect(nextWakeAt(jobs)).toBeNull();
+    expect(nextRunnable(releaseHeld(jobs, T).jobs, T)?.id).toBe("a");
+  });
+
+  it("runs installs before updates in one batch, this plugin's update last", () => {
+    const { jobs } = releaseHeld(
+      [update("plugin-triage"), update("u"), job("i1", { held: true }), job("i2", { held: true })],
+      T,
+    );
+    const order: string[] = [];
+    let rest: Job[] = jobs;
+    for (let next = nextRunnable(rest, T, "plugin-triage"); next !== null; next = nextRunnable(rest, T, "plugin-triage")) {
+      order.push(next.id);
+      rest = rest.filter((j) => j.id !== next!.id);
+    }
+    expect(order).toEqual(["i1", "i2", "u-u", "u-plugin-triage"]);
+  });
+
+  it("lists what is queued in the order it will run", () => {
+    const jobs = [update("plugin-triage"), update("u"), job("i1", { held: true }), job("done", { state: "done" })];
+    expect(liveJobs(jobs, "plugin-triage").map((j) => j.id)).toEqual(["i1", "u-u", "u-plugin-triage"]);
   });
 
   it("runs one job at a time, oldest first", () => {
@@ -154,7 +174,7 @@ describe("the install queue", () => {
   it("puts a job a reload interrupted back in line", () => {
     const jobs = recover(markRunning(enqueue([], job("a")), "a", T));
     expect(jobs[0]).toMatchObject({ state: "pending", startedAt: null });
-    expect(nextRunnable(jobs, T + GRACE_MS)?.id).toBe("a");
+    expect(nextRunnable(jobs, T)?.id).toBe("a");
   });
 
   it("keeps only the newest finished jobs, and every live one", () => {

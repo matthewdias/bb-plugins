@@ -12,6 +12,7 @@ import { decide, planFor, undoLast, type Plan } from "./decisions";
 import { EntryCard } from "./EntryCard";
 import { navigateInApp, pluginDetailsPath } from "./navigate";
 import { SavedList } from "./SavedList";
+import { QueueBar } from "./QueueBar";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { triageStore } from "./triage-store";
 
@@ -115,6 +116,11 @@ export function TriagePage() {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:pt-6">
+        {deck.status === "ready" && (
+          <div className="mb-4 shrink-0">
+            <QueueBar rpc={rpc} queue={deck.queue} />
+          </div>
+        )}
         {deck.status === "error" && (
           <div className="mx-auto max-w-md space-y-3 text-center text-sm">
             <p>Couldn't load the catalog: {deck.error}</p>

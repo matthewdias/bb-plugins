@@ -9,7 +9,8 @@ import type { UpdateCard } from "../lib/updates-deck";
 const NOW = Date.parse("2026-10-06T12:00:00Z");
 const SELF = "plugin-triage";
 
-type Deck = { cards: UpdateCard[]; queued: UpdateJob[]; running: boolean; history: UpdateJob[] };
+type Deck = { cards: UpdateCard[]; history: UpdateJob[] };
+type Queue = { jobs: UpdateJob[]; running: boolean };
 
 const label = (v: string) => ({ version: v, display: `https://github.com/acme/x.git@v${v} (${v})` });
 
@@ -38,6 +39,7 @@ async function host(
   const service = harness.runService("queue");
   const rpc = async <T,>(method: string, input: unknown = {}) => (await harness.callRpc(method, input)) as T;
   const deck = () => rpc<Deck>("updates_deck");
+  const queue = () => rpc<Queue>("queue_status");
   const cards = async () => (await deck()).cards.map((card) => card.pluginId);
   const decide = (pluginId: string, action: "queue" | "skip" | "snooze") =>
     rpc<{ previous: unknown }>("update_decide", { pluginId, displayName: pluginId, action, from: label("1"), to: label("2") });
@@ -46,7 +48,7 @@ async function host(
     await vi.advanceTimersByTimeAsync(ms);
     for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0);
   };
-  return { harness, service, rpc, deck, cards, decide, applied, advance, offers };
+  return { harness, service, rpc, deck, cards, decide, applied, advance, offers, queue };
 }
 
 beforeEach(() => {
@@ -63,30 +65,30 @@ describe("the Updates deck over RPC", () => {
   });
 
   it("holds queued updates until the batch starts", async () => {
-    const { decide, deck, applied, advance, service } = await host();
+    const { decide, deck, queue, applied, advance, service } = await host();
     await decide("alpha", "queue");
     await decide("beta", "queue");
     await advance(60_000);
     const before = await deck();
     expect(before.cards.map((c) => c.pluginId)).toEqual([SELF]);
-    expect(before.queued.map((j) => j.pluginId)).toEqual(["alpha", "beta"]);
-    expect(before.running).toBe(false);
+    expect((await queue()).jobs.map((j) => j.pluginId)).toEqual(["alpha", "beta"]);
+    expect((await queue()).running).toBe(false);
     expect(applied()).toEqual([]);
     service.controller.abort();
   });
 
   it("runs the batch one at a time, this plugin's update last, and records each", async () => {
-    const { rpc, decide, deck, applied, advance, service } = await host();
+    const { rpc, decide, deck, queue, applied, advance, service } = await host();
     await decide(SELF, "queue");
     await decide("alpha", "queue");
     await decide("beta", "queue");
-    expect(await rpc("updates_start")).toEqual({ started: 3 });
-    expect((await deck()).running).toBe(true);
+    expect(await rpc("queue_start")).toEqual({ started: 3 });
+    expect((await queue()).running).toBe(true);
     await advance(10);
     expect(applied()).toEqual(["alpha", "beta", SELF]);
     const after = await deck();
-    expect(after.queued).toEqual([]);
-    expect(after.running).toBe(false);
+    expect((await queue()).jobs).toEqual([]);
+    expect((await queue()).running).toBe(false);
     expect(after.history.map((j) => [j.pluginId, j.state, j.result])).toEqual(
       expect.arrayContaining([
         ["alpha", "done", "updated"],
@@ -102,7 +104,7 @@ describe("the Updates deck over RPC", () => {
       id === "alpha" ? { applied: false, outcome: "rolled-back", from: label("1"), detail: "activation failed" } : { applied: true, outcome: "updated", from: label("1"), to: label("2") },
     );
     await decide("alpha", "queue");
-    await rpc("updates_start");
+    await rpc("queue_start");
     await advance(10);
     const after = await deck();
     const card = after.cards.find((c) => c.pluginId === "alpha");
@@ -114,7 +116,7 @@ describe("the Updates deck over RPC", () => {
   it("counts an update bb finds already current as done", async () => {
     const { rpc, decide, deck, advance, service } = await host(() => ({ applied: false, outcome: "current", from: label("2") }));
     await decide("alpha", "queue");
-    await rpc("updates_start");
+    await rpc("queue_start");
     await advance(10);
     expect((await deck()).history[0]).toMatchObject({ pluginId: "alpha", state: "done", result: "current" });
     service.controller.abort();
@@ -124,7 +126,7 @@ describe("the Updates deck over RPC", () => {
     const { rpc, decide, cards, applied, advance, service } = await host();
     await decide("alpha", "queue");
     expect(await rpc("update_undo", { pluginId: "alpha" })).toEqual({ undone: true, reason: null });
-    await rpc("updates_start");
+    await rpc("queue_start");
     await advance(10);
     expect(applied()).toEqual([]);
     expect(await cards()).toContain("alpha");
@@ -135,7 +137,7 @@ describe("the Updates deck over RPC", () => {
     let finish: (value: unknown) => void = () => {};
     const { rpc, decide, advance, service } = await host(() => new Promise((resolve) => (finish = resolve)));
     await decide("alpha", "queue");
-    await rpc("updates_start");
+    await rpc("queue_start");
     await advance(10);
     const result = await rpc<{ undone: boolean; reason: string }>("update_undo", { pluginId: "alpha" });
     expect(result).toEqual({ undone: false, reason: "It's already updating." });
@@ -157,7 +159,7 @@ describe("the Updates deck over RPC", () => {
     let finish: (value: unknown) => void = () => {};
     const first = await host(() => new Promise((resolve) => (finish = resolve)));
     await first.decide(SELF, "queue");
-    await first.rpc("updates_start");
+    await first.rpc("queue_start");
     await first.advance(10);
 
     // The update replaced this plugin: the old load is stopped, and its call
@@ -191,7 +193,7 @@ describe("the Updates deck over RPC", () => {
     await decide("alpha", "queue");
     // The branch moved after the swipe: bb now offers version 3.
     offers.set("alpha", "3");
-    await rpc("updates_start");
+    await rpc("queue_start");
     await advance(10);
     expect(applied()).toEqual([]);
     const after = await deck();
@@ -282,5 +284,17 @@ describe("the Updates deck over RPC", () => {
       expect(await rpc("update_changes", range(2))).toMatchObject({ kind: "github" });
       service.controller.abort();
     });
+  });
+
+  it("takes a queued update off the queue, restoring a snooze it replaced", async () => {
+    const { rpc, decide, cards, queue, service } = await host();
+    await decide("alpha", "snooze");
+    await decide("alpha", "queue");
+    expect((await queue()).jobs.map((j) => j.pluginId)).toEqual(["alpha"]);
+    expect(await rpc("unqueue", { key: "update:alpha" })).toEqual({ removed: true, reason: null });
+    expect((await queue()).jobs).toEqual([]);
+    // Back to snoozed, not back in the deck.
+    expect(await cards()).toEqual(["beta", SELF]);
+    service.controller.abort();
   });
 });

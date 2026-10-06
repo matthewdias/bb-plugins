@@ -12,20 +12,21 @@ description to read the whole listing. The card on top also shows where its
 code comes from: the repository and the version range it tracks, or the
 exact tag and commit for a third-party store.
 
-**Three decisions.** Drag a card right, or press →, to install it. Drag it
-left, or press ←, to dismiss it. Drag it up, or press ↑, to save it for
-later. Installs run in the background, one at a time, and keep going if you
-close the window. A toast tells you when each one lands.
+**Three decisions.** Drag a card right, or press →, to queue it for install.
+Drag it left, or press ←, to dismiss it. Drag it up, or press ↑, to save it
+for later.
 
-**Undo.** An install waits a few seconds before it starts. Press Z, or Undo
-on its toast, to take the last decision back.
+**One queue.** Installs and updates you queue wait in a bar above every tab
+until you press Run all, then run in the background, one at a time, and keep
+going if you close the window. Review the queue and take anything back off
+before it runs; Z takes back the last decision.
 
 **Updates in one batch.** An Updates deck deals each installed plugin with a
 newer version, showing the version now and next and, for GitHub sources,
 the commits that change this plugin and the release notes. An update that
 only touched other plugins in a shared repository says so. Drag right to queue it, left to skip that
-version, up to be reminded in a week. Then press Update all: the queue runs
-in the background, one plugin at a time, and each result is reported.
+version, up to be reminded in a week. Queued updates run with the installs
+when you press Run all.
 
 **Saved for later.** The Saved list keeps the plugins you swiped up, with
 buttons to install one, open its store page, or forget it.
