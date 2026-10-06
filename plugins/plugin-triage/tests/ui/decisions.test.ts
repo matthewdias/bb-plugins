@@ -81,4 +81,15 @@ describe("undo", () => {
     await undoLast(rpc);
     expect(vi.mocked(haptic).mock.calls.map(([kind]) => kind)).toEqual(["warning"]);
   });
+
+  it("does not install, and puts the card back, when the source the card showed can't be had", async () => {
+    const { rpc, flush } = fakeRpc();
+    vi.mocked(rpc.call).mockImplementation(((method: string) =>
+      method === "entry_plan" ? Promise.reject(new Error("resolve failed")) : Promise.resolve({ job: null, previous: null })) as never);
+    triageStore.putBack(alpha);
+    await decide(rpc, alpha, "right");
+    await flush();
+    expect(vi.mocked(rpc.call).mock.calls.map(([method]) => method)).not.toContain("decide");
+    expect(triageStore.getSnapshot().cards.map((card) => card.entryId)).toEqual(["alpha"]);
+  });
 });

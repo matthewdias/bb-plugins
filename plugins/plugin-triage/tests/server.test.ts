@@ -9,6 +9,8 @@ import { NOW, entry } from "./fixtures";
 
 type Rpc = <T>(method: string, input: unknown) => Promise<T>;
 
+const sourceOf = (entryId: string) => ({ kind: "git", url: `https://github.com/someone/${entryId}.git`, range: "^0.1.0" });
+
 async function host(options: { install?: (args: { entryId: string }) => unknown } = {}) {
   const catalog = [entry({ entryId: "alpha" }), entry({ entryId: "beta" })];
   const { bb, harness } = createFakePluginHost({ pluginId: "plugin-triage" });
@@ -44,6 +46,8 @@ async function host(options: { install?: (args: { entryId: string }) => unknown 
       pluginId: entryId,
       displayName: entryId,
       action,
+      // What the card showed, as the page always sends with an install.
+      ...(action === "install" ? { confirmedSource: sourceOf(entryId) } : {}),
     });
   /** Lets the runner wake, take a job and finish it. */
   const advance = async (ms: number) => {
@@ -110,7 +114,9 @@ describe("installing", () => {
     expect(harness.sdk.callsTo("plugins.catalog.install")).toHaveLength(0);
 
     await advance(200);
-    expect(harness.sdk.callsTo("plugins.catalog.install")).toEqual([[{ entryId: "alpha", marketplace: "bb-community" }]]);
+    expect(harness.sdk.callsTo("plugins.catalog.install")).toEqual([
+      [{ entryId: "alpha", marketplace: "bb-community", confirmedSource: sourceOf("alpha") }],
+    ]);
     expect((await jobs())[0]).toMatchObject({ state: "done", pluginId: "alpha" });
     service.controller.abort();
   });
@@ -154,6 +160,7 @@ describe("installing", () => {
       pluginId: "beta",
       displayName: "beta",
       action: "install",
+      confirmedSource: sourceOf("beta"),
     });
     expect(previous).toMatchObject({ action: "save" });
     await rpc("undo", { key: "beta@bb-community", restore: previous });
@@ -237,8 +244,39 @@ describe("installing", () => {
     const { jobs } = (await next.harness.callRpc("jobs_list", {})) as { jobs: Job[] };
     expect(jobs[0]).toMatchObject({ state: "done", error: null });
     expect(next.harness.sdk.callsTo("plugins.catalog.install")).toEqual([
-      [{ entryId: "alpha", marketplace: "bb-community" }],
+      [{ entryId: "alpha", marketplace: "bb-community", confirmedSource: sourceOf("alpha") }],
     ]);
+    service.controller.abort();
+  });
+
+  it("refuses an install that arrives without the source its card showed", async () => {
+    const { rpc, jobs, deck, service } = await host();
+    await expect(
+      rpc("decide", {
+        key: "alpha@bb-community",
+        entryId: "alpha",
+        marketplace: "bb-community",
+        pluginId: "alpha",
+        displayName: "alpha",
+        action: "install",
+      }),
+    ).rejects.toThrow(/missing the source/);
+    expect(await jobs()).toEqual([]);
+    expect(await deck()).toContain("alpha");
+    service.controller.abort();
+  });
+
+  it("installs a plugin bundled with bb, which has no listing source, without one", async () => {
+    const { rpc, jobs, service } = await host();
+    await rpc("decide", {
+      key: "docs@bb-official",
+      entryId: "docs",
+      marketplace: "bb-official",
+      pluginId: "docs",
+      displayName: "Docs",
+      action: "install",
+    });
+    expect((await jobs())[0]).toMatchObject({ entryId: "docs", state: "pending" });
     service.controller.abort();
   });
 });

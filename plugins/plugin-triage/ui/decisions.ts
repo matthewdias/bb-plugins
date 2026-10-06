@@ -59,11 +59,13 @@ function message(cause: unknown): string {
 async function send(rpc: TriageRpc, card: NewCard, action: Made["action"]): Promise<{ previous: Decision | null }> {
   let confirmedSource: unknown;
   if (action === "install") {
-    // Normally already loaded while the card sat on top.
-    confirmedSource = await planFor(rpc, card).then(
-      (plan) => plan.confirmedSource ?? undefined,
-      () => undefined,
-    );
+    // Fail closed: an install goes only with the source the card showed, so
+    // bb refuses it if the listing has moved since. If that can't be had,
+    // this throws and the card goes back, rather than installing whatever
+    // the listing points at now. Normally loaded while the card sat on top.
+    const plan = await planFor(rpc, card);
+    // Null only for a plugin bundled with bb, which has no listing to move.
+    confirmedSource = plan.confirmedSource ?? undefined;
   }
   const { previous } = await rpc.call("decide", {
     key: card.key,

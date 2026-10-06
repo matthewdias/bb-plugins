@@ -33,6 +33,8 @@ import { summarizeSource, type ResolvedSource } from "./lib/source.ts";
 export { rpcContract };
 
 const DECISIONS = "decisions";
+/** The marketplace of plugins bundled with bb. */
+const BUNDLED_MARKETPLACE = "bb-official";
 const JOBS = "jobs";
 const FIRST_RUN_AT = "firstRunAt";
 
@@ -184,6 +186,12 @@ export default async function plugin(bb: BbPluginApi) {
     },
 
     decide: async (input) => {
+      // Fail closed: without the source the card showed, bb could not refuse
+      // an install whose listing moved after the swipe. Only plugins bundled
+      // with bb, whose plan has no listing source, install without one.
+      if (input.action === "install" && input.confirmedSource == null && input.marketplace !== BUNDLED_MARKETPLACE) {
+        throw new Error("This install is missing the source its card showed. Reload Triage and try again.");
+      }
       const { job, previous } = await locked(async () => {
         const decisions = await readDecisions();
         const previous = decisions[input.key] ?? null;
