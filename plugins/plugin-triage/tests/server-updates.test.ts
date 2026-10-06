@@ -23,7 +23,13 @@ async function host(apply: (pluginId: string) => unknown = () => ({ applied: tru
     plugins: ids.map((id) => ({ id, name: id, description: null, icon: null, iconUrl: null, enabled: true })),
   }));
   harness.sdk.stub("plugins.applyUpdate", (args: { pluginId: string }) => apply(args.pluginId));
-  harness.sdk.stub("plugins.checkUpdates", () => [{}, {}]);
+  // A fresh check offers what the deck showed, unless a test moves it.
+  const offers = new Map<string, string>();
+  harness.sdk.stub("plugins.checkUpdates", (args?: { pluginId?: string }) =>
+    args?.pluginId === undefined
+      ? [{}, {}]
+      : [{ id: args.pluginId, outcome: "update-available", installed: label("1"), candidate: label(offers.get(args.pluginId) ?? "2") }],
+  );
   await plugin(bb);
   const service = harness.runService("queue");
   const rpc = async <T,>(method: string, input: unknown = {}) => (await harness.callRpc(method, input)) as T;
@@ -36,7 +42,7 @@ async function host(apply: (pluginId: string) => unknown = () => ({ applied: tru
     await vi.advanceTimersByTimeAsync(ms);
     for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0);
   };
-  return { harness, service, rpc, deck, cards, decide, applied, advance };
+  return { harness, service, rpc, deck, cards, decide, applied, advance, offers };
 }
 
 beforeEach(() => {
@@ -157,6 +163,8 @@ describe("the Updates deck over RPC", () => {
     finish({ applied: true, outcome: "updated", from: label("1"), to: label("2") });
     next.harness.sdk.stub("plugins.listUpdateResults", () => []);
     next.harness.sdk.stub("plugins.list", () => ({ plugins: [] }));
+    // The update landed: a fresh check finds this plugin current.
+    next.harness.sdk.stub("plugins.checkUpdates", () => [{ id: SELF, outcome: "current", installed: label("2") }]);
     next.harness.sdk.stub("plugins.applyUpdate", () => ({ applied: false, outcome: "current", from: label("2") }));
     const service = next.harness.runService("queue");
     await first.advance(10);
@@ -167,8 +175,25 @@ describe("the Updates deck over RPC", () => {
 
   it("checks for updates on request", async () => {
     const { rpc, harness, service } = await host();
-    expect(await rpc("updates_check", { pluginId: "alpha" })).toEqual({ checked: 2 });
-    expect(harness.sdk.callsTo("plugins.checkUpdates")).toEqual([[{ pluginId: "alpha" }]]);
+    expect(await rpc("updates_check", {})).toEqual({ checked: 2 });
+    expect(harness.sdk.callsTo("plugins.checkUpdates")).toEqual([[{}]]);
+    await rpc("updates_check", { pluginId: "alpha" });
+    expect(harness.sdk.callsTo("plugins.checkUpdates").at(-1)).toEqual([{ pluginId: "alpha" }]);
+    service.controller.abort();
+  });
+
+  it("applies only the version the card showed: a moved offer comes back for review", async () => {
+    const { rpc, decide, deck, applied, advance, offers, service } = await host();
+    await decide("alpha", "queue");
+    // The branch moved after the swipe: bb now offers version 3.
+    offers.set("alpha", "3");
+    await rpc("updates_start");
+    await advance(10);
+    expect(applied()).toEqual([]);
+    const after = await deck();
+    expect(after.history[0]).toMatchObject({ pluginId: "alpha", state: "failed" });
+    expect(after.history[0]!.error).toMatch(/changed since you queued it/);
+    expect(after.cards.map((card) => card.pluginId)).toContain("alpha");
     service.controller.abort();
   });
 });

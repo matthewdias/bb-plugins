@@ -120,7 +120,22 @@ export default async function plugin(bb: BbPluginApi) {
 
   async function update(job: UpdateJob): Promise<Outcome> {
     try {
+      // bb's applyUpdate takes no version: it lands on whatever the source
+      // offers when it runs. A branch can move between the swipe and the
+      // batch, so check again first, and apply only the version the card
+      // showed. A changed offer comes back as a card to review instead.
+      const [offer] = await bb.sdk.plugins.checkUpdates({ pluginId: job.pluginId });
+      if (offer?.outcome === "current") return { ok: true, pluginId: job.pluginId, result: "current" };
+      if (offer?.outcome !== "update-available" || offer.candidate?.version !== job.to.version) {
+        const now = offer?.candidate?.display ?? offer?.detail ?? offer?.outcome ?? "nothing";
+        return { ok: false, error: `The update on offer changed since you queued it (now ${now}). Review it again.` };
+      }
       const result = await bb.sdk.plugins.applyUpdate({ pluginId: job.pluginId });
+      // bb resolves the source again inside applyUpdate, so a move in that
+      // window can still land elsewhere: record what actually landed.
+      if (result.to !== undefined && result.to.version !== job.to.version) {
+        bb.log.warn(`update of ${job.pluginId} landed on ${result.to.display}, not the queued ${job.to.display}`);
+      }
       if (result.outcome === "rolled-back") {
         return { ok: false, error: `bb rolled it back${result.detail ? `: ${result.detail}` : "."}` };
       }
