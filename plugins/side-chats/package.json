@@ -1,0 +1,63 @@
+{
+  "name": "bb-plugin-side-chats",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "bb-plugin",
+    "side-chat",
+    "threads",
+    "fork"
+  ],
+  "homepage": "https://github.com/matthewdias/bb-plugins/tree/main/plugins/side-chats#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matthewdias/bb-plugins.git",
+    "directory": "plugins/side-chats"
+  },
+  "bugs": {
+    "url": "https://github.com/matthewdias/bb-plugins/issues"
+  },
+  "engines": {
+    "bb": ">=0.45",
+    "bbPluginSdk": ">=0.6.15"
+  },
+  "bb": {
+    "name": "Side Chats",
+    "description": "Keeps a thread's side chats in one list: reopen one after closing its tab, see which have replied, archive them, or promote one to a thread of its own.",
+    "branding": {
+      "icon": "SideChat"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": [
+      "./skills"
+    ]
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.20",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "better-sqlite3": "^12.0.0",
+    "clsx": "^2.1.1",
+    "hono": "^4.11.9",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "sonner": "^1.7.4",
+    "tailwind-merge": "^3.4.0",
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "build": "bb plugin build",
+    "dev": "bb plugin dev ."
+  }
+}
