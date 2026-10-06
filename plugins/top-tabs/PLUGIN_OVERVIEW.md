@@ -27,9 +27,11 @@ The sidebar keeps bb's own navigation, so you can reorder, hide and split
 from it as always.
 
 **Pinned tabs.** Pin the destinations you always want: they sit beside
-Threads as icons and never close by accident. Closing one with bb's Close or
-the keyboard sends it back to its start and leaves it pinned. Labels can be icons-only, or
-only on the tab in view.
+Threads as icons and never close by accident. A pin remembers where you
+pinned it. A dot marks one you've moved away from, and closing it with bb's
+Close or the keyboard sends it back there and leaves it pinned. Hover any tab
+to see where inside its panel it is. Labels can be icons-only, or only on the
+tab in view, and pinned tabs can show their names and badges too.
 
 **Splits.** Drag a tab down into the page to split it, as you would a
 thread, or open one in a split from the + menu. The strip marks every tab that's on screen, with a small map of

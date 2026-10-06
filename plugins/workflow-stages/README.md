@@ -23,12 +23,13 @@ and selected under **Settings → Appearance → Sidebar**. Without it the stage
 have nowhere to draw.
 
 ```sh
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/workflow-stages --tag-prefix workflow-stages/
 ```
 
-`semver:*` resolves to the newest `workflow-stages/vX.Y.Z` tag, so this line stays
-correct as the plugin releases and `bb plugin update` follows it.
+With `--tag-prefix`, the range `*` resolves to the newest `workflow-stages/vX.Y.Z`
+tag, so this line stays correct as the plugin releases and `bb plugin update`
+follows it.
 
 Then pick **Workflow** in the sidebar's Groups menu.
 

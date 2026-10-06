@@ -5,6 +5,7 @@
   "plugins": [
     { "name": "follow-up", "source": "./plugins/follow-up" },
     { "name": "question-dock", "source": "./plugins/question-dock" },
+    { "name": "swipe-controls", "source": "./plugins/swipe-controls" },
     { "name": "thread-badges", "source": "./plugins/thread-badges" },
     { "name": "top-tabs", "source": "./plugins/top-tabs" },
     { "name": "workflow-stages", "source": "./plugins/workflow-stages" }

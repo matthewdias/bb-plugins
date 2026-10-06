@@ -12,12 +12,13 @@ nothing to run — no model to choose, no cooldown, no polling, no inflight lock
 ## Install
 
 ```sh
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/follow-up --tag-prefix follow-up/
 ```
 
-`semver:*` resolves to the newest `follow-up/vX.Y.Z` tag, so this line stays
-correct as the plugin releases and `bb plugin update` follows it.
+With `--tag-prefix`, the range `*` resolves to the newest `follow-up/vX.Y.Z`
+tag, so this line stays correct as the plugin releases and `bb plugin update`
+follows it.
 
 ## What it does
 
@@ -167,7 +168,36 @@ something and want agents to be able to raise it again.
 
 ## For other plugins
 
-One method here is a contract rather than an internal call:
+Two things here are contracts rather than internal calls: a live value for a
+plugin drawing progress, and a batch call for one that only needs to ask.
+
+### The progress complication
+
+Each thread's progress is published as a *complication*: a small value any
+plugin can draw, kept in a registry that every plugin bundle in a bb window
+shares. [Thread Badges](../thread-badges) 0.4 draws it as a ring that moves the
+moment a follow-up changes, once you turn it on under *Badges from other
+plugins* in its settings. The counts call below cannot do that, because a plugin
+hears only its own realtime signals; this plugin hears `followups-changed`, so
+it publishes again on every one.
+
+The registry is protocol v1 of [`lib/complications.ts`](lib/complications.ts),
+which a consumer copies into its own plugin; its header is the protocol. Want
+`follow-up/progress` for `{ kind: "thread", id }` and the value is:
+
+```ts
+{ icon: "TextWrap", label: "27 of 28 follow-ups done", tone: "default",
+  fraction: 27 / 28, text: "1" }   // text: how many are still open
+```
+
+`null` for a thread that never recorded a follow-up. Once the list is clear, the
+tone is `success` and there is no `text`. Values are published only for threads
+a surface wants, and again whenever one of them changes or realtime reconnects.
+The provider is registered as long as this plugin's frontend is loaded, so
+`isProvided("follow-up/progress")` is how a consumer tells a live Follow Up from
+an older one and falls back to the counts call.
+
+### The counts call
 
 ```
 POST /api/v1/plugins/follow-up/rpc/getFollowUpCountsV1

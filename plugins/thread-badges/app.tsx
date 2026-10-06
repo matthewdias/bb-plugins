@@ -10,17 +10,19 @@
 // changes.
 //
 // Nothing in this file knows what a badge means. It owns mount points and
-// ordering; ./badges owns what is drawn.
+// ordering; ./badges owns what is drawn. A row draws two kinds of badge on one
+// priority scale: the built-in types this plugin computes, and complications
+// other plugins publish, which you turn on in this plugin's settings.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { definePluginApp, useSettings } from "@get-bb/plugin-sdk/app";
-import {
-  maxBadges,
-  orderedBadgeTypes,
-  type BadgeSettings,
-  type BadgeType,
-} from "./badges/catalog";
+import { maxBadges, type BadgeSettings } from "./badges/catalog";
+import { ComplicationBadge, RUNNING_ATTRIBUTE } from "./badges/complication-badge";
+import { ComplicationSettings } from "./badges/complication-settings";
 import { BADGE_COMPONENTS } from "./badges/components";
+import { orderedEntries, type RowEntry } from "./badges/order";
+import { useComplicationPrefs } from "./badges/use-complication-prefs";
+import { useThreadProviders } from "./badges/use-complication-providers";
 
 /**
  * The column a sidebar pads on hover to clear room for the row's actions.
@@ -186,6 +188,10 @@ const STYLE_ID = "thread-badges-cap";
  * `!important` is not decoration: a badge sets `display` inline and the slot
  * sets its padding inline, and an inline style beats a stylesheet rule without
  * it.
+ *
+ * The third rule is a complication's `running` tone, which pulses. A keyframe
+ * cannot be an inline style, so it lives here, and only where the reader has
+ * not asked their system for less motion.
  */
 function useBadgeStyles(max: number): void {
   useEffect(() => {
@@ -198,6 +204,10 @@ function useBadgeStyles(max: number): void {
     style.textContent = [
       `[${SLOT_ATTRIBUTE}] > *:nth-child(n + ${max + 1}) { display: none !important; }`,
       `[${SLOT_ATTRIBUTE}]:empty { padding: 0 !important; }`,
+      "@keyframes thread-badges-running { 50% { opacity: 0.4; } }",
+      "@media (prefers-reduced-motion: no-preference) {",
+      `  [${RUNNING_ATTRIBUTE}] { animation: thread-badges-running 1.6s ease-in-out infinite; }`,
+      "}",
     ].join("\n");
     return () => {
       style?.remove();
@@ -235,25 +245,35 @@ function useFocusRevision(): number {
 }
 
 function RowBadges({
-  badges,
+  entries,
   threadId,
   values,
   revision,
 }: {
-  /** Enabled types, already in priority order; the cap hides the tail. */
-  badges: readonly BadgeType[];
+  /** Enabled badges, already in priority order; the cap hides the tail. */
+  entries: readonly RowEntry[];
   threadId: string;
   values: BadgeSettings;
   revision: number;
 }) {
   return (
     <>
-      {badges.map((badge) => {
-        const Badge = BADGE_COMPONENTS[badge.id];
+      {entries.map((entry) => {
+        if (entry.kind === "complication") {
+          return (
+            <ComplicationBadge
+              id={entry.id}
+              key={entry.key}
+              prefs={entry.prefs}
+              threadId={threadId}
+            />
+          );
+        }
+        const Badge = BADGE_COMPONENTS[entry.type.id];
         if (Badge === undefined) return null;
         return (
           <Badge
-            key={badge.id}
+            key={entry.key}
             revision={revision}
             threadId={threadId}
             values={values}
@@ -352,16 +372,21 @@ function SidebarBadges() {
 
   const values: BadgeSettings = settings.values ?? {};
   const revision = useFocusRevision();
-  // Sorted once per settings change rather than once per row: this list is the
-  // same for every row and there is one row per visible thread.
-  const badges = useMemo(() => orderedBadgeTypes(values), [values]);
+  const providers = useThreadProviders();
+  const { prefs } = useComplicationPrefs();
+  // Sorted once per change rather than once per row: this list is the same for
+  // every row and there is one row per visible thread.
+  const entries = useMemo(
+    () => orderedEntries(values, providers.map((provider) => provider.id), prefs),
+    [values, providers, prefs],
+  );
   useBadgeStyles(maxBadges(values));
   return (
     <>
       {slots.map(({ threadId, node }) =>
         createPortal(
           <RowBadges
-            badges={badges}
+            entries={entries}
             revision={revision}
             threadId={threadId}
             values={values}
@@ -378,5 +403,15 @@ export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({
     id: "thread-badges",
     component: SidebarBadges,
+  });
+  // Complications cannot be bb settings — their providers are only discovered
+  // here, in the app — so they get a section of their own, under the built-in
+  // badges' switches.
+  app.slots.settingsSection({
+    id: "complications",
+    title: "Badges from other plugins",
+    description:
+      "Complications that other plugins publish about a thread. Each is off until you turn it on.",
+    component: ComplicationSettings,
   });
 });

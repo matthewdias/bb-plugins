@@ -12,7 +12,7 @@ option previews and the tabs of a multi-question form all stay bb's own.
 ## Install
 
 ```sh
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/question-dock --tag-prefix question-dock/
 ```
 

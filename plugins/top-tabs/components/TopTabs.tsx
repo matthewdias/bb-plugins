@@ -48,6 +48,7 @@ import {
   THREADS,
   activeTabFor,
   adopt,
+  awayFromHome,
   close,
   closeOrderOf,
   closeOthers,
@@ -66,9 +67,11 @@ import {
   reopen,
   reopenable,
   resetPinned,
+  rootFor,
   seed,
   sidebarStep,
   splitPartner,
+  subPathOf,
   pageCloseAction,
   successorAfterClose,
   successorAfterPinClose,
@@ -82,6 +85,7 @@ import {
 import { CloseGlyph, PaneMap, ThreadsGlyph } from "./glyphs.tsx";
 import { TabIcon, destinationsOf } from "./destinations.tsx";
 import { TabMenu, TabPicker, type SplitAction, type TabMenuProps } from "./menus.tsx";
+import { TabTooltip, TabTooltipProvider } from "./tab-tooltip.tsx";
 import { ThreadsLabel, ThreadsStatus } from "./threads-tab.tsx";
 import { SwitcherTrigger, ThreadSwitcher } from "./thread-switcher.tsx";
 import { useTabDrag, type SplitHooks } from "./use-tab-drag.ts";
@@ -165,6 +169,8 @@ export function TopTabs() {
   const collapseSidebar = values?.collapseSidebar !== false;
   const closeSettingsOnExit = values?.closeSettingsOnExit !== false;
   const labelMode = labelModeOf(values?.tabLabels);
+  const pinnedLabels = values?.pinnedLabels === true;
+  const pinnedBadges = values?.pinnedBadges === true;
   const closeOrder = closeOrderOf(values?.recentAfterClose);
   const compact = useMediaQuery(COMPACT_QUERY);
   const trafficLights = useReservesTrafficLights();
@@ -708,9 +714,11 @@ export function TopTabs() {
     if (el === null) tabRefs.current.delete(id);
     else tabRefs.current.set(id, el);
   };
-  // Pinned tabs are always icons. The rest follow the Tab labels setting.
+  // Pinned tabs are icons unless the user wants their names. The rest follow
+  // the Tab labels setting, as do pinned tabs that show their names.
   const showsLabel = (id: TabId) =>
-    !tabs.pinned.includes(id) && (labelMode === "always" || (labelMode === "active" && id === selected));
+    (pinnedLabels || !tabs.pinned.includes(id)) &&
+    (labelMode === "always" || (labelMode === "active" && id === selected));
   const threadsLabelled = showsLabel(THREADS);
 
   const destinationTab = (id: TabId) => {
@@ -719,6 +727,17 @@ export function TopTabs() {
     const labelled = showsLabel(id);
     const dragging = drag.state?.id === id;
     const name = item.shortcut ? `${item.label} (${item.shortcut.label})` : item.label;
+    // Where the tab is inside its destination, shown on hover rather than
+    // beside the name: a route remainder is not always readable, and a pin's
+    // dot says it has moved without needing one.
+    const saved = tabs.paths[id];
+    const root = rootFor(routeTarget(item), saved);
+    const away = awayFromHome(tabs, id, root);
+    // A pin pinned at its panel's start resets there; only a deeper home is
+    // worth naming.
+    const home = away ? subPathOf(tabs.homes[id], root) : null;
+    const pinNote = home === null ? null : `Pinned at ${home}`;
+    const badged = labelled || (isPinned && pinnedBadges);
     return (
       <TabMenu key={id} {...menuFor(id)}>
         <div
@@ -731,41 +750,43 @@ export function TopTabs() {
           style={dragging ? { transform: `translateX(${drag.state!.dx}px)` } : undefined}
           ref={setTabRef(id)}
         >
-          <button
-            type="button"
-            className="bb-top-tab-main"
-            aria-current={selected === id ? "page" : undefined}
-            aria-label={labelled ? undefined : item.label}
-            aria-keyshortcuts={item.shortcut?.ariaKeyShortcuts}
-            title={isPinned ? `${name} — pinned` : name}
-            disabled={item.isDisabled}
-            onPointerDown={(event) => drag.onPointerDown(event, id)}
-            onClick={() => {
-              if (drag.consumeClick()) return;
-              activateSoon(id);
-            }}
-            onMouseDown={(event) => {
-              // Middle-click closes; stop it starting autoscroll first.
-              if (event.button === 1) event.preventDefault();
-            }}
-            onAuxClick={(event) => {
-              if (event.button === 1) closeTab(id);
-            }}
-          >
-            <span className="bb-top-tab-icon">
-              <TabIcon item={item} />
-            </span>
-            {labelled && <span className="bb-top-tab-label">{item.label}</span>}
-            {labelled && item.experimental_Accessory !== null && (
-              <span className="bb-top-tab-accessory">
-                <item.experimental_Accessory />
+          <TabTooltip name={name} where={subPathOf(saved, root)} pin={pinNote}>
+            <button
+              type="button"
+              className="bb-top-tab-main"
+              aria-current={selected === id ? "page" : undefined}
+              aria-label={labelled ? undefined : item.label}
+              aria-keyshortcuts={item.shortcut?.ariaKeyShortcuts}
+              disabled={item.isDisabled}
+              onPointerDown={(event) => drag.onPointerDown(event, id)}
+              onClick={() => {
+                if (drag.consumeClick()) return;
+                activateSoon(id);
+              }}
+              onMouseDown={(event) => {
+                // Middle-click closes; stop it starting autoscroll first.
+                if (event.button === 1) event.preventDefault();
+              }}
+              onAuxClick={(event) => {
+                if (event.button === 1) closeTab(id);
+              }}
+            >
+              <span className="bb-top-tab-icon">
+                <TabIcon item={item} />
+                {away && <span className="bb-top-tab-moved" aria-hidden="true" />}
               </span>
-            )}
-            {navLive && nav?.isShortcutModifierHeld === true && item.shortcut !== null && (
-              <kbd className="bb-top-tab-shortcut">{item.shortcut.label}</kbd>
-            )}
-            {labelled && <PaneMap screen={screen} tab={id} />}
-          </button>
+              {labelled && <span className="bb-top-tab-label">{item.label}</span>}
+              {badged && item.experimental_Accessory !== null && (
+                <span className="bb-top-tab-accessory">
+                  <item.experimental_Accessory />
+                </span>
+              )}
+              {navLive && nav?.isShortcutModifierHeld === true && item.shortcut !== null && (
+                <kbd className="bb-top-tab-shortcut">{item.shortcut.label}</kbd>
+              )}
+              {labelled && <PaneMap screen={screen} tab={id} />}
+            </button>
+          </TabTooltip>
           {!isPinned && (
             <button
               type="button"
@@ -791,63 +812,65 @@ export function TopTabs() {
       data-traffic-lights={trafficLights ? "" : undefined}
       data-dragging={drag.state === null ? undefined : ""}
     >
-      <div className="bb-top-tabs-list" ref={listRef} onWheel={onWheel} onKeyDown={onKeyDown}>
-        <ThreadSwitcher
-          open={switcher !== null}
-          onOpenChange={(open) => setSwitcher(open ? { keyboard: false } : null)}
-          currentThreadId={selected === THREADS ? threadIdFromPath(path) : null}
-          focusFirst={switcher?.keyboard === true}
-          recentThreadIds={tabs.recentThreads}
-          onOpenThread={openThread}
-        >
-          <TabMenu {...menuFor(THREADS)}>
-            <SwitcherTrigger asChild>
-              <div
-                className="bb-top-tab bb-top-tab-threads"
-                data-active={selected === THREADS ? "" : undefined}
-                data-visible={selected !== THREADS && panesOf(screen, THREADS).length > 0 ? "" : undefined}
-                data-icon-only={threadsLabelled ? undefined : ""}
-                ref={setTabRef(THREADS)}
-              >
-                <button
-                  type="button"
-                  className="bb-top-tab-main"
-                  aria-current={selected === THREADS ? "page" : undefined}
-                  aria-label={threadsLabelled ? undefined : "Threads"}
-                  title={threadsLabelled ? undefined : "Threads"}
-                  onPointerDown={(event) => {
-                    // Threads switches on press, as a browser tab does: it cannot
-                    // be dragged, so there is nothing to wait for the release for.
-                    if (!isPlainPress(event)) return;
-                    pressedThreads.current = true;
-                    setSwitcher(null);
-                    activateSoon(THREADS);
-                  }}
-                  onClick={() => {
-                    // The click that ends that press has already been handled;
-                    // a keyboard activation has not.
-                    if (pressedThreads.current) {
-                      pressedThreads.current = false;
-                      return;
-                    }
-                    activateSoon(THREADS);
-                  }}
+      <TabTooltipProvider>
+        <div className="bb-top-tabs-list" ref={listRef} onWheel={onWheel} onKeyDown={onKeyDown}>
+          <ThreadSwitcher
+            open={switcher !== null}
+            onOpenChange={(open) => setSwitcher(open ? { keyboard: false } : null)}
+            currentThreadId={selected === THREADS ? threadIdFromPath(path) : null}
+            focusFirst={switcher?.keyboard === true}
+            recentThreadIds={tabs.recentThreads}
+            onOpenThread={openThread}
+          >
+            <TabMenu {...menuFor(THREADS)}>
+              <SwitcherTrigger asChild>
+                <div
+                  className="bb-top-tab bb-top-tab-threads"
+                  data-active={selected === THREADS ? "" : undefined}
+                  data-visible={selected !== THREADS && panesOf(screen, THREADS).length > 0 ? "" : undefined}
+                  data-icon-only={threadsLabelled ? undefined : ""}
+                  ref={setTabRef(THREADS)}
                 >
-                  <ThreadsGlyph className="bb-top-tab-icon" />
-                  {threadsLabelled && (
-                    <ThreadsLabel active={active === THREADS} savedPath={tabs.paths[THREADS]} />
-                  )}
-                  <ThreadsStatus />
-                  {threadsLabelled && <PaneMap screen={screen} tab={THREADS} />}
-                </button>
-              </div>
-            </SwitcherTrigger>
-          </TabMenu>
-        </ThreadSwitcher>
-        {pinnedShown.map(destinationTab)}
-        <div className="bb-top-tabs-divider" aria-hidden="true" />
-        {ordinaryShown.map(destinationTab)}
-      </div>
+                  <button
+                    type="button"
+                    className="bb-top-tab-main"
+                    aria-current={selected === THREADS ? "page" : undefined}
+                    aria-label={threadsLabelled ? undefined : "Threads"}
+                    title={threadsLabelled ? undefined : "Threads"}
+                    onPointerDown={(event) => {
+                      // Threads switches on press, as a browser tab does: it cannot
+                      // be dragged, so there is nothing to wait for the release for.
+                      if (!isPlainPress(event)) return;
+                      pressedThreads.current = true;
+                      setSwitcher(null);
+                      activateSoon(THREADS);
+                    }}
+                    onClick={() => {
+                      // The click that ends that press has already been handled;
+                      // a keyboard activation has not.
+                      if (pressedThreads.current) {
+                        pressedThreads.current = false;
+                        return;
+                      }
+                      activateSoon(THREADS);
+                    }}
+                  >
+                    <ThreadsGlyph className="bb-top-tab-icon" />
+                    {threadsLabelled && (
+                      <ThreadsLabel active={active === THREADS} savedPath={tabs.paths[THREADS]} />
+                    )}
+                    <ThreadsStatus />
+                    {threadsLabelled && <PaneMap screen={screen} tab={THREADS} />}
+                  </button>
+                </div>
+              </SwitcherTrigger>
+            </TabMenu>
+          </ThreadSwitcher>
+          {pinnedShown.map(destinationTab)}
+          <div className="bb-top-tabs-divider" aria-hidden="true" />
+          {ordinaryShown.map(destinationTab)}
+        </div>
+      </TabTooltipProvider>
       {drag.preview !== null && (
         <div className="bb-top-tabs-split-preview" style={drag.preview.rect} aria-hidden="true">
           <span>{drag.preview.label}</span>

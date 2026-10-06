@@ -47,6 +47,11 @@ turn, and both are told that "nothing" is a real answer.
 
 ## For other plugins
 
+Each thread's progress is published as the `follow-up/progress` complication, a
+small value any plugin can draw that is published again the moment a follow-up
+changes. Thread Badges draws it as a ring on sidebar rows, once you turn it on
+there.
+
 `getFollowUpCountsV1` is a stable, versioned contract: one request returns open
 and done counts for up to 500 threads, every requested thread comes back
 including ones with nothing recorded, and repeated ids are deduped in

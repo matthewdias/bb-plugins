@@ -5,19 +5,22 @@ request has failing checks, that someone requested changes, that three
 follow-ups on it are still open, or that its worktree is serving a dev server on
 :5173. These badges do, on whichever sidebar you use, without opening anything.
 
-Four badge types ship today. The plugin is built around the idea that there
-will be more: the host owns mount points and ordering, and knows nothing about
-what any badge means.
+Three badge types ship built in: pull requests, their checks, and ports. Any
+other plugin can add more by publishing a *complication*, a small value about a
+thread, which this plugin draws once you turn it on. That's how Follow Up's
+progress ring arrives. Either way, the host owns mount points and ordering, and
+knows nothing about what any badge means.
 
 ## Install
 
 ```sh
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/thread-badges --tag-prefix thread-badges/
 ```
 
-`semver:*` resolves to the newest `thread-badges/vX.Y.Z` tag, so this line stays
-correct as the plugin releases and `bb plugin update` follows it.
+With `--tag-prefix`, the range `*` resolves to the newest `thread-badges/vX.Y.Z`
+tag, so this line stays correct as the plugin releases and `bb plugin update`
+follows it.
 
 ## What it does
 
@@ -76,25 +79,6 @@ mergeability. Note the `open` in that condition: a draft pull request with
 checks running does not poll, so its clock clears on focus rather than on its
 own.
 
-### Follow-ups
-
-A ring showing how much of a thread's follow-up list is closed: empty at none
-done, a visible notch at "one left", and a full green ring once the list is
-clear. A thread that never recorded a follow-up shows nothing. Hovering names
-the count — "27 of 28 follow-ups done".
-
-The ring reads another plugin's state.
-[Follow Up](../follow-up) publishes a versioned counts contract, and every
-failure here is treated as "draw nothing", so an absent, disabled, or renamed
-Follow Up makes the ring disappear and breaks nothing else.
-
-Liveness is the one thing that cannot be fixed from either side: a plugin
-receives only its own realtime signals, so Follow Up publishing
-`followups-changed` on every mutation is inaudible here. Verified — recording a
-follow-up did not move the ring until the page reloaded. Until bb widens that,
-this badge refreshes on mount and when the window regains focus (throttled to
-once every ten seconds), which the host supplies to every badge as `revision`.
-
 ### Ports
 
 A plug on threads whose worktree is serving something, hovering to name it —
@@ -143,10 +127,47 @@ status API, this one portals into the row. Turn its *thread row icon* setting
 off and let the badge carry it, so ports participate in the same cap and
 priority ordering as everything else on the row.
 
+### Complications from other plugins
+
+Any plugin can publish complications about a thread: small values like a
+progress ring, a status icon or a count. Each one that answers threads appears
+under **Badges from other plugins** in this plugin's settings, with its
+description and a preview. **Each is off until you turn it on.** Installing a
+plugin never changes your rows by itself.
+
+Turned on, a complication joins the built-in badges on the same priority scale.
+It sorts after them by default, so it takes a slot only where they are silent,
+until you give it a lower number. Two options apply to each one: show its text
+beside it, and hide it once it is complete. The second applies only to gauges.
+
+How a value draws comes from the value itself:
+
+- **A fraction draws as a ring**, empty at nothing and full at done, in the
+  value's tone.
+- **Anything else draws as the provider's own icon**, in its tone.
+- **Tones use the built-in badges' palette:** success green, error red, warning
+  amber, info blue, and default muted. `running` is amber and pulses, unless
+  your system asks for reduced motion.
+- **The value's label** is the badge's accessible name and its tooltip.
+
+The values arrive live. bb imports every plugin's bundle into one page, so
+plugins share one JavaScript global, and a registry kept there carries each
+value from the plugin that knows it to this one. A plugin hears only its own
+realtime signals, so this is the only way another plugin's change reaches a
+row without polling. Both sides carry the same copy of that registry,
+[`lib/complications.ts`](lib/complications.ts), and its header is the protocol.
+
+**Follow-up progress** comes from [Follow Up](../follow-up) 0.7 or later. It
+draws as a ring showing how much of a thread's follow-up list is closed:
+"27 of 28 follow-ups done", and green once the list is clear. *Show its text*
+adds how many are still open. Earlier versions of Follow Up publish nothing, so
+there is no ring for them.
+
 ## Settings
 
-Each badge type can be switched off independently, and each owns a couple of
-options.
+Each built-in badge type can be switched off independently, and each owns a
+couple of options. Complications from other plugins have their own section
+below these, described above.
 
 | | Default |
 | --- | --- |
@@ -159,12 +180,12 @@ options.
 | … priority | 2 |
 | … keep the tick on ready-to-merge pull requests | off |
 | … narrow to problems only | off |
-| Follow-ups | on |
-| … priority | 3 |
-| … show how many are still open beside the ring | off |
-| … hide the ring once everything is done | off |
 | Ports | **off** |
+| … priority | 3 |
+| Each complication from another plugin | **off** |
 | … priority | 4 |
+| … show its text beside it | off |
+| … hide it once complete | off |
 | … ignore backing services and internal listeners | on |
 | … show the port number beside the glyph | off |
 
@@ -177,27 +198,31 @@ A sidebar row is around 260px wide and already carries a title, a preview line
 and the sidebar's own trailing controls. At roughly 14px a badge, three is busy
 and four starts truncating titles — so a row draws at most **two** badges by
 default, however many types are switched on. Raise *Badges per row* if you want
-more; the ceiling is the number of types that exist, currently four.
+more, up to six.
 
 The cap only bites on rows where more badges than that have something to say; a
-thread with one open pull request and no follow-ups still shows one badge. When
+thread with one open pull request and nothing else still shows one badge. When
 it does bite, the lowest *priority* numbers win the slots and the rest are
 dropped for that row. Priorities default to the order the types are listed
-above, so out of the box a row with all of them in play shows the pull request
-and its checks, and drops the follow-up ring. Give follow-ups priority 1 to flip
-that.
+above, with complications after the built-ins, so out of the box a row with all
+of them in play shows the pull request and its checks. Give a complication
+priority 1 to put it first.
 
 This is also why the ports badge ships off rather than on. At the default cap it
 would sort past the last slot and draw nothing, so it is switched off instead of
 switched on and silent — and because a badge that is off never subscribes, an
 untouched install never polls for ports at all.
 
-Two types may share a priority number; ties fall back to catalog order, so a
-half-configured set of priorities still draws a stable row.
+Two types may share a priority number. Ties go to the built-ins first, then to
+catalog order and the order providers appeared, so a half-configured set of
+priorities still draws a stable row.
 
 ## Adding a badge type
 
-Two edits, no changes to the host:
+From another plugin, publish a complication; the protocol is the header of
+[`lib/complications.ts`](lib/complications.ts), and Follow Up's
+`src/complication-publisher.tsx` is a working provider. Nothing in this plugin
+changes. A new built-in type is two edits here, with no changes to the host:
 
 1. Add an entry to `BADGE_TYPES` in `badges/catalog.ts` — id, name, the
    description shown under its switch, whether it is on by default, and any
@@ -266,16 +291,21 @@ Consequences worth knowing:
 ## Requirements
 
 The pull-request badges need a thread whose environment has a branch with a pull
-request on a git host bb can reach. The follow-ups ring needs
-[Follow Up](../follow-up) installed, and the ports plug needs
+request on a git host bb can reach. The ports plug needs
 [Worktree Ports](https://github.com/to-infinity-labs/bb-plugin-worktree-ports);
-without either one, that badge does not draw and the others are unaffected.
+without it, that badge does not draw and the others are unaffected. A
+complication needs the plugin that publishes it: the follow-up ring needs
+[Follow Up](../follow-up) 0.7 or later.
+
+This version needs bb 0.45 or later, for the plugin SDK it is built on (0.6).
+On an older bb, stay on Thread Badges 0.3.
 
 ## Development
 
 ```sh
 npm install
 npm run typecheck
+npm test
 bb plugin install .
 bb plugin dev                        # rebuild + reload on save
 bb plugin logs thread-badges -f
