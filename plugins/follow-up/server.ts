@@ -45,6 +45,8 @@ import {
   openFollowUps,
   REASONS,
   TEXT_MAX,
+  TITLE_MAX,
+  titleAndDetail,
   MENTION_PROVIDER,
   followUpMentionId,
   type FollowUp,
@@ -432,6 +434,7 @@ export const rpcContract = defineRpcContract({
           "duplicate",
           "dismissed",
           "forbidden",
+          "too-long",
         ]),
         followUps: z.array(followUpSchema),
         done: z.array(followUpSchema),
@@ -624,6 +627,10 @@ const TOOL_INSTRUCTIONS = [
   "",
   "Record only things a person would want to act on later. Do not record work you",
   "completed, routine steps of the task you were given, or speculative polish.",
+  "",
+  `The text is a title of at most ${TITLE_MAX} characters that names the specific`,
+  "thing (\"Fix the flaky auth-timeout test\", not \"Fix the test\"). It is what the",
+  "list, a button and an issue title show. Put the why, where and how in detail.",
   "",
   "Leave priority alone unless the follow-up genuinely should be picked up before",
   "what is already on the list. Urgent by default is the same as no order at all.",
@@ -1641,6 +1648,11 @@ export default async function plugin(bb: BbPluginApi) {
    * `reason` is optional here and required by the agent tool, deliberately.
    * "Why am I not doing this now" is a question an agent should have to answer
    * and a person should not.
+   *
+   * Never refused for length either: past TITLE_MAX the start becomes the title
+   * and the whole of what was written leads the detail (`titleAndDetail`). The
+   * agent tool refuses a long title instead, because an agent can write a
+   * better one than a cut can.
    */
   async function addUserFollowUp(
     threadId: string,
@@ -1650,18 +1662,19 @@ export default async function plugin(bb: BbPluginApi) {
       detail?: string | null;
       file?: string | null;
     },
-  ): Promise<{ outcome: AddOutcome; id: string | null }> {
+  ): Promise<{ outcome: AddOutcome; id: string | null; text: string }> {
     const [items, tombstones] = await Promise.all([
       readItems(threadId),
       readTombstones(threadId),
     ]);
+    const split = titleAndDetail(fields.text, fields.detail ?? null);
     const row: FollowUp = {
       id: randomUUID().slice(0, 8),
-      text: fields.text,
+      text: split.text,
       reason: fields.reason ?? null,
       // The path an @-mention in the note pointed at, when it had one.
       file: fields.file ?? null,
-      detail: fields.detail ?? null,
+      detail: split.detail,
       createdAt: new Date().toISOString(),
       createdBy: "user",
     };
@@ -1671,10 +1684,10 @@ export default async function plugin(bb: BbPluginApi) {
     if (outcome === "added") {
       await bb.storage.kv.set(itemsKey(threadId), list);
       await markEverRecorded(threadId);
-      bb.log.info(`user recorded follow-up on ${threadId}: ${fields.text}`);
+      bb.log.info(`user recorded follow-up on ${threadId}: ${row.text}`);
       bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
     }
-    return { outcome, id: outcome === "added" ? row.id : null };
+    return { outcome, id: outcome === "added" ? row.id : null, text: row.text };
   }
 
   async function markInProgress(threadId: string, id: string): Promise<FollowUp | null> {
@@ -1809,8 +1822,11 @@ export default async function plugin(bb: BbPluginApi) {
         .string()
         .trim()
         .min(1)
-        .max(TEXT_MAX)
-        .describe("The follow-up as one imperative line, e.g. 'Fix the flaky auth test'."),
+        .max(TITLE_MAX)
+        .describe(
+          `A short title, at most ${TITLE_MAX} characters, naming the specific thing: ` +
+            "'Fix the flaky auth-timeout test'. Everything else goes in detail.",
+        ),
       reason: z
         .enum(REASONS)
         .describe(
@@ -1827,7 +1843,10 @@ export default async function plugin(bb: BbPluginApi) {
         .trim()
         .max(DETAIL_MAX)
         .optional()
-        .describe("Optional context a future reader would need to act on it."),
+        .describe(
+          "What the title leaves out: why it matters, where it is, how to do it — " +
+            "whatever a future reader needs to act on it.",
+        ),
       priority: z
         .enum(["next", "normal"])
         .optional()
@@ -2080,9 +2099,11 @@ export default async function plugin(bb: BbPluginApi) {
         .string()
         .trim()
         .min(1)
-        .max(TEXT_MAX)
+        .max(TITLE_MAX)
         .optional()
-        .describe("Replacement one-line text. Omit to leave the wording alone."),
+        .describe(
+          `Replacement title, at most ${TITLE_MAX} characters. Omit to leave the wording alone.`,
+        ),
       detail: z
         .string()
         .trim()
@@ -2141,6 +2162,11 @@ export default async function plugin(bb: BbPluginApi) {
           return `Follow-up ${match.row.id} already says that. Nothing was changed.`;
         case "not-found":
           return `Follow-up ${match.row.id} no longer exists. Nothing was changed.`;
+        case "too-long":
+          return (
+            `A follow-up's text is a title of at most ${TITLE_MAX} characters. Nothing ` +
+            `was changed — shorten it, and put the rest in detail.`
+          );
       }
     },
   });
@@ -2654,7 +2680,9 @@ export default async function plugin(bb: BbPluginApi) {
               name: "text",
               required: true,
               variadic: true,
-              description: `The follow-up, one line of at most ${TEXT_MAX} characters`,
+              description:
+                `The follow-up, as a title. Past ${TITLE_MAX} characters its start ` +
+                "becomes the title and all of it goes in the detail",
             },
           ],
           options: {
@@ -2675,9 +2703,6 @@ export default async function plugin(bb: BbPluginApi) {
             const threadId = threadFor(options.thread, ctx);
             const text = positionals.text.join(" ").trim();
             if (text === "") throw new PluginCliError("add needs the follow-up text.");
-            if (text.length > TEXT_MAX) {
-              throw new PluginCliError(`The text must be ${TEXT_MAX} characters or fewer.`);
-            }
             if (options.detail !== undefined && options.detail.length > DETAIL_MAX) {
               throw new PluginCliError(`The detail must be ${DETAIL_MAX} characters or fewer.`);
             }
@@ -2690,7 +2715,7 @@ export default async function plugin(bb: BbPluginApi) {
             if (options.json) return { exitCode: 0, stdout: `${JSON.stringify(added)}\n` };
             switch (added.outcome) {
               case "added":
-                return { exitCode: 0, stdout: `Recorded ${added.id}: ${text}\n` };
+                return { exitCode: 0, stdout: `Recorded ${added.id}: ${added.text}\n` };
               case "duplicate":
                 throw new PluginCliError("This thread already has that follow-up.");
               case "dismissed":
@@ -2749,6 +2774,12 @@ export default async function plugin(bb: BbPluginApi) {
               if (value !== undefined) patch[field] = value;
             }
             const result = await amendOne(threadId, positionals.id, patch, "user");
+            if (result.outcome === "too-long") {
+              throw new PluginCliError(
+                `Not amended: the text is a title of at most ${TITLE_MAX} characters. ` +
+                  "Put the rest in --detail.",
+              );
+            }
             if (result.outcome !== "amended") {
               throw new PluginCliError(`Not amended (${result.outcome}).`);
             }

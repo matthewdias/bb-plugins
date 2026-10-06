@@ -49,6 +49,14 @@ Highlighting a sentence in a message and choosing *Record as follow-up* records
 that sentence instead, with the prose around it kept as detail. A refusal there
 is a toast too.
 
+**Titles, not sentences.** A follow-up's text is a title of at most 50
+characters; its detail says why, where and how. Agents are held to that: a
+longer title is refused with the reason, so they write a shorter one. What you
+write is never refused: past 50 characters its start (its headline, or its
+first words) becomes the title, ending in "…", and everything you wrote goes
+into the detail. Rows recorded before this keep their wording; change one and
+the new wording has to fit.
+
 Dismissal beats recording: once you delete a follow-up it stays gone, even if an
 agent notices the same thing again. Recording the same text twice is a no-op —
 matching ignores case and punctuation, because agents rarely reproduce their own
@@ -78,11 +86,12 @@ When the agent offered nothing, the row offers the top of the list instead:
 *Do* sends that follow-up to the agent now, with its whole record, and marks it
 in progress, as mentioning it would. It skips an out-of-scope row, which leads
 with a handoff, and does not skip past the top to find another: the list's
-order is yours. The chip shows the start of the row, usually its headline
-("Fix the restore…"), ending in "…" whenever there is more. Hover it for the
-whole row, which is also marked in the list while you do. The label is cut
-from the row's own words rather than written separately, so it can never say
-something the row does not.
+order is yours. The chip shows the row's title whole. A row recorded before
+titles were capped shows its start instead, usually its headline ("Fix the
+restore…"), ending in "…". Hover the chip for the whole row, which is also
+marked in the list while you do. That cut is made from the row's own words
+rather than written separately, so it can never say something the row does
+not.
 
 **The empty state.** When the list empties, the banner offers three things:
 *suggest what's next*, start a new thread in the same checkout, or archive this
@@ -170,7 +179,7 @@ Six tools:
 | `amend_follow_up` | add detail to a row without rewording it |
 | `offer_next_steps` | offer what it would do next here, as buttons under its reply |
 
-`record_follow_up` takes `text` (one imperative line, ≤240 chars), `reason`
+`record_follow_up` takes `text` (a title naming the specific thing, ≤50 chars), `reason`
 (`out-of-scope`, `blocked`, `deferred`, `risk`, or `cleanup`), an optional
 `file` anchor as `path` or `path:line`, and optional `detail` (≤1000 chars).
 

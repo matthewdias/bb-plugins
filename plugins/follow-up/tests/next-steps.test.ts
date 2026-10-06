@@ -9,11 +9,12 @@ import {
   NEXT_STEP_MAX,
   NEXT_STEPS_MAX,
   parseOffer,
+  DO_LABEL_MAX,
   shortLabel,
   stepAt,
   withoutStep,
 } from "../lib/next-steps.ts";
-import type { FollowUp, Reason } from "../lib/followups.ts";
+import { TITLE_MAX, type FollowUp, type Reason } from "../lib/followups.ts";
 
 const AT = "2026-10-06T12:00:00.000Z";
 const row = (id: string, reason: Reason | null, extra: Partial<FollowUp> = {}): FollowUp => ({
@@ -153,37 +154,51 @@ test("doAsk: quotes only what the row shows, since the line goes out as the user
   assert.equal(doAsk(sneaky), 'Pick up the follow-up "Tidy the loader now".');
 });
 
-test("shortLabel: a row's headline, marked as cut", () => {
+test("shortLabel: a long row's headline, marked as cut", () => {
   assert.equal(
     shortLabel("Fix Graveyard restore: reinstall store plugins through the store"),
     "Fix Graveyard restore…",
   );
-  assert.equal(shortLabel("Rename the flag — it reads as a negative"), "Rename the flag…");
-  assert.equal(shortLabel("Pin the clock (the test fails at midnight)"), "Pin the clock…");
-  assert.equal(shortLabel("Fix the flaky test. It fails on CI"), "Fix the flaky test…");
+  assert.equal(
+    shortLabel("Rename the flag — it reads as a negative everywhere it is used"),
+    "Rename the flag…",
+  );
+  assert.equal(
+    shortLabel("Pin the clock (the test fails at midnight in every zone east of UTC)"),
+    "Pin the clock…",
+  );
+  assert.equal(
+    shortLabel("Fix the flaky test. It fails on CI whenever the runner is loaded"),
+    "Fix the flaky test…",
+  );
 });
 
-test("shortLabel: a row that fits is shown whole, with no ellipsis", () => {
+test("shortLabel: a title shows whole, headline or not", () => {
+  assert.equal(DO_LABEL_MAX, TITLE_MAX);
   assert.equal(shortLabel("Tidy the loader"), "Tidy the loader");
-  assert.equal(shortLabel("Fix the flaky test."), "Fix the flaky test");
-  // A one-word headline says too little, so the colon is not a cut.
+  assert.equal(shortLabel("Fix the flaky test."), "Fix the flaky test.");
+  assert.equal(shortLabel("Fix the flaky test. It fails on CI"), "Fix the flaky test. It fails on CI");
   assert.equal(shortLabel("Docs: update README"), "Docs: update README");
-  // Nor is a colon inside a path:line anchor.
-  assert.equal(shortLabel("Fix server.ts:120 crash"), "Fix server.ts:120 crash");
+  assert.equal(shortLabel("x".repeat(TITLE_MAX)), "x".repeat(TITLE_MAX));
 });
 
-test("shortLabel: anything still too long is cut at a word", () => {
+test("shortLabel: a long row with no headline is cut at a word, within the limit", () => {
   assert.equal(
     shortLabel("Ask bb for an uninstall that also deletes the plugin's data folder"),
-    "Ask bb for an uninstall that also…",
+    "Ask bb for an uninstall that also deletes the…",
   );
-  const label = shortLabel("Supercalifragilisticexpialidocious and then some");
+  // A one-word headline is too thin to stand alone.
+  assert.equal(
+    shortLabel("Docs: update the README and every guide that links to the old install"),
+    "Docs: update the README and every guide that…",
+  );
+  const label = shortLabel("Supercalifragilisticexpialidociousandthensomemorecharacters here");
   assert.ok(label.endsWith("…"));
-  assert.ok(label.length <= 37, label);
+  assert.equal(label.length, TITLE_MAX);
 });
 
 test("shortLabel: only what would show — and a prefix of it, so it cannot say anything else", () => {
-  const text = "Tidy\u200B the loader: and\u{E0061} more";
+  const text = "Tidy\u200B the loader: and\u{E0061} more besides, which takes a while to explain";
   const label = shortLabel(text);
   assert.equal(label, "Tidy the loader…");
   assert.ok(doAsk(row("a", "deferred", { text })).includes(label.slice(0, -1)));

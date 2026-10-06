@@ -16,7 +16,7 @@ import {
   expansionGaveUp,
   isFollowUpInDraft,
   mainActionFor,
-  TEXT_MAX,
+  TITLE_MAX,
   type FollowUp,
   type Reason,
 } from "../lib/followups.ts";
@@ -73,6 +73,9 @@ const AMEND_REFUSAL: Partial<Record<string, string>> = {
   dismissed: "You dismissed that wording earlier, so it cannot come back.",
   "not-found": "That follow-up no longer exists.",
   forbidden: "That follow-up cannot be edited.",
+  // Only reachable editing a row recorded before titles were capped: the field
+  // itself stops at the limit, but it shows the old text whole.
+  "too-long": `Titles are ${TITLE_MAX} characters or fewer. Put the rest in the detail.`,
 };
 
 /**
@@ -168,7 +171,7 @@ function RowTextEditor({
       ref={field}
       value={value}
       rows={1}
-      maxLength={TEXT_MAX}
+      maxLength={TITLE_MAX}
       // A follow-up is one line, so a pasted newline becomes a space.
       onChange={(event) => {
         setValue(event.target.value.replace(/\r?\n/g, " "));

@@ -159,8 +159,68 @@ export const CAP_CEILING = 200;
  * default that will disagree with itself.
  */
 export const AUTO_COLLAPSE_AT = 4;
+/**
+ * The longest text a row can hold, and so the longest a lookup by text has to
+ * accept. Rows recorded before titles were capped run to this, and an agent
+ * finishing one names it by its words, so this bound stays where it was.
+ */
 export const TEXT_MAX = 240;
+/**
+ * The longest a new or edited row's text may be: a title, not a sentence.
+ *
+ * The text is what every surface shows — a row in the list, the "Do" chip, the
+ * @ menu, an issue title once rows can be filed elsewhere — and the detail is
+ * where the why, where and how go. Measured before this existed, agents wrote
+ * titles with a median of 91 characters while 97% of rows already had a detail
+ * saying the same at length. Fifty fits a chip and reads as an issue title.
+ */
+export const TITLE_MAX = 50;
 export const DETAIL_MAX = 1000;
+
+/** Where a row's headline ends: ": ", "; ", ". ", " (" or a spaced dash. */
+const HEADLINE_END = /:\s|;\s|\.\s|\s[—–-]\s|\s\(/;
+
+/**
+ * Text cut to fit `max`, as a title: whole when it fits; otherwise its
+ * headline (the part before HEADLINE_END) or its first words, cut at a word,
+ * ending in "…" and within `max` including it.
+ *
+ * A one-word headline ("Docs: …") says too little and is ignored. The cut is
+ * always a prefix of the text, so it can only ever show the start of it.
+ */
+export function headlineCut(text: string, max: number): string {
+  const full = text.replace(/\s+/g, " ").trim();
+  if (full.length <= max) return full;
+  const headline = full.split(HEADLINE_END)[0]!.trim();
+  let label = headline.split(" ").length >= 2 ? headline : full;
+  const room = max - 1;
+  if (label.length > room) {
+    const cut = label.slice(0, room);
+    const space = cut.lastIndexOf(" ");
+    label = space > room / 2 ? cut.slice(0, space) : cut;
+  }
+  return `${label.replace(/[\s,;:.—–-]+$/, "")}\u2026`;
+}
+
+/**
+ * A row a person wrote, as title and detail: never refused for length.
+ *
+ * Over `TITLE_MAX`, the start becomes the title and the whole of what they
+ * wrote goes first in the detail, ahead of any detail they gave, so nothing is
+ * lost and nothing is reworded. An agent gets no such help — its tool refuses
+ * a long title and says why, because an agent can write a better title than a
+ * cut can.
+ */
+export function titleAndDetail(
+  text: string,
+  detail: string | null,
+): { text: string; detail: string | null } {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= TITLE_MAX) return { text: collapsed, detail };
+  const whole = text.trim();
+  const rest = detail === null || detail.trim() === "" ? whole : `${whole}\n\n${detail}`;
+  return { text: headlineCut(collapsed, TITLE_MAX), detail: rest.slice(0, DETAIL_MAX) };
+}
 
 export type AddOutcome = "added" | "duplicate" | "dismissed" | "full";
 
@@ -324,7 +384,8 @@ export type AmendOutcome =
   | "not-found"
   | "duplicate"
   | "dismissed"
-  | "forbidden";
+  | "forbidden"
+  | "too-long";
 
 export interface AmendResult {
   list: FollowUp[];
@@ -361,6 +422,11 @@ export function amendFollowUp(
   if (patch.text !== undefined) {
     const key = normalizeKey(patch.text);
     if (key === "") return { list: [...list], outcome: "unchanged", row: target };
+    // New wording is a title. A row recorded before titles were capped keeps
+    // its text until someone changes it — then it has to fit like any other.
+    if (patch.text !== target.text && patch.text.length > TITLE_MAX) {
+      return { list: [...list], outcome: "too-long", row: target };
+    }
     const previous = normalizeKey(target.text);
     if (key !== previous) {
       if (tombstones.includes(key)) {
@@ -760,7 +826,7 @@ export const CONTEXT_WINDOW = 600;
  * The prose around a highlighted sentence, for a row that has no detail of its
  * own.
  *
- * A selection short enough to fit `TEXT_MAX` produces a row with nothing but a
+ * A selection short enough to fit `TITLE_MAX` produces a row with nothing but a
  * sentence — which is the normal case, and the reason captured rows read as
  * thin. The message it came from is already in hand at that moment, so the
  * context costs nothing: no agent, no model, no second step, and it cannot be
@@ -799,25 +865,15 @@ export function contextAround(
  * Turn highlighted prose into a follow-up.
  *
  * A selection is a paragraph, not a title: it carries newlines and usually
- * overruns TEXT_MAX. The one-line form becomes the row, and anything that did
- * not fit is kept as detail rather than thrown away — the selection is the
- * whole point of capturing this way.
+ * overruns TITLE_MAX. Its start becomes the title and the whole selection is
+ * kept as detail rather than thrown away — the selection is the whole point of
+ * capturing this way. See `titleAndDetail`.
  */
 export function selectionToFollowUp(selection: string): CapturedSelection | null {
   const full = selection.trim();
   if (full === "") return null;
-  const collapsed = full.replace(/\s+/g, " ");
-  if (collapsed.length <= TEXT_MAX) return { text: collapsed };
-
-  // Cut at a word boundary so the row does not end mid-word; fall back to a
-  // hard cut for text with no spaces in the last quarter, such as a long path.
-  const cut = collapsed.slice(0, TEXT_MAX - 1);
-  const lastSpace = cut.lastIndexOf(" ");
-  const head = lastSpace > TEXT_MAX * 0.75 ? cut.slice(0, lastSpace) : cut;
-  return {
-    text: `${head.trimEnd()}\u2026`,
-    detail: full.slice(0, DETAIL_MAX),
-  };
+  const split = titleAndDetail(full, null);
+  return split.detail === null ? { text: split.text } : { text: split.text, detail: split.detail };
 }
 
 export type MatchResult =

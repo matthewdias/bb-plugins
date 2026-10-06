@@ -12,7 +12,7 @@ import {
   isInProgress,
   needsReview,
   isExpanding,
-  TEXT_MAX,
+  TITLE_MAX,
   type FollowUp,
 } from "../lib/followups.ts";
 import { FollowUpSortable, useSortableRow } from "./sortable.tsx";
@@ -256,7 +256,9 @@ export function FollowUpPanel({
             ? "Another follow-up on this thread already says that."
             : result.outcome === "dismissed"
               ? "You dismissed that wording earlier, so it cannot come back."
-              : "That follow-up is no longer here.",
+              : result.outcome === "too-long"
+                ? `Titles are ${TITLE_MAX} characters or fewer. Put the rest in the detail.`
+                : "That follow-up is no longer here.",
         );
       } catch {
         setProblem("Could not save. Try again.");
@@ -521,7 +523,7 @@ function PanelRow({
           value={draftText}
           onChange={(event) => setDraftText(event.target.value)}
           rows={2}
-          maxLength={TEXT_MAX}
+          maxLength={TITLE_MAX}
           aria-label="Follow-up text"
           className="w-full resize-y rounded border border-border bg-background px-2 py-1 text-sm leading-snug focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
