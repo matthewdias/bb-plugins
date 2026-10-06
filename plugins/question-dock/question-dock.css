@@ -1,0 +1,329 @@
+/*
+ * Question Dock.
+ *
+ * Every rule here is keyed on an attribute lib/controller.ts sets, and only
+ * while a card is lifted: [data-qd-mode] on bb's card, [data-qd-lifted] on
+ * the thread's sticky footer, [data-qd-host] and [data-qd-docked] on the
+ * thread's scroller. With the plugin off, or a card it leaves alone, bb lays
+ * out exactly as it always does. (Attributes rather than :has(), which would
+ * restyle the page on every streamed token.)
+ *
+ * The controller supplies the geometry as viewport coordinates:
+ *   --qd-x, --qd-y   left edge, and the top edge, or the bottom edge for a
+ *                    dock, a sheet or a float anchored by its bottom
+ *                    ([data-qd-anchor="bottom"]), which translate up by
+ *                    their height
+ *   --qd-w           width
+ *   --qd-max-h       tallest the card may be
+ *   --qd-h           the sheet's height
+ *   --qd-cb-x/y      where fixed positioning measured from, last time the
+ *                    controller checked, when an ancestor moves it off the
+ *                    viewport's corner
+ */
+
+/* bb makes the thread's scroller a size container. Containers were once
+   specified as the box their fixed descendants are placed in, and engines
+   have differed on it since; where one still does, a fixed card inside the
+   scroller would scroll away with the chat, which no measuring can correct.
+   Only one of bb's rules queries this container (an icon size below 560px),
+   so lifting a card turns it off for that time. Offsets from any other
+   ancestor are measured and corrected by the controller (--qd-cb-x/y). */
+[data-page-scroll-viewport][data-qd-host] {
+  container-type: normal !important;
+}
+
+/* Above the chat, the scroll overlay and the composer's own layers. */
+[data-scroll-footer][data-qd-lifted] {
+  z-index: 40;
+}
+
+/* The docked card takes a column on the right; the chat and the composer
+   move over for it rather than running underneath. */
+[data-page-scroll-viewport][data-qd-docked] > div {
+  padding-right: calc(var(--qd-dock-w, 420px) + 8px);
+}
+
+section[data-qd-mode] {
+  position: fixed !important;
+  left: calc(var(--qd-x) - var(--qd-cb-x, 0px));
+  top: calc(var(--qd-y) - var(--qd-cb-y, 0px));
+  width: var(--qd-w) !important;
+  max-width: none !important;
+  /* bb sets an inline max-height of most of the chat's height. */
+  max-height: var(--qd-max-h) !important;
+  margin: 0 !important;
+  z-index: 1;
+  /* bb's recessed fill is translucent; over the chat it needs a floor. */
+  background:
+    linear-gradient(var(--surface-recessed, transparent), var(--surface-recessed, transparent)),
+    var(--popover, var(--background));
+  /* Important because themes style these cards too (Beautiful Chat does,
+     more specifically than this), and a lifted card needs its elevation,
+     and a sheet its backdrop. Their fill and border still apply. */
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.06),
+    0 12px 32px -8px rgb(0 0 0 / 0.28) !important;
+}
+
+/* bb nests a second scroller inside the card, capped at half the window.
+   Lifted, the card is sized for its place, so its body takes the rest of the
+   card and is the one thing that scrolls. */
+section[data-qd-mode] > div[id][class*="overflow-y-auto"] {
+  max-height: none !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+/* A plugin form that brings its own capped card, scroller and footer (the
+   controller marks it, and the path to it, in fitPluginForm): the path is
+   a column that shrinks to the lifted card, the card's body stops
+   scrolling, and the form's own scroller takes over with its buttons
+   pinned below it. Short forms stay short. */
+section[data-qd-mode] [data-qd-fill="contents"] {
+  display: contents !important;
+}
+section[data-qd-mode] [data-qd-fill="column"] {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 0 1 auto;
+  min-height: 0 !important;
+}
+section[data-qd-mode] > div[data-qd-fill] {
+  overflow: hidden !important;
+}
+section[data-qd-mode] [data-qd-fill-target] {
+  max-height: none !important;
+  flex: 0 1 auto;
+  min-height: 0 !important;
+}
+
+/* iOS zooms the page when a text box under 16px takes focus, and stays
+   zoomed: the card then looks wider than the phone. bb's and plugins' text
+   boxes are 14px, so on a touch screen they are 16px in a lifted card. */
+@media (pointer: coarse) {
+  section[data-qd-mode] :is(textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]), [contenteditable="true"]) {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
+/* The header is the handle. bb's own button fills it; a press stays a click
+   until it moves. */
+section[data-qd-mode] > div:first-child {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+section[data-qd-mode][data-qd-dragging] {
+  transition: none !important;
+}
+
+/* On a desktop card, all of the header reads as the handle: the grab cursor
+   over bb's label button too, which would otherwise show a pointer, a grip
+   at its start, and a tint on hover. bb's chevron, the header's last
+   button, keeps its pointer: it still collapses the card. */
+section[data-qd-mode]:not([data-qd-mode="sheet"]):not([data-qd-zone]) > div:first-child,
+section[data-qd-mode]:not([data-qd-mode="sheet"]):not([data-qd-zone]) > div:first-child > button:first-child,
+section[data-qd-mode]:not([data-qd-mode="sheet"]):not([data-qd-zone]) > div:first-child > button:first-child * {
+  cursor: grab !important;
+}
+section[data-qd-mode][data-qd-dragging]:not([data-qd-zone]) > div:first-child,
+section[data-qd-mode][data-qd-dragging]:not([data-qd-zone]) > div:first-child * {
+  cursor: grabbing !important;
+}
+
+/* Over an edge that resizes (the controller marks which), and anywhere
+   while one is being dragged, the cursor says which way it goes. */
+section[data-qd-zone="w"],
+section[data-qd-zone="w"] *,
+html[data-qd-resizing="w"] * {
+  cursor: ew-resize !important;
+}
+section[data-qd-zone="s"],
+section[data-qd-zone="s"] *,
+html[data-qd-resizing="s"] * {
+  cursor: ns-resize !important;
+}
+section[data-qd-zone="se"],
+section[data-qd-zone="se"] *,
+html[data-qd-resizing="se"] * {
+  cursor: nwse-resize !important;
+}
+section[data-qd-zone="sw"],
+section[data-qd-zone="sw"] *,
+html[data-qd-resizing="sw"] * {
+  cursor: nesw-resize !important;
+}
+html[data-qd-resizing] * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child {
+  padding-left: 6px;
+  transition: background-color 120ms ease-out;
+}
+section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child:hover,
+section[data-qd-mode][data-qd-dragging] > div:first-child {
+  background-color: var(--state-hover, color-mix(in oklab, currentColor 6%, transparent));
+}
+section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 12px;
+  margin-right: 2px;
+  /* Two columns of three dots. */
+  background-image: radial-gradient(circle, var(--muted-foreground, currentColor) 1px, transparent 1.4px);
+  background-size: 3px 4px;
+  opacity: 0.7;
+}
+
+/* --- Dock ------------------------------------------------------------- */
+
+section[data-qd-mode="dock"] {
+  translate: 0 -100%;
+}
+
+/* Its left edge resizes it, and the chat moves over as it widens. The line
+   shows while the pointer is on that edge (the controller finds it by
+   position) and while it is dragged. */
+section[data-qd-mode="dock"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  z-index: 2;
+  pointer-events: none;
+}
+section[data-qd-mode="dock"][data-qd-zone]::after {
+  background: linear-gradient(to right, color-mix(in oklab, var(--ring, currentColor) 55%, transparent) 2px, transparent 2px);
+}
+
+/* --- Float ------------------------------------------------------------ */
+
+/* While its edges are dragged it is exactly the dragged box; afterwards the
+   height is a ceiling, so a short question leaves no gap under its buttons. */
+section[data-qd-mode="float"][data-qd-dragging][data-qd-zone] {
+  height: var(--qd-h) !important;
+}
+
+/* The resize grip in its bottom-right corner. Drawn only: the controller
+   finds the corner by position, so presses reach the card's own content. */
+section[data-qd-mode="float"]::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    transparent 0 52%,
+    var(--muted-foreground, currentColor) 52% 60%,
+    transparent 60% 70%,
+    var(--muted-foreground, currentColor) 70% 78%,
+    transparent 78%
+  );
+  opacity: 0.5;
+}
+section[data-qd-mode="float"][data-qd-zone]::after {
+  opacity: 0.9;
+}
+
+/* A float left in the lower half of the thread is placed by its bottom edge,
+   so collapsing it or a shorter question keeps it where it was dropped. */
+section[data-qd-mode="float"][data-qd-anchor="bottom"] {
+  translate: 0 -100%;
+}
+
+section[data-qd-mode="float"][data-qd-dragging] {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.08),
+    0 20px 48px -8px rgb(0 0 0 / 0.36) !important;
+}
+
+/* --- Sheet ------------------------------------------------------------ */
+
+/* Sized to its content, up to the height it was swiped to (or all the room,
+   while typing): bb's buttons follow the content rather than sitting at the
+   card's foot, so a fixed height left a gap under a short question. */
+section[data-qd-mode="sheet"] {
+  height: auto !important;
+  max-height: var(--qd-h) !important;
+  translate: 0 -100%;
+  border-radius: 14px 14px 0 0 !important;
+  border-bottom-width: 0 !important;
+  /* bb's shell inset for the home indicator, which the sheet reaches over;
+     0 while typing, when the keyboard covers it. */
+  padding-bottom: var(--qd-pad-b, 0px);
+  /* The dimmed chat behind it: a shadow, so there is no second element to
+     stack, and taps on it close the sheet (see the controller). */
+  box-shadow:
+    0 -8px 32px -8px rgb(0 0 0 / 0.3),
+    0 0 0 100vmax rgb(0 0 0 / 0.55) !important;
+}
+
+/* While swiped, it follows the finger, past its content if need be. */
+section[data-qd-mode="sheet"][data-qd-dragging] {
+  height: var(--qd-h) !important;
+}
+
+/* The grabber sits in the header, so a swipe on it is a swipe on the
+   header: only the header leaves touches to the plugin. */
+section[data-qd-mode="sheet"] > div:first-child {
+  position: relative;
+  padding-top: 14px;
+}
+section[data-qd-mode="sheet"] > div:first-child::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  translate: -50% 0;
+  background: var(--muted-foreground, currentColor);
+  opacity: 0.4;
+}
+
+/* --- Motion ----------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  section[data-qd-mode="dock"] {
+    transition:
+      opacity 160ms ease-out,
+      translate 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @starting-style {
+    section[data-qd-mode="dock"] {
+      opacity: 0;
+      translate: 24px -100%;
+    }
+  }
+
+  section[data-qd-mode="sheet"] {
+    transition:
+      translate 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      max-height 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @starting-style {
+    section[data-qd-mode="sheet"] {
+      translate: 0 0;
+    }
+  }
+}
+
+/* --- Dock preview while dragging -------------------------------------- */
+
+.question-dock-ghost {
+  position: fixed;
+  z-index: 2147483000;
+  pointer-events: none;
+  border: 1.5px dashed var(--ring, currentColor);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--ring, currentColor) 10%, transparent);
+}
