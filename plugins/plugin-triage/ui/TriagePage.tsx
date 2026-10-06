@@ -12,13 +12,14 @@ import { decide, planFor, undoLast, type Plan } from "./decisions";
 import { EntryCard } from "./EntryCard";
 import { navigateInApp, pluginDetailsPath } from "./navigate";
 import { SavedList } from "./SavedList";
+import { CleanupPanel } from "./CleanupPanel";
 import { QueueBar } from "./QueueBar";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { triageStore } from "./triage-store";
 
-type Tab = "new" | "updates" | "saved";
+type Tab = "new" | "updates" | "cleanup" | "saved";
 
-const TAB_LABELS: Record<Tab, string> = { new: "New", updates: "Updates", saved: "Saved" };
+const TAB_LABELS: Record<Tab, string> = { new: "New", updates: "Updates", cleanup: "Cleanup", saved: "Saved" };
 
 function usePlan(card: NewCard | null) {
   const rpc = useRpc<typeof rpcContract>();
@@ -80,21 +81,28 @@ export function TriagePage() {
         {/* bb's own title bar already says Plugins, and the row says Triage;
             on a phone the space is worth more than the heading. */}
         <h1 className="hidden text-lg font-semibold sm:block">Triage</h1>
-        <nav className="flex rounded-lg border border-border p-0.5" aria-label="Decks">
-          {(["new", "updates", "saved"] as const).map((id) => (
+        <nav className="flex min-w-0 shrink overflow-x-auto rounded-lg border border-border p-0.5 [scrollbar-width:none]" aria-label="Decks">
+          {(["new", "updates", "cleanup", "saved"] as const).map((id) => (
             <button
               key={id}
               type="button"
               aria-pressed={tab === id}
               onClick={() => setTab(id)}
               className={cn(
-                "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
+                "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
                 tab === id && "bg-state-active text-foreground",
               )}
             >
               {TAB_LABELS[id]}
               <span className="tabular-nums opacity-70">
-                {id === "new" ? deck.cards.length : id === "updates" ? deck.updates.cards.length : deck.saved.length}
+                {
+                  {
+                    new: deck.cards.length,
+                    updates: deck.updates.cards.length,
+                    cleanup: deck.cleanup.cards.length,
+                    saved: deck.saved.length,
+                  }[id]
+                }
               </span>
             </button>
           ))}
@@ -158,6 +166,9 @@ export function TriagePage() {
         )}
         {deck.status === "ready" && tab === "updates" && (
           <UpdatesPanel rpc={rpc} updates={deck.updates} keyboard={tab === "updates"} />
+        )}
+        {deck.status === "ready" && tab === "cleanup" && (
+          <CleanupPanel rpc={rpc} cleanup={deck.cleanup} keyboard={tab === "cleanup"} />
         )}
         {deck.status === "ready" && tab === "saved" && (
           <SavedList

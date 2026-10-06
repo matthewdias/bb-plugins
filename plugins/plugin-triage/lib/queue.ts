@@ -53,7 +53,16 @@ export interface UpdateJob extends JobBase {
   result: "updated" | "current" | null;
 }
 
-export type Job = InstallJob | UpdateJob;
+/** Uninstalling, from the Cleanup deck. A snapshot is taken first, for restore. */
+export interface RemoveJob extends JobBase {
+  kind: "remove";
+  pluginId: string;
+}
+
+export type Job = InstallJob | UpdateJob | RemoveJob;
+
+/** The order a run takes: installs, then updates, then removals. */
+const KIND_ORDER: Record<Job["kind"], number> = { install: 0, update: 1, remove: 2 };
 
 const isHeld = (job: Job) => job.held === true;
 
@@ -81,7 +90,7 @@ export function cancelPending(jobs: readonly Job[], key: string, now: number): {
 
 /** Jobs queued or under way, in the order they will run. */
 export function liveJobs(jobs: readonly Job[], last: string | null = null): Job[] {
-  const rank = (job: Job) => (last !== null && job.pluginId === last ? 2 : job.kind === "install" ? 0 : 1);
+  const rank = (job: Job) => (last !== null && job.pluginId === last ? 3 : KIND_ORDER[job.kind]);
   return jobs
     .filter((job) => !isFinished(job))
     .map((job, index) => ({ job, index }))
@@ -94,13 +103,13 @@ export function liveJob(jobs: readonly Job[], key: string): Job | null {
 }
 
 /**
- * The pending job to run next, if nothing is running: installs before
- * updates, each in the order queued. A job for `last` (this plugin, whose
+ * The pending job to run next, if nothing is running: installs, then
+ * updates, then removals, each in the order queued. A job for `last` (this plugin, whose
  * own update reloads it mid-batch) waits until no other job is ready.
  */
 export function nextRunnable(jobs: readonly Job[], now: number, last: string | null = null): Job | null {
   if (jobs.some((job) => job.state === "running")) return null;
-  const rank = (job: Job) => [last !== null && job.pluginId === last ? 1 : 0, job.kind === "install" ? 0 : 1, job.runAfter];
+  const rank = (job: Job) => [last !== null && job.pluginId === last ? 1 : 0, KIND_ORDER[job.kind], job.runAfter];
   let next: Job | null = null;
   for (const job of jobs) {
     if (job.state !== "pending" || isHeld(job) || job.runAfter > now) continue;

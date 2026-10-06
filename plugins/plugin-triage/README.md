@@ -98,6 +98,30 @@ what the last runs did. Plugins bb couldn't check are listed apart, each
 with a **Retry**; **Check now** asks bb to look again for everything, which
 takes a while.
 
+**Cleanup** deals installed plugins worth a second look: broken ones, ones
+you turned off, and, once Plugin Triage has watched them for a month, ones
+with no activity in that time. Activity is bb's count of a plugin's
+server-side work (agent tools, CLI commands, hooks), sampled hourly; a plugin
+that only draws UI never moves it, so it is never called idle. bb's own
+plugins that ship turned off are left out. Plugin Triage itself, plugins
+installed from a local folder, providers and bb's environment and navigation
+plugins are never dealt.
+
+| | Plugin that is on | Plugin you turned off | Tried without, two weeks on |
+| --- | --- | --- | --- |
+| → | Keep (asks again in 90 days) | Keep it off (90 days) | Turn it back on |
+| ← | Uninstall | Uninstall | Uninstall |
+| ↑ | Try without it: off now, asks again in two weeks | Turn it back on | Two more weeks without it |
+
+Turning a plugin off or on happens at once, and Z turns it back. Uninstalling
+waits in the queue for **Run all**, removals after installs and updates. Just
+before removing, Plugin Triage keeps the plugin's source and any settings you
+changed, and the **Graveyard** lists what it removed, each with a **Restore**
+that installs it again from the same source and puts those settings back.
+Secret settings can't be read, so they don't come back; the Graveyard names
+them, and Restore says which to set again. Cleanup's cards don't add to the
+number on the Triage row.
+
 ## What counts as new
 
 The first visit looks back 14 days, and anything published before that counts

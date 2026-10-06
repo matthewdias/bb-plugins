@@ -14,12 +14,22 @@ function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-/** "2 to install, 1 to update". */
+/** "2 to install, 1 to update, 1 to remove". */
 export function queueSummary(jobs: readonly Job[]): string {
-  const installs = jobs.filter((job) => job.kind === "install").length;
-  const updates = jobs.length - installs;
-  return [installs > 0 && `${installs} to install`, updates > 0 && `${updates} to update`].filter(Boolean).join(", ");
+  const count = (kind: Job["kind"]) => jobs.filter((job) => job.kind === kind).length;
+  return (
+    [
+      [count("install"), "to install"],
+      [count("update"), "to update"],
+      [count("remove"), "to remove"],
+    ] as const
+  )
+    .filter(([n]) => n > 0)
+    .map(([n, what]) => `${n} ${what}`)
+    .join(", ");
 }
+
+const DOING: Record<Job["kind"], string> = { install: "Installing", update: "Updating", remove: "Removing" };
 
 export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) {
   const [open, setOpen] = useState(false);
@@ -66,7 +76,7 @@ export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) 
           <p className="text-sm font-medium">
             {queue.running
               ? current
-                ? `${current.kind === "update" ? "Updating" : "Installing"} ${current.displayName}…`
+                ? `${DOING[current.kind]} ${current.displayName}…`
                 : "Starting…"
               : queueSummary(queue.jobs)}
           </p>
@@ -94,7 +104,7 @@ export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) 
                   job.state === "running" && "text-foreground",
                 )}
               >
-                {job.state === "running" ? "now" : job.kind === "install" ? "install" : "update"}
+                {job.state === "running" ? "now" : job.kind}
               </span>
               <span className="min-w-0 flex-1 truncate text-sm">{job.displayName}</span>
               <Button
