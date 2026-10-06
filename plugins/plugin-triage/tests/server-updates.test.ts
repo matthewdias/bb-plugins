@@ -196,4 +196,26 @@ describe("the Updates deck over RPC", () => {
     expect(after.cards.map((card) => card.pluginId)).toContain("alpha");
     service.controller.abort();
   });
+
+  it("caches what an update changes, and asks GitHub again only after a failure", async () => {
+    const { harness, rpc, service } = await host();
+    harness.sdk.stub("plugins.getSource", () => ({ subdirectory: "plugins/alpha" }));
+    const sha = (c: string) => c.repeat(40);
+    const range = { pluginId: "alpha", from: { version: sha("a"), display: `https://github.com/acme/x.git@HEAD (a)` }, to: { version: sha("b"), display: `https://github.com/acme/x.git@HEAD (b)` } };
+    let calls = 0;
+    let fail = true;
+    vi.stubGlobal("fetch", async () => {
+      calls++;
+      if (fail) return { ok: false, status: 500, headers: { get: () => null }, json: async () => ({}) };
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => (calls % 2 === 0 ? { total_commits: 0, commits: [], html_url: "u" } : []) };
+    });
+    expect(await rpc("update_changes", range)).toMatchObject({ kind: "unavailable" });
+    fail = false;
+    expect(await rpc("update_changes", range)).toMatchObject({ kind: "github", subdirectory: "plugins/alpha" });
+    const asked = calls;
+    expect(await rpc("update_changes", range)).toMatchObject({ kind: "github" });
+    expect(calls).toBe(asked);
+    vi.unstubAllGlobals();
+    service.controller.abort();
+  });
 });

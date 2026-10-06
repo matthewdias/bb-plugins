@@ -1,11 +1,13 @@
 // The Updates tab: a deck of pending updates, the batch they are queued into,
 // what bb couldn't check, and what the last batches did.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { experimental_Icon as Icon, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { Changes } from "../lib/changes";
 import type { UpdateJob } from "../lib/queue";
+import type { UpdateCard as Card } from "../lib/updates-deck";
 import { CardStack, type DeckActions } from "./CardStack";
 import { ago } from "./EntryCard";
 import { haptic } from "./haptics";
@@ -20,6 +22,42 @@ export const UPDATE_ACTIONS: DeckActions = {
   up: { label: "Later", name: "Remind me in a week", icon: "Clock", hint: "later" },
 };
 
+const changesCache = new Map<string, Promise<Changes>>();
+
+/** What the top card's update changes, fetched once per card. */
+function useChanges(rpc: TriageRpc, card: Card | null): Changes | undefined {
+  const [loaded, setLoaded] = useState<{ key: string; changes: Changes } | null>(null);
+  useEffect(() => {
+    if (card === null) return;
+    const key = `${card.pluginId}:${card.from.version}...${card.to.version}`;
+    let request = changesCache.get(key);
+    if (request === undefined) {
+      request = rpc
+        .call("update_changes", {
+          pluginId: card.pluginId,
+          from: { version: card.from.version, display: card.from.display },
+          to: { version: card.to.version, display: card.to.display },
+        })
+        .catch((): Changes => ({ kind: "unavailable", reason: "Couldn't load the changes." }));
+      changesCache.set(key, request);
+      // An unanswered question is asked again next time.
+      void request.then((changes) => changes.kind === "unavailable" && changesCache.delete(key));
+    }
+    let live = true;
+    void request.then((changes) => live && setLoaded({ key, changes }));
+    return () => {
+      live = false;
+    };
+  }, [card, rpc]);
+  const key = card === null ? null : `${card.pluginId}:${card.from.version}...${card.to.version}`;
+  return loaded !== null && loaded.key === key ? loaded.changes : undefined;
+}
+
+/** Tests only. */
+export function resetChangesCache(): void {
+  changesCache.clear();
+}
+
 function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
@@ -28,6 +66,7 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
   const navigate = useBbNavigate();
   const [starting, setStarting] = useState(false);
   const [checking, setChecking] = useState<string | "all" | null>(null);
+  const changes = useChanges(rpc, updates.cards[0] ?? null);
 
   async function start() {
     setStarting(true);
@@ -74,6 +113,7 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
             <UpdateCard
               card={card}
               top={top}
+              changes={top ? changes : undefined}
               onChanges={() => card.compareUrl !== null && navigate.openUrl(card.compareUrl)}
               onDetails={() => navigateInApp(pluginDetailsPath(card.pluginId))}
             />

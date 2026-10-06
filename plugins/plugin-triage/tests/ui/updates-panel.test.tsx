@@ -1,14 +1,18 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { UpdatesPanel } from "../../ui/UpdatesPanel";
+import { UpdatesPanel, resetChangesCache } from "../../ui/UpdatesPanel";
 import { decideUpdate, resetUpdateDecisions, undoLastUpdate } from "../../ui/update-decisions";
 import { resetTriageStore, triageStore, type TriageRpc, type UpdatesState } from "../../ui/triage-store";
 import type { UpdateCard } from "../../lib/updates-deck";
 import type { UpdateJob } from "../../lib/queue";
 
 const openUrl = vi.fn();
-vi.mock("@get-bb/plugin-sdk/app", () => ({ experimental_Icon: () => null, useBbNavigate: () => ({ openUrl }) }));
+vi.mock("@get-bb/plugin-sdk/app", () => ({
+  experimental_Icon: () => null,
+  Markdown: ({ content }: { content: string }) => <div>{content}</div>,
+  useBbNavigate: () => ({ openUrl }),
+}));
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() }) }));
 vi.mock("../../ui/haptics", () => ({ haptic: vi.fn() }));
 
@@ -38,17 +42,22 @@ function state(overrides: Partial<UpdatesState> = {}): UpdatesState {
   return { cards: [], unavailable: [], queued: [], running: false, history: [], ...overrides };
 }
 
+let changesAnswer: unknown = { kind: "none" };
+
 function rpcFake() {
   const call = vi.fn(async (method: string, _input?: unknown) => {
     if (method === "updates_start") return { started: 2 };
     if (method === "update_decide") return { previous: null };
     if (method === "update_undo") return { undone: true, reason: null };
+    if (method === "update_changes") return changesAnswer;
     return { checked: 1 };
   });
   return { rpc: { call } as unknown as TriageRpc, call };
 }
 
 afterEach(() => {
+  resetChangesCache();
+  changesAnswer = { kind: "none" };
   resetUpdateDecisions();
   resetTriageStore();
 });
@@ -144,5 +153,58 @@ describe("update decisions", () => {
     await undoLastUpdate(rpc);
     expect(call).toHaveBeenLastCalledWith("update_undo", { pluginId: "gamma", restore: null });
     expect(triageStore.getSnapshot().updates.cards.map((c) => c.pluginId)).toEqual(["gamma"]);
+  });
+});
+
+describe("what the top card's update changes", () => {
+  const github = (overrides: Record<string, unknown>) => ({
+    kind: "github",
+    commits: [],
+    total: 0,
+    repoWide: 44,
+    subdirectory: "bb-plugin-diff-comment",
+    releaseNotes: null,
+    url: "https://github.com/acme/x/compare/a...b",
+    ...overrides,
+  });
+
+  it("says plainly when the update doesn't touch the plugin", async () => {
+    changesAnswer = github({});
+    const { rpc } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("diff-comment")] })} keyboard />);
+    expect(await screen.findByTestId("no-changes")).toHaveProperty(
+      "textContent",
+      "No changes to this plugin. The 44 commits in its repository changed other things.",
+    );
+  });
+
+  it("lists the commits that do, with the rest on GitHub", async () => {
+    changesAnswer = github({
+      commits: [
+        { sha: "c4".padEnd(40, "0"), subject: "Polish Diff Comment", date: null, author: null },
+        { sha: "c2".padEnd(40, "0"), subject: "Fix the header", date: null, author: null },
+      ],
+      total: 8,
+    });
+    const { rpc } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("diff-comment")] })} keyboard />);
+    expect(await screen.findByText("Polish Diff Comment")).toBeTruthy();
+    expect(screen.getByText("8 changes · 44 in the repository")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "and 6 more on GitHub" }));
+    expect(openUrl).toHaveBeenCalledWith("https://github.com/acme/x/compare/a...b");
+  });
+
+  it("explains when GitHub couldn't say", async () => {
+    changesAnswer = { kind: "unavailable", reason: "GitHub's hourly limit for this machine is used up." };
+    const { rpc } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    expect(await screen.findByText("GitHub's hourly limit for this machine is used up.")).toBeTruthy();
+  });
+
+  it("asks once per card, however often the deck redraws", async () => {
+    const { rpc, call } = rpcFake();
+    const view = render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    view.rerender(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    await waitFor(() => expect(call.mock.calls.filter(([m]) => m === "update_changes")).toHaveLength(1));
   });
 });

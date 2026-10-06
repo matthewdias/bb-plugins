@@ -41,6 +41,7 @@ import {
   type UpdateResult,
 } from "./lib/updates-deck.ts";
 import { summarizeSource, type ResolvedSource } from "./lib/source.ts";
+import { changesKey, fetchChanges, type Changes } from "./lib/changes.ts";
 
 export { rpcContract };
 
@@ -388,6 +389,23 @@ export default async function plugin(bb: BbPluginApi) {
       });
       if (result.undone) changed("undo");
       return result;
+    },
+
+    update_changes: async ({ pluginId, from, to }): Promise<Changes> => {
+      let subdirectory: string | null = null;
+      try {
+        subdirectory = (await bb.sdk.plugins.getSource({ pluginId })).subdirectory ?? null;
+      } catch {
+        // Unknown source: describe the whole repository rather than nothing.
+      }
+      const key = changesKey(from, to, subdirectory);
+      if (key === null) return { kind: "none" };
+      // A commit range never changes, so an answer is good for good.
+      const cached = await kv.get<Changes>(key);
+      if (cached !== null && cached !== undefined) return cached;
+      const changes = await fetchChanges(fetch as never, from, to, subdirectory);
+      if (changes.kind !== "unavailable") await kv.set(key, changes);
+      return changes;
     },
 
     updates_start: async () => {

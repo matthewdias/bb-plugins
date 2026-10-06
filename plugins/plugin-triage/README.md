@@ -61,9 +61,15 @@ or removes it from Saved.
 
 **Updates** deals the installed plugins that have a newer compatible version,
 as cards showing the version now and the one on offer, any newer release bb
-won't take and why, and the last attempt if it failed. **Changes** opens the
-commits between the two on GitHub; **Details** opens the plugin in bb's
-detail pane.
+won't take and why, and the last attempt if it failed. For a GitHub source
+the card on top also lists what the update changes: the commits between the
+two versions that touch the plugin (when it shares a repository with other
+plugins, only those in its own folder), and the release notes when the new
+version is a release. An update that touches nothing of the plugin's says so,
+so it can be skipped with confidence. The lists come from GitHub's public
+API, which allows 60 requests an hour from one machine; each range is fetched
+once and kept. **Changes** opens the full comparison on GitHub; **Details**
+opens the plugin in bb's detail pane.
 
 | | Drag | Key |
 | --- | --- | --- |

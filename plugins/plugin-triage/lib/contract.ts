@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Decision, NewCard } from "./new-deck.ts";
 import type { Job, UpdateJob } from "./queue.ts";
 import type { Unavailable, UpdateCard, UpdateDecision } from "./updates-deck.ts";
+import type { Changes } from "./changes.ts";
 import type { SourceSummary } from "./source.ts";
 
 const entryRef = { entryId: z.string().min(1), marketplace: z.string().min(1) };
@@ -86,6 +87,10 @@ export const rpcContract = defineRpcContract({
   update_undo: {
     input: z.object({ pluginId: z.string().min(1), restore: updateDecision.nullable().optional() }),
     output: z.custom<{ undone: boolean; reason: string | null }>(() => true),
+  },
+  update_changes: {
+    input: z.object({ pluginId: z.string().min(1), from: versionLabel, to: versionLabel }),
+    output: z.custom<Changes>(() => true),
   },
   updates_start: {
     input: z.object({}),

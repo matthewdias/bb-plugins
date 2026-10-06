@@ -21,8 +21,9 @@ close the window. A toast tells you when each one lands.
 on its toast, to take the last decision back.
 
 **Updates in one batch.** An Updates deck deals each installed plugin with a
-newer version, showing the version now and next and, for GitHub sources, a
-link to the commits in between. Drag right to queue it, left to skip that
+newer version, showing the version now and next and, for GitHub sources,
+the commits that change this plugin and the release notes. An update that
+only touched other plugins in a shared repository says so. Drag right to queue it, left to skip that
 version, up to be reminded in a week. Then press Update all: the queue runs
 in the background, one plugin at a time, and each result is reported.
 

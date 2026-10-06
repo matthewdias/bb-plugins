@@ -1,15 +1,18 @@
 // One pending update as a card: which plugin, from which version to which,
 // and anything that should give pause: a newer release bb won't take, or the
 // last attempt failing.
-import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
+import { Markdown, experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { Changes } from "../lib/changes";
 import type { UpdateCard as Card } from "../lib/updates-deck";
 import { PluginIcon } from "./EntryCard";
 
 export interface UpdateCardProps {
   card: Card;
   top: boolean;
+  /** What the update changes; undefined while loading. Top card only. */
+  changes?: Changes;
   onChanges?: () => void;
   onDetails?: () => void;
 }
@@ -27,7 +30,7 @@ function Chip({ children, tone }: { children: React.ReactNode; tone?: "warn" }) 
   );
 }
 
-export function UpdateCard({ card, top, onChanges, onDetails }: UpdateCardProps) {
+export function UpdateCard({ card, top, changes, onChanges, onDetails }: UpdateCardProps) {
   return (
     <article
       className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-xl"
@@ -64,8 +67,12 @@ export function UpdateCard({ card, top, onChanges, onDetails }: UpdateCardProps)
         </dl>
 
         {card.description !== null && (
-          <p className="line-clamp-4 text-sm leading-relaxed text-muted-foreground">{card.description}</p>
+          <p className={cn("text-sm leading-relaxed text-muted-foreground", top ? "line-clamp-2" : "line-clamp-4")}>
+            {card.description}
+          </p>
         )}
+
+        {top && <ChangeList changes={changes} onMore={onChanges} />}
 
         {card.blocked !== null && (
           <p className="text-xs text-muted-foreground">
@@ -90,5 +97,54 @@ export function UpdateCard({ card, top, onChanges, onDetails }: UpdateCardProps)
         </footer>
       )}
     </article>
+  );
+}
+
+/**
+ * The commits the update brings, or the release notes. Clamped rather than
+ * scrolled: the card stays one surface to drag, and GitHub has the rest.
+ */
+function ChangeList({ changes, onMore }: { changes: Changes | undefined; onMore?: () => void }) {
+  if (changes === undefined) return <p className="text-xs text-muted-foreground">Loading changes…</p>;
+  if (changes.kind === "none") return null;
+  if (changes.kind === "unavailable") return <p className="text-xs text-muted-foreground">{changes.reason}</p>;
+
+  if (changes.subdirectory !== null && changes.total === 0) {
+    return (
+      <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs" data-testid="no-changes">
+        <span className="font-medium">No changes to this plugin.</span>{" "}
+        {changes.repoWide === 1
+          ? "The one commit in its repository changed something else."
+          : `The ${changes.repoWide} commits in its repository changed other things.`}
+      </p>
+    );
+  }
+
+  const more = changes.total - changes.commits.length;
+  return (
+    <section className="space-y-2" aria-label="Changes">
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {changes.total === 1 ? "1 change" : `${changes.total} changes`}
+        {changes.subdirectory !== null && changes.repoWide > changes.total && ` · ${changes.repoWide} in the repository`}
+      </h3>
+      {changes.releaseNotes !== null && (
+        <div className="line-clamp-4 text-xs [&_h1]:text-xs [&_h2]:text-xs [&_h3]:text-xs [&_p]:my-0">
+          <Markdown content={changes.releaseNotes.body} />
+        </div>
+      )}
+      <ul className="space-y-1">
+        {changes.commits.map((commit) => (
+          <li key={commit.sha} className="flex gap-2 text-xs">
+            <span className="shrink-0 font-mono text-muted-foreground">{commit.sha.slice(0, 7)}</span>
+            <span className="min-w-0 truncate">{commit.subject}</span>
+          </li>
+        ))}
+      </ul>
+      {more > 0 && (
+        <button type="button" onClick={onMore} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+          and {more} more on GitHub
+        </button>
+      )}
+    </section>
   );
 }
