@@ -26,7 +26,7 @@
   },
   "bb": {
     "name": "Plugin Triage",
-    "description": "Decide on plugins one card at a time from a Triage tab in bb's Plugins screen. Drag a newly published plugin right to install it in the background, left to dismiss it, or up to save it for later.",
+    "description": "Decide on plugins one card at a time from a Triage tab in bb's Plugins screen: install newly published plugins in the background, dismiss them or save them for later, and queue pending updates into one background batch.",
     "branding": {
       "icon": "Layers"
     },

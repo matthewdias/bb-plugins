@@ -1,35 +1,60 @@
-// The job queue the server works through: installs now, updates and removals
-// in later decks. Pure transitions over a plain array, so the runner, the RPC
-// handlers and the tests all agree on what each state allows.
+// The job queue the server works through: installs from the New deck and
+// updates from the Updates deck. Pure transitions over a plain array, so the
+// runner, the RPC handlers and the tests all agree on what each state allows.
 //
-// A job waits out a grace period before it runs, which is what lets a swipe
-// be undone. bb serializes plugin installs and updates itself, so the runner
-// takes one job at a time and gains nothing from more.
+// An install waits out a grace period before it runs, which is what lets a
+// swipe be undone. An update waits longer: it is held until the batch is
+// started, so a run of swipes becomes one background batch. bb serializes
+// plugin installs and updates itself, so the runner takes one job at a time
+// and gains nothing from more.
 
 export type JobState = "pending" | "running" | "done" | "failed" | "cancelled";
 
-export interface InstallJob {
+/** A version as bb reports it: the raw version and a label fit to show. */
+export interface VersionLabel {
+  version: string;
+  display: string;
+}
+
+interface JobBase {
   id: string;
-  kind: "install";
   /** The deck card the job came from. */
   key: string;
-  entryId: string;
-  marketplace: string;
   displayName: string;
-  /** The source the card showed, so bb refuses if the listing moved since. */
-  confirmedSource: unknown;
   createdAt: number;
   /** Not before this time (epoch ms): the undo window. */
   runAfter: number;
   state: JobState;
   startedAt: number | null;
   finishedAt: number | null;
-  /** The installed plugin's id, once done. */
+  /** The plugin's id: known up front for an update, once done for an install. */
   pluginId: string | null;
   error: string | null;
 }
 
-export type Job = InstallJob;
+export interface InstallJob extends JobBase {
+  kind: "install";
+  entryId: string;
+  marketplace: string;
+  /** The source the card showed, so bb refuses if the listing moved since. */
+  confirmedSource: unknown;
+}
+
+export interface UpdateJob extends JobBase {
+  kind: "update";
+  pluginId: string;
+  from: VersionLabel;
+  /** The version offered when queued; the one bb landed on, once done. */
+  to: VersionLabel;
+  /** Queued but not started: waits for the batch. */
+  held: boolean;
+  /** What bb did: updated, or found it already current. */
+  result: "updated" | "current" | null;
+}
+
+export type Job = InstallJob | UpdateJob;
+
+const isHeld = (job: Job) => job.kind === "update" && job.held;
 
 /** How long a swipe can still be undone. */
 export const GRACE_MS = 5_000;
@@ -59,22 +84,49 @@ export function liveJob(jobs: readonly Job[], key: string): Job | null {
   return jobs.find((job) => job.key === key && !isFinished(job)) ?? null;
 }
 
-/** The oldest pending job whose grace period is over, if nothing is running. */
-export function nextRunnable(jobs: readonly Job[], now: number): Job | null {
+/**
+ * The oldest pending job whose wait is over, if nothing is running. A job
+ * for `last` (this plugin, whose own update reloads it mid-batch) waits
+ * until no other job is ready.
+ */
+export function nextRunnable(jobs: readonly Job[], now: number, last: string | null = null): Job | null {
   if (jobs.some((job) => job.state === "running")) return null;
   let next: Job | null = null;
+  const later = (job: Job) => last !== null && job.pluginId === last;
   for (const job of jobs) {
-    if (job.state !== "pending" || job.runAfter > now) continue;
-    if (next === null || job.runAfter < next.runAfter) next = job;
+    if (job.state !== "pending" || isHeld(job) || job.runAfter > now) continue;
+    if (
+      next === null ||
+      (later(next) && !later(job)) ||
+      (later(next) === later(job) && job.runAfter < next.runAfter)
+    ) {
+      next = job;
+    }
   }
   return next;
+}
+
+/**
+ * Starts the batch: every held update becomes ready at the same moment, so
+ * all are candidates together and nextRunnable's order (queue order, this
+ * plugin last) decides. Staggered times would let whichever came first run
+ * alone, this plugin included.
+ */
+export function releaseHeld(jobs: readonly Job[], now: number): { jobs: Job[]; released: number } {
+  let released = 0;
+  const next = jobs.map((job) => {
+    if (job.kind !== "update" || !job.held || job.state !== "pending") return job;
+    released++;
+    return { ...job, held: false, runAfter: now };
+  });
+  return { jobs: next, released };
 }
 
 /** When the runner should look again, or null if nothing is waiting. */
 export function nextWakeAt(jobs: readonly Job[]): number | null {
   let wake: number | null = null;
   for (const job of jobs) {
-    if (job.state !== "pending") continue;
+    if (job.state !== "pending" || isHeld(job)) continue;
     if (wake === null || job.runAfter < wake) wake = job.runAfter;
   }
   return wake;
@@ -90,14 +142,18 @@ export function markFinished(
   jobs: readonly Job[],
   id: string,
   now: number,
-  outcome: { ok: true; pluginId: string } | { ok: false; error: string },
+  outcome:
+    | { ok: true; pluginId: string; result?: "updated" | "current"; to?: VersionLabel }
+    | { ok: false; error: string },
 ): Job[] {
   return prune(
-    jobs.map((job) => {
+    jobs.map((job): Job => {
       if (job.id !== id || job.state !== "running") return job;
-      return outcome.ok
-        ? { ...job, state: "done" as const, finishedAt: now, pluginId: outcome.pluginId, error: null }
-        : { ...job, state: "failed" as const, finishedAt: now, error: outcome.error };
+      if (!outcome.ok) return { ...job, state: "failed", finishedAt: now, error: outcome.error };
+      if (job.kind === "update") {
+        return { ...job, state: "done", finishedAt: now, error: null, result: outcome.result ?? "updated", to: outcome.to ?? job.to };
+      }
+      return { ...job, state: "done", finishedAt: now, pluginId: outcome.pluginId, error: null };
     }),
   );
 }

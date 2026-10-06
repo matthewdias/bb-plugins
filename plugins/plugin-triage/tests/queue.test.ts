@@ -11,12 +11,15 @@ import {
   nextWakeAt,
   prune,
   recover,
+  releaseHeld,
+  type InstallJob,
   type Job,
+  type UpdateJob,
 } from "../lib/queue";
 
 const T = 1_000_000;
 
-function job(id: string, overrides: Partial<Job> = {}): Job {
+function job(id: string, overrides: Partial<InstallJob> = {}): InstallJob {
   return {
     id,
     kind: "install",
@@ -35,6 +38,68 @@ function job(id: string, overrides: Partial<Job> = {}): Job {
     ...overrides,
   };
 }
+
+function update(pluginId: string, overrides: Partial<UpdateJob> = {}): UpdateJob {
+  return {
+    id: `u-${pluginId}`,
+    kind: "update",
+    key: `update:${pluginId}`,
+    pluginId,
+    displayName: pluginId,
+    from: { version: "1.0.0", display: "1.0.0" },
+    to: { version: "1.1.0", display: "1.1.0" },
+    held: true,
+    result: null,
+    createdAt: T,
+    runAfter: T,
+    state: "pending",
+    startedAt: null,
+    finishedAt: null,
+    error: null,
+    ...overrides,
+  };
+}
+
+describe("held updates", () => {
+  it("wait for the batch to start, and do not wake the runner", () => {
+    const jobs: Job[] = [update("a"), update("b")];
+    expect(nextRunnable(jobs, T + 10_000)).toBeNull();
+    expect(nextWakeAt(jobs)).toBeNull();
+  });
+
+  it("all become ready when the batch starts, in the order queued", () => {
+    const { jobs, released } = releaseHeld([update("a", { createdAt: T }), job("x"), update("b", { createdAt: T + 1 })], T + 100);
+    expect(released).toBe(2);
+    expect(nextRunnable(jobs, T + 200)?.id).toBe("u-a");
+    const second = markFinished(markRunning(jobs, "u-a", T + 200), "u-a", T + 300, { ok: true, pluginId: "a" });
+    expect(nextRunnable(second, T + 300)?.id).toBe("u-b");
+  });
+
+  it("can be cancelled until they start", () => {
+    const { jobs } = releaseHeld([update("a")], T);
+    expect(cancelPending(jobs, "update:a", T).cancelled).toBe(true);
+    expect(cancelPending([update("b")], "update:b", T).cancelled).toBe(true);
+  });
+
+  it("run this plugin's own update last, whatever order they were queued in", () => {
+    const { jobs } = releaseHeld([update("plugin-triage"), update("a"), update("b")], T);
+    expect(nextRunnable(jobs, T + 10, "plugin-triage")?.pluginId).toBe("a");
+    const rest = jobs.filter((j) => j.pluginId !== "a");
+    expect(nextRunnable(rest, T + 10, "plugin-triage")?.pluginId).toBe("b");
+    expect(nextRunnable([jobs[0]!], T + 10, "plugin-triage")?.pluginId).toBe("plugin-triage");
+  });
+
+  it("record what bb did and the version it landed on", () => {
+    const { jobs } = releaseHeld([update("a")], T);
+    const done = markFinished(markRunning(jobs, "u-a", T), "u-a", T + 5, {
+      ok: true,
+      pluginId: "a",
+      result: "updated",
+      to: { version: "1.2.0", display: "1.2.0" },
+    });
+    expect(done[0]).toMatchObject({ state: "done", result: "updated", to: { version: "1.2.0" } });
+  });
+});
 
 describe("the install queue", () => {
   it("waits out the grace period before a job is runnable", () => {

@@ -12,6 +12,15 @@ vi.mock("../../ui/haptics", () => ({ haptic: vi.fn() }));
 const alpha = toCard(entry({ entryId: "alpha" }));
 const beta = toCard(entry({ entryId: "beta" }));
 
+/** What a server holding the store's current decks answers for them. */
+function deckAnswer(method: string): unknown {
+  const snapshot = triageStore.getSnapshot();
+  if (method === "deck_new") return { cards: snapshot.cards, cutoff: 0 };
+  if (method === "deck_saved") return { cards: snapshot.saved };
+  if (method === "updates_deck") return snapshot.updates;
+  return undefined;
+}
+
 /** A server whose `decide` answers only when told to. */
 function fakeRpc() {
   const calls: { method: string; input: Record<string, unknown> }[] = [];
@@ -23,6 +32,9 @@ function fakeRpc() {
         return new Promise((resolve) => answers.push(() => resolve({ job: null, previous: null })));
       }
       if (method === "entry_plan") return Promise.resolve({ summary: null, confirmedSource: null });
+      // The page reloads after an undo: answer with the decks as they stand.
+      const deck = deckAnswer(method);
+      if (deck !== undefined) return Promise.resolve(deck);
       return Promise.resolve({ undone: true, reason: null });
     }),
   } as unknown as TriageRpc;
@@ -75,7 +87,9 @@ describe("undo", () => {
 
     vi.mocked(haptic).mockClear();
     vi.mocked(rpc.call).mockImplementation(((method: string) =>
-      Promise.resolve(method === "undo" ? { undone: false, reason: "It's already installing." } : { job: null, previous: null })) as never);
+      Promise.resolve(
+        deckAnswer(method) ?? (method === "undo" ? { undone: false, reason: "It's already installing." } : { job: null, previous: null }),
+      )) as never);
     void decide(rpc, beta, "right");
     await flush();
     await undoLast(rpc);

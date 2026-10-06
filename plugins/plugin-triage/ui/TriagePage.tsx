@@ -12,9 +12,12 @@ import { decide, planFor, undoLast, type Plan } from "./decisions";
 import { EntryCard } from "./EntryCard";
 import { navigateInApp, pluginDetailsPath } from "./navigate";
 import { SavedList } from "./SavedList";
+import { UpdatesPanel } from "./UpdatesPanel";
 import { triageStore } from "./triage-store";
 
-type Tab = "new" | "saved";
+type Tab = "new" | "updates" | "saved";
+
+const TAB_LABELS: Record<Tab, string> = { new: "New", updates: "Updates", saved: "Saved" };
 
 function usePlan(card: NewCard | null) {
   const rpc = useRpc<typeof rpcContract>();
@@ -77,7 +80,7 @@ export function TriagePage() {
             on a phone the space is worth more than the heading. */}
         <h1 className="hidden text-lg font-semibold sm:block">Triage</h1>
         <nav className="flex rounded-lg border border-border p-0.5" aria-label="Decks">
-          {(["new", "saved"] as const).map((id) => (
+          {(["new", "updates", "saved"] as const).map((id) => (
             <button
               key={id}
               type="button"
@@ -88,8 +91,10 @@ export function TriagePage() {
                 tab === id && "bg-state-active text-foreground",
               )}
             >
-              {id === "new" ? "New" : "Saved"}
-              <span className="tabular-nums opacity-70">{id === "new" ? deck.cards.length : deck.saved.length}</span>
+              {TAB_LABELS[id]}
+              <span className="tabular-nums opacity-70">
+                {id === "new" ? deck.cards.length : id === "updates" ? deck.updates.cards.length : deck.saved.length}
+              </span>
             </button>
           ))}
         </nav>
@@ -144,6 +149,9 @@ export function TriagePage() {
               )}
             />
           )
+        )}
+        {deck.status === "ready" && tab === "updates" && (
+          <UpdatesPanel rpc={rpc} updates={deck.updates} keyboard={tab === "updates"} />
         )}
         {deck.status === "ready" && tab === "saved" && (
           <SavedList

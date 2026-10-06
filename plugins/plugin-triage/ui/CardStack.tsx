@@ -12,10 +12,30 @@ import { haptic } from "./haptics";
 /** How long a decided card takes to leave. */
 const FLY_MS = 220;
 
-const LABELS: Record<Direction, { text: string; className: string }> = {
-  right: { text: "Install", className: "left-4 top-4 -rotate-12 border-emerald-500 text-emerald-500" },
-  left: { text: "Dismiss", className: "right-4 top-4 rotate-12 border-red-500 text-red-500" },
-  up: { text: "Save", className: "bottom-24 left-1/2 -translate-x-1/2 border-sky-500 text-sky-500" },
+/** Where each direction's stamp sits on the card, and its colour. */
+const STAMPS: Record<Direction, string> = {
+  right: "left-4 top-4 -rotate-12 border-emerald-500 text-emerald-500",
+  left: "right-4 top-4 rotate-12 border-red-500 text-red-500",
+  up: "bottom-24 left-1/2 -translate-x-1/2 border-sky-500 text-sky-500",
+};
+
+export interface DeckAction {
+  /** The stamp on the card as it leans this way. */
+  label: string;
+  /** The button's accessible name, before its key. */
+  name: string;
+  icon: string;
+  /** The word in the key hint. */
+  hint: string;
+}
+
+/** What each direction does, deck by deck. */
+export type DeckActions = Record<Direction, DeckAction>;
+
+export const NEW_ACTIONS: DeckActions = {
+  right: { label: "Install", name: "Install", icon: "Download", hint: "install" },
+  left: { label: "Dismiss", name: "Dismiss", icon: "X", hint: "dismiss" },
+  up: { label: "Save", name: "Save for later", icon: "Clock", hint: "save" },
 };
 
 function reducedMotion(): boolean {
@@ -59,6 +79,9 @@ export interface CardStackProps<T extends { key: string }> {
    * pans it, and only a sideways press drags the card.
    */
   scrollable?: boolean;
+  actions?: DeckActions;
+  /** Whether the cards open details (Space) and close them (Escape). */
+  details?: boolean;
 }
 
 export function CardStack<T extends { key: string }>({
@@ -69,6 +92,8 @@ export function CardStack<T extends { key: string }>({
   onDetails,
   keyboard = true,
   scrollable = false,
+  actions = NEW_ACTIONS,
+  details = true,
 }: CardStackProps<T>) {
   const top = cards[0] ?? null;
   const next = cards[1] ?? null;
@@ -110,6 +135,7 @@ export function CardStack<T extends { key: string }>({
       const command = keyCommand(event);
       if (command === null) return;
       if (command === "close") return;
+      if (command === "details" && !details) return;
       // Space and Enter on a focused button are that button's.
       if (command === "details" && event.target instanceof HTMLButtonElement) return;
       event.preventDefault();
@@ -119,7 +145,7 @@ export function CardStack<T extends { key: string }>({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [fly, keyboard, onDetails, onUndo]);
+  }, [details, fly, keyboard, onDetails, onUndo]);
 
   // Escape leaves the open details. bb also binds Escape on the Plugins
   // screen, to go back to the app, and does not check whether a key was
@@ -265,11 +291,11 @@ export function CardStack<T extends { key: string }>({
               <span
                 className={cn(
                   "pointer-events-none absolute rounded-md border-2 bg-card/80 px-3 py-1 text-lg font-bold uppercase tracking-wide",
-                  LABELS[lean].className,
+                  STAMPS[lean],
                 )}
                 style={{ opacity: amount }}
               >
-                {LABELS[lean].text}
+                {actions[lean].label}
               </span>
             )}
           </div>
@@ -299,9 +325,9 @@ export function CardStack<T extends { key: string }>({
             className="size-14 text-red-500"
             onClick={() => fly("left")}
             disabled={top === null}
-            aria-label="Dismiss (←)"
+            aria-label={`${actions.left.name} (←)`}
           >
-            <Icon name="X" className="size-6" aria-hidden />
+            <Icon name={actions.left.icon} className="size-6" aria-hidden />
           </Button>
           <Button
             variant="outline"
@@ -309,9 +335,9 @@ export function CardStack<T extends { key: string }>({
             className="text-sky-500"
             onClick={() => fly("up")}
             disabled={top === null}
-            aria-label="Save for later (↑)"
+            aria-label={`${actions.up.name} (↑)`}
           >
-            <Icon name="Clock" aria-hidden />
+            <Icon name={actions.up.icon} aria-hidden />
           </Button>
           <Button
             variant="outline"
@@ -319,15 +345,16 @@ export function CardStack<T extends { key: string }>({
             className="size-14 text-emerald-500"
             onClick={() => fly("right")}
             disabled={top === null}
-            aria-label="Install (→)"
+            aria-label={`${actions.right.name} (→)`}
           >
-            <Icon name="Download" className="size-6" aria-hidden />
+            <Icon name={actions.right.icon} className="size-6" aria-hidden />
           </Button>
         </div>
       </div>
       {/* Keys mean nothing on a touchscreen. */}
       <p className="hidden shrink-0 text-xs text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:block">
-        ← dismiss · ↑ save · → install · space details · esc close · Z undo
+        ← {actions.left.hint} · ↑ {actions.up.hint} · → {actions.right.hint}
+        {details && " · space details · esc close"} · Z undo
       </p>
     </div>
   );

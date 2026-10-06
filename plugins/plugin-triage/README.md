@@ -59,6 +59,43 @@ or removes it from Saved.
 
 **Show incompatible** adds plugins that need a newer bb, with the reason.
 
+**Updates** deals the installed plugins that have a newer compatible version,
+as cards showing the version now and the one on offer, any newer release bb
+won't take and why, and the last attempt if it failed. For a GitHub source
+the card on top also lists what the update changes: the commits between the
+two versions that touch the plugin (when it shares a repository with other
+plugins, only those in its own folder), and the release notes when the new
+version is a release. An update that touches nothing of the plugin's says so,
+so it can be skipped with confidence. **Changes** opens the full comparison
+on GitHub; **Details** opens the plugin in bb's detail pane.
+
+The lists come from GitHub's API. To get its 5,000-an-hour limit rather than
+the 60 GitHub allows without a login, Plugin Triage uses this machine's
+GitHub login the way bb does for git: `GH_TOKEN` if it is set, otherwise
+`gh auth token`. The token stays in memory and is only sent to
+api.github.com, for read-only lookups; turn **Use this machine's GitHub login
+for update change lists** off in the plugin's settings to look up without
+one. Either way a card's changes are fetched only once it has stayed on top
+for a moment, so skimming the deck costs nothing; each range is fetched once
+and kept; and when fewer than ten requests are left in the hour, cards offer
+**Load changes** instead of spending them.
+
+| | Drag | Key |
+| --- | --- | --- |
+| Queue the update | right | → |
+| Skip this version (it comes back when a newer one is out) | left | ← |
+| Remind me in a week | up | ↑ |
+| Undo | | Z |
+
+Queued updates wait for **Update all**, then run in the background as one
+batch, one plugin at a time, which is how bb applies them. The batch keeps
+going if you close the window, and Plugin Triage updates itself last, since
+its own update reloads the page. A toast reports each result, a failed or
+rolled-back update puts its card back with the reason, and **Recent** lists
+what the last batches did. Plugins bb couldn't check are listed apart, each
+with a **Retry**; **Check now** asks bb to look again for everything, which
+takes a while.
+
 ## What counts as new
 
 The first visit looks back 14 days, and anything published before that counts
