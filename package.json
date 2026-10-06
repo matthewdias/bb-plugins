@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "BB plugins: Follow Up, Mark Unread, Question Dock, Swipe Controls, Thread Badges, Top Tabs, and Workflow Stages.",
+  "description": "BB plugins: Follow Up, Mark Unread, Question Dock, Side Chats, Swipe Controls, Thread Badges, Top Tabs, and Workflow Stages.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/matthewdias/bb-plugins.git"
