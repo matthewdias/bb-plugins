@@ -42,41 +42,85 @@ import { cn } from "@/lib/utils";
 const LONG_PRESS_MS = 500;
 
 /**
- * Press, or press-and-hold. A held touch fires `onHold` and swallows the click
- * that follows it, so holding to edit never also sends. Mouse and pen keep
- * their plain click; ⌥ is their way to the same place.
+ * How far a resting finger may drift and still be holding. Past this it is a
+ * drag — usually the Next row being scrolled sideways on a phone — and a drag
+ * must neither edit nor send.
+ */
+const HOLD_SLOP_PX = 10;
+
+/**
+ * Press, or press-and-hold. A touch that rests on a chip fires `onHold` and
+ * swallows the click that follows it, so holding to edit never also sends.
+ * Mouse and pen keep their plain click; ⌥ is their way to the same place.
+ *
+ * Holding means holding still. Scrolling the row sideways starts with a touch
+ * on a chip, and this used to read a slow scroll as a hold and put the step in
+ * the composer. Three things now give up on a hold, because which of them a
+ * phone's browser reports for a scroll, and when, varies: the touch moving
+ * past HOLD_SLOP_PX, anything on the page scrolling, and the browser
+ * cancelling the pointer to scroll it itself. Any of them also swallows the
+ * click, should one arrive at the end of the drag.
  */
 function useHold(onHold: () => void) {
   const timer = useRef<number | null>(null);
-  const held = useRef(false);
-  const cancel = useCallback(() => {
+  const origin = useRef<{ x: number; y: number } | null>(null);
+  const unwatchScroll = useRef<(() => void) | null>(null);
+  /** The click ending this touch is not a press: it was a hold, or a drag. */
+  const swallow = useRef(false);
+
+  const stop = useCallback(() => {
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
+    origin.current = null;
+    unwatchScroll.current?.();
+    unwatchScroll.current = null;
   }, []);
-  useEffect(() => cancel, [cancel]);
+  const abandon = useCallback(() => {
+    if (origin.current === null) return;
+    swallow.current = true;
+    stop();
+  }, [stop]);
+  useEffect(() => stop, [stop]);
+
   return {
     handlers: {
       onPointerDown: (event: PointerEvent) => {
-        held.current = false;
+        swallow.current = false;
         if (event.pointerType !== "touch") return;
-        cancel();
+        stop();
+        origin.current = { x: event.clientX, y: event.clientY };
+        // Scroll does not bubble, so listen on the document while capturing:
+        // that hears the Next row scrolling as well as the page.
+        const onScroll = () => abandon();
+        document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+        unwatchScroll.current = () =>
+          document.removeEventListener("scroll", onScroll, { capture: true });
         timer.current = window.setTimeout(() => {
-          held.current = true;
+          swallow.current = true;
+          stop();
           onHold();
         }, LONG_PRESS_MS);
       },
-      onPointerUp: cancel,
-      onPointerLeave: cancel,
-      onPointerCancel: cancel,
+      onPointerMove: (event: PointerEvent) => {
+        const from = origin.current;
+        if (from === null) return;
+        if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > HOLD_SLOP_PX) {
+          abandon();
+        }
+      },
+      onPointerUp: stop,
+      onPointerLeave: stop,
+      // The browser took the touch to scroll with.
+      onPointerCancel: abandon,
       // The OS's own long-press menu would open on top of the composer.
       onContextMenu: (event: MouseEvent) => {
-        if (held.current) event.preventDefault();
+        if (swallow.current) event.preventDefault();
       },
     },
-    /** True once, for the click a hold already answered. */
+    /** True once, for the click a hold or a drag already answered. */
     consumeHeld: () => {
-      const was = held.current;
-      held.current = false;
+      const was = swallow.current;
+      swallow.current = false;
       return was;
     },
   };

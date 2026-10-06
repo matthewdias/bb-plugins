@@ -120,6 +120,52 @@ describe("the agent's offer", () => {
     expect(calls(slot, "followups_next_take")).toEqual([]);
   });
 
+  it("a few pixels of jitter still count as holding", async () => {
+    const slot = renderBanner("thr_jitter", { offer: offerOf("Open a PR") });
+    const chip = await slot.findByRole("button", { name: 'Send "Open a PR"' });
+    fireEvent.pointerDown(chip, { pointerType: "touch", clientX: 20, clientY: 10 });
+    fireEvent.pointerMove(chip, { pointerType: "touch", clientX: 26, clientY: 13 });
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    fireEvent.pointerUp(chip, { pointerType: "touch" });
+    expect(slot.inspection.composer.text).toContain("Open a PR");
+  });
+
+  it("dragging across the row to scroll it neither edits nor sends", async () => {
+    // A phone scrolls the Next row sideways by dragging a chip. A slow drag
+    // used to outlast the hold and put the step in the composer.
+    const slot = renderBanner("thr_drag", { offer: offerOf("Open a PR", "Add a test") });
+    const chip = await slot.findByRole("button", { name: 'Send "Open a PR"' });
+    fireEvent.pointerDown(chip, { pointerType: "touch", clientX: 120, clientY: 10 });
+    fireEvent.pointerMove(chip, { pointerType: "touch", clientX: 60, clientY: 12 });
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    fireEvent.pointerUp(chip, { pointerType: "touch" });
+    // Should a browser still deliver a click at the end of the drag.
+    fireEvent.click(chip);
+    expect(slot.inspection.composer.text).toBe("");
+    expect(calls(slot, "followups_next_take")).toEqual([]);
+  });
+
+  it("the row scrolling gives up on a hold, even with no pointer movement reported", async () => {
+    const slot = renderBanner("thr_scroll", { offer: offerOf("Open a PR", "Add a test") });
+    const chip = await slot.findByRole("button", { name: 'Send "Open a PR"' });
+    fireEvent.pointerDown(chip, { pointerType: "touch", clientX: 120, clientY: 10 });
+    fireEvent.scroll(slot.getByRole("group", { name: "Next steps" }));
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    fireEvent.pointerUp(chip, { pointerType: "touch" });
+    fireEvent.click(chip);
+    expect(slot.inspection.composer.text).toBe("");
+    expect(calls(slot, "followups_next_take")).toEqual([]);
+  });
+
+  it("the browser taking the touch to scroll gives up on a hold", async () => {
+    const slot = renderBanner("thr_cancel", { offer: offerOf("Open a PR") });
+    const chip = await slot.findByRole("button", { name: 'Send "Open a PR"' });
+    fireEvent.pointerDown(chip, { pointerType: "touch", clientX: 120, clientY: 10 });
+    fireEvent.pointerCancel(chip, { pointerType: "touch" });
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(slot.inspection.composer.text).toBe("");
+  });
+
   it("a step can be kept as a follow-up from the ⋯ menu", async () => {
     const slot = renderBanner("thr_keep", { offer: offerOf("Open a PR", "Add a test") });
     fireEvent.keyDown(await slot.findByRole("button", { name: "More next-step actions" }), {
