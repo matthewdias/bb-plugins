@@ -27,7 +27,10 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@semver:*" \
 - **Floating.** Drag the card by its header, marked by a grip at its start
   and a grab cursor, to float it. It stays above the composer and can't be
   dragged off the thread. It reopens where you dropped
-  it, on that device. A card dropped in the lower half of the thread keeps
+  it, on that device. Resize it from its left edge, its bottom edge or
+  either bottom corner (a grip marks the right one); the right edge is left
+  to the card's scrollbar. The size is remembered on that device, and the
+  height is a ceiling: a short question still gets a short card. A card dropped in the lower half of the thread keeps
   its bottom edge as it shrinks or grows, and one dropped in the upper half
   keeps its top edge.
 - **Collapsing** a docked or floating card (its chevron, a click on its
@@ -58,7 +61,7 @@ two cards at once, which is rare, the first moves and the second stays.
 | Open questions as a sheet on phones | On | Off leaves the card where bb puts it on a phone. |
 
 What you do by dragging (dock or float, the dock's width, the float's
-position, the sheet's height) is remembered per device, and wins over the setting. **Question
+position and size, the sheet's height) is remembered per device, and wins over the setting. **Question
 Dock: Reset card position** in the palette forgets it.
 
 ## Commands
@@ -66,7 +69,7 @@ Dock: Reset card position** in the palette forgets it.
 - **Question Dock: Dock card**: dock cards from now on, on this device.
 - **Question Dock: Float card**: float them.
 - **Question Dock: Reset card position**: back to the setting, the default
-  dock width, the default spot and the default sheet height.
+  dock width, the default float spot and size, and the default sheet height.
 
 ## How it works
 

@@ -11,6 +11,8 @@ import {
   floatMaxHeight,
   floatPositionOf,
   placeFloat,
+  resizeFloat,
+  resizeZone,
   fromFraction,
   inDockZone,
   sheetHeight,
@@ -146,4 +148,39 @@ test("the dock grows with the pane, within bounds, and leaves the chat room", ()
   assert.equal(dockWidth(1200, 100), 360);
   // At the narrowest pane that docks, the chat keeps its minimum.
   assert.ok(DOCK_MIN_PANE - dockWidth(DOCK_MIN_PANE, null) - 2 * INSET >= 520);
+});
+
+test("a dock resizes from its left edge only", () => {
+  const rect = { left: 100, top: 100, width: 400, height: 500 };
+  assert.equal(resizeZone(rect, 103, 300, "dock"), "w");
+  assert.equal(resizeZone(rect, 120, 300, "dock"), null);
+  assert.equal(resizeZone(rect, 495, 595, "dock"), null);
+});
+
+test("a float resizes from its left and bottom edges and bottom corners, not its header or scrollbar", () => {
+  const rect = { left: 100, top: 100, width: 400, height: 500 };
+  assert.equal(resizeZone(rect, 103, 300, "float"), "w");
+  assert.equal(resizeZone(rect, 300, 597, "float"), "s");
+  assert.equal(resizeZone(rect, 490, 590, "float"), "se");
+  assert.equal(resizeZone(rect, 108, 590, "float"), "sw");
+  // The right edge, where the card's scrollbar is, and the middle.
+  assert.equal(resizeZone(rect, 497, 300, "float"), null);
+  assert.equal(resizeZone(rect, 300, 300, "float"), null);
+  // Outside the card.
+  assert.equal(resizeZone(rect, 90, 300, "float"), null);
+});
+
+test("resizing a float keeps the opposite edges, its minimum size and the room", () => {
+  const bounds = { left: 0, top: 0, width: 1000, height: 700 };
+  const start = { left: 400, top: 100, width: 380, height: 300 };
+  // The corner grows right and down.
+  assert.deepEqual(resizeFloat(start, "se", 100, 50, bounds), { left: 400, top: 100, width: 480, height: 350 });
+  // The left edge moves, the right edge stays.
+  assert.deepEqual(resizeFloat(start, "w", -100, 0, bounds), { left: 300, top: 100, width: 480, height: 300 });
+  // Never smaller than the minimum, never out of the room.
+  assert.deepEqual(resizeFloat(start, "sw", 500, -500, bounds), { left: 480, top: 100, width: 300, height: 120 });
+  assert.deepEqual(resizeFloat(start, "se", 900, 900, bounds), { left: 400, top: 100, width: 600, height: 600 });
+  // A card already below the room's floor keeps its minimum rather than inverting.
+  const low = { left: 400, top: 650, width: 380, height: 300 };
+  assert.equal(resizeFloat(low, "s", 0, 10, bounds).height, 120);
 });

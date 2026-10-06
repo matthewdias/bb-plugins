@@ -21,6 +21,10 @@ import {
   floatBounds,
   floatMaxHeight,
   floatWidth,
+  isFloatSize,
+  resizeFloat,
+  resizeZone,
+  type ResizeZone,
   fromFraction,
   inDockZone,
   floatPositionOf,
@@ -61,8 +65,11 @@ const SETTLE_DELAYS_MS = [120, 400] as const;
 const DESKTOP_KEY = "question-dock:desktop";
 const FLOAT_KEY = "question-dock:float";
 const DOCK_WIDTH_KEY = "question-dock:dock-width";
-/** How near the dock's left edge a press resizes it rather than reaching the card. */
-const RESIZE_EDGE_PX = 6;
+const FLOAT_SIZE_KEY = "question-dock:float-size";
+/** On a card: which of its edges the pointer is over, for the cursor. */
+const ZONE_ATTR = "data-qd-zone";
+/** On <html>: the edge being dragged, so the cursor holds off the card too. */
+const RESIZING_ATTR = "data-qd-resizing";
 const SHEET_KEY = "question-dock:sheet";
 
 export interface DockOptions {
@@ -80,7 +87,8 @@ interface Lifted {
 type Drag =
   | { kind: "float"; section: HTMLElement; origin: { left: number; top: number }; at: { left: number; top: number } }
   | { kind: "sheet"; section: HTMLElement; startHeight: number; height: number }
-  | { kind: "resize"; section: HTMLElement; startWidth: number; width: number };
+  | { kind: "resize"; section: HTMLElement; startWidth: number; width: number }
+  | { kind: "float-size"; section: HTMLElement; zone: ResizeZone; start: Rect; rect: Rect };
 
 export type GhostListener = (ghost: Rect | null) => void;
 
@@ -164,6 +172,10 @@ export class DockController {
     this.doc.addEventListener("dblclick", onDoubleClick, true);
     this.teardown.push(() => this.doc.removeEventListener("dblclick", onDoubleClick, true));
 
+    const onHover = (event: PointerEvent) => this.onHover(event);
+    this.doc.addEventListener("pointermove", onHover, { capture: true, passive: true });
+    this.teardown.push(() => this.doc.removeEventListener("pointermove", onHover, true));
+
     const onOutside = (event: PointerEvent) => this.onPointerDownOutside(event);
     this.doc.addEventListener("pointerdown", onOutside, true);
     this.teardown.push(() => this.doc.removeEventListener("pointerdown", onOutside, true));
@@ -185,6 +197,7 @@ export class DockController {
     }
     for (const entry of [...this.lifted.values()]) this.unlift(entry);
     this.drag = null;
+    this.doc.documentElement.removeAttribute(RESIZING_ATTR);
     this.setGhost(null);
   }
 
@@ -213,7 +226,7 @@ export class DockController {
 
   /** Forget this device's choices: back to the setting, default spot and height. */
   reset(): void {
-    for (const key of [DESKTOP_KEY, FLOAT_KEY, SHEET_KEY, DOCK_WIDTH_KEY]) this.remove(key);
+    for (const key of [DESKTOP_KEY, FLOAT_KEY, SHEET_KEY, DOCK_WIDTH_KEY, FLOAT_SIZE_KEY]) this.remove(key);
     this.update();
   }
 
@@ -344,6 +357,7 @@ export class DockController {
     section.removeAttribute(MODE_ATTR);
     section.removeAttribute(DRAGGING_ATTR);
     section.removeAttribute(ANCHOR_ATTR);
+    section.removeAttribute(ZONE_ATTR);
     for (const name of VARS) section.style.removeProperty(name);
     const others = [...this.lifted.values()];
     if (!others.some((other) => other.footer === footer)) footer.removeAttribute(FOOTER_ATTR);
@@ -401,11 +415,17 @@ export class DockController {
       setVar(pane, "--qd-dock-w", px(width));
     } else if (mode === "float") {
       const bounds = floatBounds(paneRect, footer.getBoundingClientRect().top);
-      width = floatWidth(bounds);
-      maxHeight = floatMaxHeight(paneRect, bounds);
+      const chosen = this.floatSize();
+      width = floatWidth(bounds, chosen?.width ?? null);
+      maxHeight = floatMaxHeight(paneRect, bounds, chosen?.height ?? null);
       const size = { width, height: Math.min(section.getBoundingClientRect().height, maxHeight) };
       const drag = this.drag?.kind === "float" && this.drag.section === section ? this.drag : null;
-      if (drag) {
+      const sizing = this.drag?.kind === "float-size" && this.drag.section === section ? this.drag : null;
+      if (sizing) {
+        // Top-anchored while its edges move, at exactly the dragged box.
+        ({ left: x, top: y, width, height } = sizing.rect);
+        maxHeight = bounds.height;
+      } else if (drag) {
         x = drag.at.left;
         y = drag.at.top;
       } else {
@@ -475,6 +495,17 @@ export class DockController {
     return Number.isFinite(width) ? width : null;
   }
 
+  private floatSize(): { width: number; height: number } | null {
+    const raw = this.read(FLOAT_SIZE_KEY);
+    if (raw === null) return null;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return isFloatSize(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
   private floatPosition(): FloatPosition {
     const raw = this.read(FLOAT_KEY);
     if (raw === null) return DEFAULT_FLOAT;
@@ -500,8 +531,8 @@ export class DockController {
   }
 
   private beginDrag(target: Element, event: PointerEvent): DragSession | null {
-    const edge = this.dockEdge(target, event);
-    if (edge) return this.resizeSession(edge);
+    const edge = this.edgeAt(target, event);
+    if (edge) return edge.entry.mode === "dock" ? this.resizeSession(edge.entry) : this.floatSizeSession(edge.entry, edge.zone);
     const entry = this.headerCard(target);
     if (!entry) return null;
     const { section } = entry;
@@ -584,12 +615,72 @@ export class DockController {
     };
   }
 
-  /** The docked card whose left edge, its resize handle, is under the press. */
-  private dockEdge(target: Element, event: PointerEvent): Lifted | null {
-    if (!(target instanceof this.win.HTMLElement)) return null;
-    const entry = this.lifted.get(target);
-    if (!entry || entry.mode !== "dock") return null;
-    return event.clientX - target.getBoundingClientRect().left <= RESIZE_EDGE_PX ? entry : null;
+  /** The lifted card, and which of its edges, a pointer at `event` would resize. */
+  private edgeAt(target: Element, event: PointerEvent): { entry: Lifted; zone: ResizeZone } | null {
+    const section = target.closest<HTMLElement>(`section[${MODE_ATTR}]`);
+    const entry = section ? this.lifted.get(section) : undefined;
+    if (!section || !entry || (entry.mode !== "dock" && entry.mode !== "float")) return null;
+    const box = section.getBoundingClientRect();
+    const zone = resizeZone(
+      { left: box.left, top: box.top, width: box.width, height: box.height },
+      event.clientX,
+      event.clientY,
+      entry.mode,
+    );
+    return zone ? { entry, zone } : null;
+  }
+
+  /** Show a resize cursor over a card's edges, and the grab cursor elsewhere on its header. */
+  private onHover(event: PointerEvent): void {
+    if (this.drag !== null || !(event.target instanceof Element)) return;
+    const edge = this.edgeAt(event.target, event);
+    for (const entry of this.lifted.values()) {
+      if (entry !== edge?.entry) entry.section.removeAttribute(ZONE_ATTR);
+    }
+    if (edge) setAttr(edge.entry.section, ZONE_ATTR, edge.zone);
+  }
+
+  private startResizing(section: HTMLElement, zone: ResizeZone): void {
+    section.setAttribute(DRAGGING_ATTR, "");
+    setAttr(section, ZONE_ATTR, zone);
+    this.doc.documentElement.setAttribute(RESIZING_ATTR, zone);
+  }
+
+  private stopResizing(section: HTMLElement): void {
+    section.removeAttribute(DRAGGING_ATTR);
+    section.removeAttribute(ZONE_ATTR);
+    this.doc.documentElement.removeAttribute(RESIZING_ATTR);
+  }
+
+  /** Drag a float's left or bottom edge, or a bottom corner, to resize it. */
+  private floatSizeSession(entry: Lifted, zone: ResizeZone): DragSession {
+    const { section } = entry;
+    return {
+      start: () => {
+        const box = section.getBoundingClientRect();
+        const start = { left: box.left, top: box.top, width: box.width, height: box.height };
+        this.drag = { kind: "float-size", section, zone, start, rect: start };
+        this.startResizing(section, zone);
+      },
+      move: (dx, dy) => {
+        if (this.drag?.kind !== "float-size") return;
+        const bounds = floatBounds(this.paneRect(entry.pane), entry.footer.getBoundingClientRect().top);
+        this.drag.rect = resizeFloat(this.drag.start, zone, dx, dy, bounds);
+        this.place(entry);
+      },
+      end: (_event, cancelled) => {
+        const drag = this.drag?.kind === "float-size" ? this.drag : null;
+        this.drag = null;
+        this.stopResizing(section);
+        if (drag && !cancelled) {
+          const bounds = floatBounds(this.paneRect(entry.pane), entry.footer.getBoundingClientRect().top);
+          const { rect } = drag;
+          this.write(FLOAT_SIZE_KEY, JSON.stringify({ width: Math.round(rect.width), height: Math.round(rect.height) }));
+          this.write(FLOAT_KEY, JSON.stringify(floatPositionOf(bounds, rect)));
+        }
+        this.update();
+      },
+    };
   }
 
   /** Drag the dock's left edge to make it wider or narrower; the chat follows. */
@@ -599,7 +690,7 @@ export class DockController {
       start: () => {
         const startWidth = section.getBoundingClientRect().width;
         this.drag = { kind: "resize", section, startWidth, width: startWidth };
-        section.setAttribute(DRAGGING_ATTR, "");
+        this.startResizing(section, "w");
       },
       move: (dx) => {
         if (this.drag?.kind !== "resize") return;
@@ -609,7 +700,7 @@ export class DockController {
       end: (_event, cancelled) => {
         const drag = this.drag?.kind === "resize" ? this.drag : null;
         this.drag = null;
-        section.removeAttribute(DRAGGING_ATTR);
+        this.stopResizing(section);
         if (drag && !cancelled) this.write(DOCK_WIDTH_KEY, String(Math.round(drag.width)));
         this.update();
       },

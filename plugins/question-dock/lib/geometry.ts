@@ -32,6 +32,12 @@ export const CHAT_MIN_WIDTH = 520;
 /** Narrowest pane that docks: the dock plus a chat column bb still lays out well. */
 export const DOCK_MIN_PANE = 960;
 export const FLOAT_WIDTH = 380;
+/** The smallest a float can be resized to. */
+export const FLOAT_MIN_WIDTH = 300;
+export const FLOAT_MIN_HEIGHT = 120;
+/** How near an edge a press resizes, and how big the corners are. */
+export const RESIZE_EDGE = 6;
+export const RESIZE_CORNER = 16;
 /** The tallest a float gets, as a share of the pane, so the chat stays in view. */
 export const FLOAT_MAX_SHARE = 0.7;
 /** A float this close to the pane's right edge docks on release. */
@@ -131,12 +137,69 @@ export function floatBounds(pane: Rect, composerTop: number | null): Rect {
   };
 }
 
-export function floatWidth(bounds: Rect): number {
-  return Math.min(FLOAT_WIDTH, bounds.width);
+/** A float's width: the one it was resized to, or the default, inside `bounds`. */
+export function floatWidth(bounds: Rect, preferred: number | null = null): number {
+  const narrowest = Math.min(FLOAT_MIN_WIDTH, bounds.width);
+  return Math.max(narrowest, Math.min(preferred ?? FLOAT_WIDTH, bounds.width));
 }
 
-export function floatMaxHeight(pane: Rect, bounds: Rect): number {
+/**
+ * The tallest a float gets: the height it was resized to, or most of the
+ * pane, inside `bounds`. It is a ceiling, not a height: a short question
+ * leaves no empty space under bb's buttons.
+ */
+export function floatMaxHeight(pane: Rect, bounds: Rect, preferred: number | null = null): number {
+  if (preferred !== null) return Math.min(bounds.height, Math.max(FLOAT_MIN_HEIGHT, preferred));
   return Math.min(bounds.height, Math.round(pane.height * FLOAT_MAX_SHARE));
+}
+
+/**
+ * Which edge of a lifted card a press at (x, y) resizes. A dock resizes from
+ * its left edge, a float from its left edge, its bottom edge and its two
+ * bottom corners. The top is the header, which moves the card, and a float's
+ * right edge is where its scrollbar sits.
+ */
+export type ResizeZone = "w" | "s" | "sw" | "se";
+
+export function resizeZone(rect: Rect, x: number, y: number, mode: "dock" | "float"): ResizeZone | null {
+  const fromLeft = x - rect.left;
+  const fromRight = rect.left + rect.width - x;
+  const fromTop = y - rect.top;
+  const fromBottom = rect.top + rect.height - y;
+  if (fromLeft < 0 || fromRight < 0 || fromTop < 0 || fromBottom < 0) return null;
+  if (mode === "dock") return fromLeft <= RESIZE_EDGE ? "w" : null;
+  if (fromBottom <= RESIZE_CORNER && fromRight <= RESIZE_CORNER) return "se";
+  if (fromBottom <= RESIZE_CORNER && fromLeft <= RESIZE_CORNER) return "sw";
+  if (fromLeft <= RESIZE_EDGE) return "w";
+  if (fromBottom <= RESIZE_EDGE) return "s";
+  return null;
+}
+
+/** A float's box after dragging its `zone` by (dx, dy) from `start`, kept inside `bounds`. */
+export function resizeFloat(start: Rect, zone: ResizeZone, dx: number, dy: number, bounds: Rect): Rect {
+  const minWidth = Math.min(FLOAT_MIN_WIDTH, bounds.width);
+  const minHeight = Math.min(FLOAT_MIN_HEIGHT, bounds.height);
+  const right = start.left + start.width;
+  let { left, width, height } = start;
+  if (zone === "w" || zone === "sw") {
+    left = Math.min(Math.max(start.left + dx, bounds.left), right - minWidth);
+    width = right - left;
+  }
+  // Never past the room, but never below the minimum either, even for a card
+  // already partly outside it (the room shrank under it).
+  if (zone === "se") {
+    width = Math.max(minWidth, Math.min(start.width + dx, bounds.left + bounds.width - start.left));
+  }
+  if (zone === "s" || zone === "sw" || zone === "se") {
+    height = Math.max(minHeight, Math.min(start.height + dy, bounds.top + bounds.height - start.top));
+  }
+  return { left, top: start.top, width, height };
+}
+
+export function isFloatSize(value: unknown): value is { width: number; height: number } {
+  if (typeof value !== "object" || value === null) return false;
+  const { width, height } = value as Record<string, unknown>;
+  return typeof width === "number" && typeof height === "number" && Number.isFinite(width) && Number.isFinite(height);
 }
 
 function clamp01(value: number): number {

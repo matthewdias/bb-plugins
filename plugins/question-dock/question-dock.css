@@ -90,14 +90,41 @@ section[data-qd-mode][data-qd-dragging] {
    over bb's label button too, which would otherwise show a pointer, a grip
    at its start, and a tint on hover. bb's chevron, the header's last
    button, keeps its pointer: it still collapses the card. */
-section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child,
-section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child > button:first-child,
-section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child > button:first-child * {
+section[data-qd-mode]:not([data-qd-mode="sheet"]):not([data-qd-zone]) > div:first-child,
+section[data-qd-mode]:not([data-qd-mode="sheet"]):not([data-qd-zone]) > div:first-child > button:first-child,
+section[data-qd-mode]:not([data-qd-mode="sheet"]):not([data-qd-zone]) > div:first-child > button:first-child * {
   cursor: grab !important;
 }
-section[data-qd-mode][data-qd-dragging] > div:first-child,
-section[data-qd-mode][data-qd-dragging] > div:first-child * {
+section[data-qd-mode][data-qd-dragging]:not([data-qd-zone]) > div:first-child,
+section[data-qd-mode][data-qd-dragging]:not([data-qd-zone]) > div:first-child * {
   cursor: grabbing !important;
+}
+
+/* Over an edge that resizes (the controller marks which), and anywhere
+   while one is being dragged, the cursor says which way it goes. */
+section[data-qd-zone="w"],
+section[data-qd-zone="w"] *,
+html[data-qd-resizing="w"] * {
+  cursor: ew-resize !important;
+}
+section[data-qd-zone="s"],
+section[data-qd-zone="s"] *,
+html[data-qd-resizing="s"] * {
+  cursor: ns-resize !important;
+}
+section[data-qd-zone="se"],
+section[data-qd-zone="se"] *,
+html[data-qd-resizing="se"] * {
+  cursor: nwse-resize !important;
+}
+section[data-qd-zone="sw"],
+section[data-qd-zone="sw"] *,
+html[data-qd-resizing="sw"] * {
+  cursor: nesw-resize !important;
+}
+html[data-qd-resizing] * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 section[data-qd-mode]:not([data-qd-mode="sheet"]) > div:first-child {
   padding-left: 6px;
@@ -125,8 +152,9 @@ section[data-qd-mode="dock"] {
   translate: 0 -100%;
 }
 
-/* Its left edge resizes it: a thin strip over the card's border, with a
-   line on hover, and the chat moves over as it widens. */
+/* Its left edge resizes it, and the chat moves over as it widens. The line
+   shows while the pointer is on that edge (the controller finds it by
+   position) and while it is dragged. */
 section[data-qd-mode="dock"]::after {
   content: "";
   position: absolute;
@@ -135,14 +163,43 @@ section[data-qd-mode="dock"]::after {
   left: 0;
   width: 6px;
   z-index: 2;
-  cursor: ew-resize;
+  pointer-events: none;
 }
-section[data-qd-mode="dock"]:hover::after,
-section[data-qd-mode="dock"][data-qd-dragging]::after {
+section[data-qd-mode="dock"][data-qd-zone]::after {
   background: linear-gradient(to right, color-mix(in oklab, var(--ring, currentColor) 55%, transparent) 2px, transparent 2px);
 }
 
 /* --- Float ------------------------------------------------------------ */
+
+/* While its edges are dragged it is exactly the dragged box; afterwards the
+   height is a ceiling, so a short question leaves no gap under its buttons. */
+section[data-qd-mode="float"][data-qd-dragging][data-qd-zone] {
+  height: var(--qd-h) !important;
+}
+
+/* The resize grip in its bottom-right corner. Drawn only: the controller
+   finds the corner by position, so presses reach the card's own content. */
+section[data-qd-mode="float"]::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    transparent 0 52%,
+    var(--muted-foreground, currentColor) 52% 60%,
+    transparent 60% 70%,
+    var(--muted-foreground, currentColor) 70% 78%,
+    transparent 78%
+  );
+  opacity: 0.5;
+}
+section[data-qd-mode="float"][data-qd-zone]::after {
+  opacity: 0.9;
+}
 
 /* A float left in the lower half of the thread is placed by its bottom edge,
    so collapsing it or a shorter question keeps it where it was dropped. */

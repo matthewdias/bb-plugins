@@ -245,6 +245,52 @@ describe("resizing the dock", () => {
   });
 });
 
+describe("resizing a float", () => {
+  it("resizes from its corner, keeps the size, and floats there again", () => {
+    const { pane, section, label } = mountThread({ paneWidth: 800 });
+    pane.getBoundingClientRect = () => new DOMRect(0, 0, 800, 900);
+    const onClick = vi.fn();
+    label.addEventListener("click", onClick);
+    start();
+    expect(section.getAttribute("data-qd-mode")).toBe("float");
+    section.getBoundingClientRect = () => new DOMRect(300, 100, 380, 300);
+
+    pointer("pointerdown", section, 675, 395);
+    pointer("pointermove", section, 715, 445);
+    // While dragged it is exactly the dragged box, top-anchored.
+    expect(section.style.getPropertyValue("--qd-w")).toBe("420px");
+    expect(section.style.getPropertyValue("--qd-h")).toBe("350px");
+    expect(document.documentElement.getAttribute("data-qd-resizing")).toBe("se");
+    pointer("pointerup", section, 715, 445);
+
+    expect(document.documentElement.hasAttribute("data-qd-resizing")).toBe(false);
+    expect(JSON.parse(localStorage.getItem("question-dock:float-size")!)).toEqual({ width: 420, height: 350 });
+    expect(section.getAttribute("data-qd-mode")).toBe("float");
+    // Afterwards the width holds and the height is only a ceiling.
+    expect(section.style.getPropertyValue("--qd-h")).toBe("");
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("marks the edge under the pointer for the cursor, and only there", () => {
+    const { section } = mountThread({ paneWidth: 800 });
+    start();
+    section.getBoundingClientRect = () => new DOMRect(400, 100, 380, 300);
+    pointer("pointermove", section, 402, 250);
+    expect(section.getAttribute("data-qd-zone")).toBe("w");
+    pointer("pointermove", section, 600, 250);
+    expect(section.hasAttribute("data-qd-zone")).toBe(false);
+  });
+
+  it("is forgotten by Reset", () => {
+    const { section } = mountThread({ paneWidth: 800 });
+    localStorage.setItem("question-dock:float-size", JSON.stringify({ width: 500, height: 400 }));
+    start();
+    expect(section.style.getPropertyValue("--qd-w")).toBe("500px");
+    controller.reset();
+    expect(section.style.getPropertyValue("--qd-w")).toBe("380px");
+  });
+});
+
 describe("on a phone", () => {
   beforeEach(() => setCompact(true));
 
