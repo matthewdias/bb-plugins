@@ -145,6 +145,50 @@ test("file_follow_ups: a name that matches nothing, or several, files nothing", 
   assert.match(String(await tool({})), /Name the follow-ups to file, or pass all: true/);
 });
 
+test("bb follow-up file run inside a thread meets the same gate an agent's tool does", async () => {
+  const { harness, call, add, asked } = await host();
+  const id = await add("Fix the restore");
+  const run = harness.runCli(["file", id, "--to", "GitHub"], { threadId: THREAD }) as Promise<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  }>;
+  const question = await asked();
+  assert.equal(question?.threadId, THREAD);
+  assert.equal(question?.title, "File 1 follow-up to GitHub?");
+  harness.submitInteraction(question!.id, { file: true });
+  const result = await run;
+  assert.equal(result.exitCode, 0, result.stderr);
+  const { done } = await call("followups_list", { threadId: THREAD });
+  assert.equal(done[0].doneBy, "agent");
+});
+
+test("bb follow-up file run inside a thread, declined, files nothing", async () => {
+  const { harness, call, add, asked } = await host();
+  await add("Fix the restore");
+  const run = harness.runCli(["file", "--all", "--to", "GitHub"], { threadId: THREAD }) as Promise<{
+    exitCode: number;
+    stderr: string;
+  }>;
+  harness.submitInteraction((await asked())!.id, { file: false });
+  const result = await run;
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /did not confirm/);
+  assert.deepEqual(harness.experimental_hostRpcCalls, []);
+  assert.equal((await call("followups_list", { threadId: THREAD })).followUps.length, 1);
+});
+
+test("bb follow-up file from a terminal outside any thread is the person, and is not asked", async () => {
+  const { harness, call, add } = await host();
+  await add("Fix the restore");
+  const result = (await harness.runCli(["file", "--all", "--to", "GitHub", "--thread", THREAD], {})) as {
+    exitCode: number;
+  };
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(harness.pendingInteractions, []);
+  assert.equal((await call("followups_list", { threadId: THREAD })).done[0].doneBy, "user");
+});
+
 test("file_follow_ups: with nothing set up, it says where the user would set it up", async () => {
   const { add, tool } = await host({ destinations: [] });
   await add("Fix the restore");

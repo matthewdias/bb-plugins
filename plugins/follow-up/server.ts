@@ -2698,6 +2698,75 @@ export default async function plugin(bb: BbPluginApi) {
     done: await listDone(threadId),
   });
 
+  /**
+   * The gate on filing an agent asked for, whichever way it asked — the
+   * file_follow_ups tool, or `bb follow-up file` run from inside a thread.
+   *
+   * Unless the user switched the question off, they are asked with one tap on
+   * the thread the request came from, shown all of what each row sends. Then
+   * the rows and the destination are resolved again and held to what was
+   * shown: a row filed or closed meanwhile is not filed, and one reworded or a
+   * destination edited voids the answer.
+   */
+  async function confirmedFiling(
+    askOn: string,
+    threadId: string,
+    resolved: { rows: FollowUp[]; destination: Destination },
+    signal: AbortSignal | undefined,
+  ): Promise<
+    | { outcome: "ok"; rows: FollowUp[]; destination: Destination }
+    | { outcome: "declined" | "gone" | "changed" }
+  > {
+    let approved: ConfirmFilingPayload | null = null;
+    if (!(await settings.get()).agentFileWithoutAsking) {
+      const payload: ConfirmFilingPayload = {
+        destination: resolved.destination.name,
+        kind: resolved.destination.kind,
+        rows: resolved.rows.map((row) => ({
+          id: row.id,
+          text: row.text,
+          detail: row.detail ?? null,
+          file: row.file ?? null,
+        })),
+      };
+      const count = resolved.rows.length;
+      const answer = await bb.ui.requestInput(
+        {
+          threadId: askOn,
+          rendererId: CONFIRM_FILING_RENDERER,
+          title: `File ${count} follow-up${count === 1 ? "" : "s"} to ${resolved.destination.name}?`,
+          payload,
+        },
+        signal === undefined ? undefined : { signal },
+      );
+      const confirmed =
+        answer.outcome === "submitted" &&
+        typeof answer.value === "object" &&
+        answer.value !== null &&
+        (answer.value as { file?: unknown }).file === true;
+      if (!confirmed) return { outcome: "declined" };
+      approved = payload;
+    }
+    const fresh = await resolveFiling(
+      threadId,
+      resolved.rows.map((row) => row.id),
+      resolved.destination.id,
+    );
+    if (fresh.outcome !== "ok") return { outcome: "gone" };
+    if (approved !== null && !approvalStillHolds(approved, fresh.rows, fresh.destination, resolved.destination)) {
+      return { outcome: "changed" };
+    }
+    return { outcome: "ok", rows: fresh.rows, destination: fresh.destination };
+  }
+
+  const CONFIRM_REFUSED = {
+    declined: "The user did not confirm filing these. Nothing was filed; they stay on this thread's list.",
+    gone: "Nothing to file any more: those follow-ups were filed or closed while waiting.",
+    changed:
+      "Those follow-ups, or the destination, changed while the user was deciding. " +
+      "Nothing was filed; ask again if they still want it.",
+  } as const;
+
   /** The destinations, listed for an agent that named none or the wrong one. */
   async function destinationsForAgent(): Promise<string> {
     const destinations = await readDestinations();
@@ -2773,58 +2842,8 @@ export default async function plugin(bb: BbPluginApi) {
         return `No destination called "${destination}". Nothing was filed. ${await destinationsForAgent()}`;
       }
 
-      let approved: ConfirmFilingPayload | null = null;
-      if (!(await settings.get()).agentFileWithoutAsking) {
-        const payload: ConfirmFilingPayload = {
-          destination: resolved.destination.name,
-          kind: resolved.destination.kind,
-          rows: resolved.rows.map((row) => ({
-            id: row.id,
-            text: row.text,
-            detail: row.detail ?? null,
-            file: row.file ?? null,
-          })),
-        };
-        const count = resolved.rows.length;
-        const answer = await bb.ui.requestInput(
-          {
-            threadId,
-            rendererId: CONFIRM_FILING_RENDERER,
-            title: `File ${count} follow-up${count === 1 ? "" : "s"} to ${resolved.destination.name}?`,
-            payload,
-          },
-          { signal },
-        );
-        const confirmed =
-          answer.outcome === "submitted" &&
-          typeof answer.value === "object" &&
-          answer.value !== null &&
-          (answer.value as { file?: unknown }).file === true;
-        if (!confirmed) {
-          return "The user did not confirm filing these. Nothing was filed; they stay on this thread's list.";
-        }
-        approved = payload;
-      }
-
-      // Again, after the wait: a row filed or taken off the list meanwhile is
-      // not filed a second time on the strength of an older answer.
-      const fresh = await resolveFiling(
-        threadId,
-        resolved.rows.map((row) => row.id),
-        resolved.destination.id,
-      );
-      if (fresh.outcome !== "ok") {
-        return "Nothing to file any more: those follow-ups were filed or closed while waiting.";
-      }
-      // The answer was to what was shown. A row reworded or re-detailed, or a
-      // destination edited, while the user decided is something else, and is
-      // not filed on the strength of a yes to the old version.
-      if (approved !== null && !approvalStillHolds(approved, fresh.rows, fresh.destination, resolved.destination)) {
-        return (
-          "Those follow-ups, or the destination, changed while the user was deciding. " +
-          "Nothing was filed; ask again if they still want it."
-        );
-      }
+      const fresh = await confirmedFiling(threadId, threadId, resolved, signal);
+      if (fresh.outcome !== "ok") return CONFIRM_REFUSED[fresh.outcome];
       const reports = await fileRows(threadId, fresh.rows, fresh.destination, "agent");
       const lines = reports.map((report) =>
         report.outcome === "filed"
@@ -3522,7 +3541,20 @@ export default async function plugin(bb: BbPluginApi) {
             if (resolved.outcome !== "ok") {
               throw new PluginCliError("Nothing to file: no open follow-up matches.");
             }
-            const reports = await fileRows(threadId, resolved.rows, resolved.destination, "user");
+            // Run from inside a thread, this is how an agent files from its
+            // shell, so it meets the same gate as the tool, asked where it
+            // runs. From a terminal outside any thread, it is the person.
+            let rows = resolved.rows;
+            let destination = resolved.destination;
+            let by: "agent" | "user" = "user";
+            if (ctx.threadId !== undefined && ctx.threadId !== null && ctx.threadId !== "") {
+              const fresh = await confirmedFiling(ctx.threadId, threadId, resolved, ctx.signal);
+              if (fresh.outcome !== "ok") throw new PluginCliError(CONFIRM_REFUSED[fresh.outcome]);
+              rows = fresh.rows;
+              destination = fresh.destination;
+              by = "agent";
+            }
+            const reports = await fileRows(threadId, rows, destination, by);
             if (options.json) {
               return { exitCode: 0, stdout: `${JSON.stringify({ reports })}\n` };
             }
@@ -3530,7 +3562,7 @@ export default async function plugin(bb: BbPluginApi) {
               report.outcome === "filed"
                 ? `Filed${report.ref ? ` (${report.ref})` : ""}: ${report.text}`
                 : report.outcome === "pending"
-                  ? `Handed to the ${resolved.destination.name} helper: ${report.text}`
+                  ? `Handed to the ${destination.name} helper: ${report.text}`
                   : `Not filed: ${report.text} — ${report.note}`,
             );
             const failed = reports.some((report) => report.outcome === "failed");

@@ -210,9 +210,14 @@ test("agent: another thread settling changes nothing here", async () => {
 });
 
 test("bb follow-up file with an agent destination says the rows were handed over", async () => {
-  const { cli, add } = await host();
+  const { harness, add } = await host();
   await add("Fix the restore");
-  const result = await cli(["file", "--all", "--to", "jira-eng"]);
+  // As a person at a terminal, outside any thread.
+  const result = (await harness.runCli(["file", "--all", "--to", "jira-eng", "--thread", THREAD], {})) as {
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  };
   assert.equal(result.exitCode, 0, result.stderr);
   assert.equal(result.stdout, "Handed to the Jira ENG helper: Fix the restore\n");
 });

@@ -210,9 +210,11 @@ Seven tools:
 | `offer_next_steps` | offer what it would do next here, as buttons under its reply |
 | `file_follow_ups` | file rows to a destination you set up, when you ask it to |
 
-An agent's `file_follow_ups` asks you first, with one tap naming where the
-rows are going, unless you turn on *Let agents file follow-ups without
-asking*: filing writes outside bb, and an agent steered by something it read
+An agent filing — through `file_follow_ups`, or by running `bb follow-up file`
+inside a thread — asks you first, with one tap showing where the rows are
+going and all of what each one sends, unless you turn on *Let agents file
+follow-ups without asking*. Run from a terminal outside any thread, the
+command is you, and does not ask: filing writes outside bb, and an agent steered by something it read
 could otherwise open issues nobody asked for.
 
 `record_follow_up` takes `text` (a title naming the specific thing, ≤50 chars), `reason`

@@ -58,8 +58,11 @@ async function host(options: { environmentId?: string | null } = {}) {
     }
     throw new Error("filing never settled");
   };
+  // As a person at a terminal: outside any thread, naming it with --thread.
+  // From inside a thread the command meets the agent gate; see
+  // server-file-tool.test.ts.
   const cli = async (argv: string[]) =>
-    (await harness.runCli(argv, { threadId: THREAD })) as { exitCode: number; stdout: string; stderr: string };
+    (await harness.runCli([...argv, "--thread", THREAD], {})) as { exitCode: number; stdout: string; stderr: string };
   return { harness, call, add, settled, cli };
 }
 
