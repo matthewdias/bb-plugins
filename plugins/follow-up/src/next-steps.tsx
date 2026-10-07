@@ -167,17 +167,16 @@ function Chip({
       onMouseLeave={() => onHover?.(false)}
     >
       <Button
-        // Every chip is a filled pill. On a phone a ghost chip read as plain
-        // text and an outlined one as a text box; a filled shape with round
-        // ends is the one that reads as something to press.
+        // Every chip is filled. On a phone a ghost chip read as plain text and
+        // an outlined one as a text box. The shape is the empty state's
+        // buttons' (the Button's own corners, its padding and size), so the
+        // card reads as one set of controls whichever of them it is showing.
         variant="secondary"
         size="sm"
         className={cn(
           // Wraps rather than truncating or scrolling: all of a step is sent,
-          // so all of it is on screen, on as many lines as it takes. 14px
-          // rounds a one-line chip (28px) into a pill and keeps a wrapped one
-          // soft.
-          "h-auto min-h-7 max-w-full gap-1.5 whitespace-normal rounded-[14px] px-3 py-1 text-left text-xs leading-snug",
+          // so all of it is on screen, on as many lines as it takes.
+          "h-auto min-h-7 max-w-full gap-1.5 whitespace-normal px-2 py-1 text-left text-xs leading-snug",
           // The first step stands out by a lighter fill, not by inverting.
           // Fully inverted, it was the brightest thing on a phone's screen
           // and pulled the eye off the reply it answers.

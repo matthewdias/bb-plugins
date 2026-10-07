@@ -96,16 +96,18 @@ describe("the agent's offer", () => {
     expect(group.className).not.toMatch(/overflow-x-(auto|scroll)/);
   });
 
-  it("every chip is a filled pill, and the agent's first step a lighter one", async () => {
+  it("every chip is filled, shaped like the empty state's buttons, and the first step lighter", async () => {
     const slot = renderBanner("thr_edges", { offer: offerOf("Open a PR", "Add a test", "Bump it") });
     // On a phone a ghost chip read as plain text, and an outlined one as an
-    // input field. Filled, with round ends; the first, the one the agent
-    // expects, a lighter fill — not inverted, which was loud enough to pull
-    // the eye off the timeline — and only that one.
+    // input field. Filled, with the Button's own corners like the empty
+    // state's; the first, the one the agent expects, a lighter fill — not
+    // inverted, which was loud enough to pull the eye off the timeline — and
+    // only that one.
     const fills = [];
     for (const name of ['Send "Open a PR"', 'Send "Add a test"', 'Send "Bump it"']) {
       const chip = await slot.findByRole("button", { name });
-      expect(chip.className).toMatch(/\brounded-\[14px\]/);
+      expect(chip.className).toMatch(/\brounded-md\b/);
+      expect(chip.className).not.toMatch(/\brounded-(full|\[)/);
       expect(chip.className).not.toMatch(/\bborder\b|\bborder-input\b/);
       expect(chip.className).not.toMatch(/\btext-background\b/);
       fills.push(chip.className.match(/\bbg-(foreground\/30|foreground|secondary)(?=\s|$)/)?.[1]);
