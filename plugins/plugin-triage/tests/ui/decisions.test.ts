@@ -109,3 +109,49 @@ describe("undo", () => {
     expect(triageStore.getSnapshot().cards.map((card) => card.entryId)).toEqual(["alpha"]);
   });
 });
+
+describe("the Saved deck", () => {
+  const saved = () => triageStore.getSnapshot().saved.map((card) => card.entryId);
+
+  it("sends a card to the back on ↑, telling the server nothing, and Z brings it back", async () => {
+    const { rpc, flush } = fakeRpc();
+    triageStore.addSaved(beta);
+    triageStore.addSaved(alpha);
+    await decide(rpc, alpha, "up", "saved");
+    expect(saved()).toEqual(["beta", "alpha"]);
+    expect(vi.mocked(rpc.call)).not.toHaveBeenCalled();
+    await undoLast(rpc);
+    await flush();
+    expect(saved()).toEqual(["alpha", "beta"]);
+    expect(vi.mocked(rpc.call).mock.calls.map(([method]) => method)).not.toContain("undo");
+  });
+
+  it("forgets a card on ←, and Z puts it back in Saved rather than on New", async () => {
+    const { rpc, flush } = fakeRpc();
+    vi.mocked(rpc.call).mockImplementation(((method: string, input: Record<string, unknown>) =>
+      Promise.resolve(
+        deckAnswer(method) ??
+          (method === "decide"
+            ? { job: null, previous: input.action === "dismiss" ? { action: "save", at: 1 } : null }
+            : { undone: true, reason: null }),
+      )) as never);
+    triageStore.addSaved(alpha);
+    await decide(rpc, alpha, "left", "saved");
+    expect(vi.mocked(rpc.call).mock.calls.find(([method]) => method === "decide")?.[1]).toMatchObject({ action: "dismiss" });
+    expect(saved()).toEqual([]);
+    await undoLast(rpc);
+    await flush();
+    expect(saved()).toEqual(["alpha"]);
+    expect(triageStore.getSnapshot().cards).toEqual([]);
+  });
+
+  it("puts a card whose install fails back in Saved, not on New", async () => {
+    const { rpc } = fakeRpc();
+    vi.mocked(rpc.call).mockImplementation(((method: string) =>
+      method === "entry_plan" ? Promise.reject(new Error("resolve failed")) : Promise.resolve({ job: null, previous: null })) as never);
+    triageStore.addSaved(alpha);
+    await decide(rpc, alpha, "right", "saved");
+    expect(saved()).toEqual(["alpha"]);
+    expect(triageStore.getSnapshot().cards).toEqual([]);
+  });
+});

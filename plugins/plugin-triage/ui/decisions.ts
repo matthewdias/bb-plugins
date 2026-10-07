@@ -34,11 +34,21 @@ export function planFor(rpc: TriageRpc, card: NewCard): Promise<Plan> {
   return plan;
 }
 
+/** The deck a card was decided from: the New deck, or the Saved one. */
+export type DeckName = "new" | "saved";
+
 const ACTIONS = { right: "install", left: "dismiss", up: "save" } as const;
+
+type Sent = (typeof ACTIONS)[Direction];
 
 interface Made {
   card: NewCard;
-  action: (typeof ACTIONS)[Direction];
+  /**
+   * What the server was told; "later" is the Saved deck's ↑, which tells it
+   * nothing: the card moves to the back of the deck and stays saved.
+   */
+  action: Sent | "later";
+  deck: DeckName;
   /**
    * Resolves once the server has the decision, to what the card was before
    * (a save, or nothing), which undo restores; null if the decision failed.
@@ -56,7 +66,7 @@ function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-async function send(rpc: TriageRpc, card: NewCard, action: Made["action"]): Promise<{ previous: Decision | null }> {
+async function send(rpc: TriageRpc, card: NewCard, action: Sent): Promise<{ previous: Decision | null }> {
   let confirmedSource: unknown;
   if (action === "install") {
     // Fail closed: an install goes only with the source the card showed, so
@@ -79,19 +89,30 @@ async function send(rpc: TriageRpc, card: NewCard, action: Made["action"]): Prom
   return { previous };
 }
 
-export async function decide(rpc: TriageRpc, card: NewCard, direction: Direction): Promise<void> {
+/**
+ * A decision on a card from either deck. On the Saved deck ← forgets the
+ * plugin and ↑ sends it to the back, and a failed decision puts the card back
+ * where it came from.
+ */
+export async function decide(rpc: TriageRpc, card: NewCard, direction: Direction, deck: DeckName = "new"): Promise<void> {
+  if (deck === "saved" && direction === "up") {
+    triageStore.laterSaved(card.key);
+    made.push({ card, action: "later", deck, settled: Promise.resolve({ previous: null }) });
+    return;
+  }
   const action = ACTIONS[direction];
   triageStore.take(card.key);
   if (action === "save") triageStore.addSaved(card);
   const settled = send(rpc, card, action).catch((cause: unknown) => {
     made.splice(made.indexOf(entry), 1);
     triageStore.take(card.key);
-    triageStore.putBack(card);
+    if (deck === "saved") triageStore.addSaved(card);
+    else triageStore.putBack(card);
     haptic("error");
-    toast.error(`Couldn't ${action} ${card.displayName}: ${message(cause)}`);
+    toast.error(`Couldn't ${deck === "saved" && action === "dismiss" ? "forget" : action} ${card.displayName}: ${message(cause)}`);
     return null;
   });
-  const entry: Made = { card, action, settled };
+  const entry: Made = { card, action, deck, settled };
   made.push(entry);
   await settled;
 }
@@ -101,6 +122,13 @@ async function undoEntry(rpc: TriageRpc, entry: Made): Promise<void> {
   entry.undoing = true;
   const sent = await entry.settled;
   if (sent === null || !made.includes(entry)) return;
+  if (entry.action === "later") {
+    // Only ever moved in this window: back to the front of Saved.
+    made.splice(made.indexOf(entry), 1);
+    haptic("impact-light");
+    triageStore.addSaved(entry.card);
+    return;
+  }
   try {
     const result = await rpc.call("undo", { key: entry.card.key, restore: sent.previous });
     if (!result.undone) {

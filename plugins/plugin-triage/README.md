@@ -64,10 +64,15 @@ and a failed install puts its card back
 with the error. Queued items count toward the number waiting, so a queue
 nobody ran doesn't go unnoticed.
 
-**Saved** lists the plugins you saved, most recent first, as cards like bb's
-own. Click one to open its full listing in bb's detail pane beside the list,
-or queue it from the card's Install button. The ⋯ menu vets it with an agent, opens its page,
-or removes it from Saved.
+**Saved** deals the plugins you saved, most recent first, as the same cards
+as New, which open, vet and link the same way.
+
+| | Drag | Key |
+| --- | --- | --- |
+| Queue the install | right | → |
+| Forget it, as a dismiss: it comes back only if its listing changes | left | ← |
+| Move it to the back of the deck; it stays saved | up | ↑ |
+| Undo | | Z |
 
 **Show incompatible** adds plugins that need a newer bb, with the reason.
 

@@ -148,6 +148,14 @@ export const triageStore = {
     });
   },
 
+  /** Move a saved card to the back of the Saved deck; it stays saved. */
+  laterSaved(key: string): void {
+    const card = state.saved.find((other) => other.key === key);
+    if (card === undefined) return;
+    set({ saved: [...state.saved.filter((other) => other.key !== key), card] });
+  },
+
+  /** Put a card on top of the Saved deck. */
   addSaved(card: NewCard): void {
     set({
       saved: [card, ...state.saved.filter((other) => other.key !== card.key)],

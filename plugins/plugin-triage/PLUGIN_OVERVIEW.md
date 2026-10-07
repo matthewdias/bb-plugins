@@ -34,8 +34,8 @@ fortnight without it, or queue it to uninstall. The card says what
 uninstalling deletes for good (changed settings, secrets, scheduled work), and
 Recent lists what was removed.
 
-**Saved for later.** The Saved list keeps the plugins you swiped up, with
-buttons to install one, open its store page, or forget it.
+**Saved for later.** The plugins you swiped up wait in a Saved deck of their
+own: drag right to install, left to forget, up to send one to the back.
 
 **Vet with an agent.** One button starts a thread that reads a plugin's code
 before you trust it: what it registers, what it reaches over the network,
