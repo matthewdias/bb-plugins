@@ -127,8 +127,8 @@ and a plugin that couldn't be removed goes back in the deck.
 
 Plugin Triage adds a **Triage** item to bb's sidebar, showing how many cards
 are waiting, and opening it shows the Triage page right there, with bb's
-sidebar beside it; **Open in Plugins** in its title bar moves to the same
-Triage in the Plugins screen. The Triage row in the Plugins screen shows the same number. By default it counts new plugins and updates,
+sidebar beside it; **Browse plugins** in its title bar opens the Plugins
+screen. The Triage row in the Plugins screen shows the same number. By default it counts new plugins and updates,
 and anything queued from them. **Count new plugins**, **Count updates** and
 **Count cleanup suggestions** in the plugin's settings choose which decks
 count; Cleanup is off by default. bb puts a new sidebar item in the More menu

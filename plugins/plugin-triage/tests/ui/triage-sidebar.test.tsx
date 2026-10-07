@@ -60,14 +60,14 @@ describe("the Triage sidebar item", () => {
     expect(heard).not.toHaveBeenCalled();
   });
 
-  it("links from bb's title bar to the same Triage in the Plugins screen", () => {
+  it("links from bb's title bar to Browse plugins", () => {
     window.history.replaceState({}, "", "/plugins/plugin-triage/triage");
     const heard = vi.fn();
     window.addEventListener("popstate", heard);
     render(<TriageSidebarHeader />);
-    screen.getByRole("button", { name: "Open in Plugins" }).click();
+    screen.getByRole("button", { name: "Browse plugins" }).click();
     window.removeEventListener("popstate", heard);
-    expect(window.location.pathname + window.location.search).toBe("/plugins?view=triage");
+    expect(window.location.pathname + window.location.search).toBe("/plugins");
     expect(heard).toHaveBeenCalledTimes(1);
   });
 });

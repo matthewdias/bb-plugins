@@ -7,7 +7,7 @@ import { useSyncExternalStore } from "react";
 import { experimental_Icon as Icon, useSettings } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { countText, countedDecks, waitingCount } from "../lib/count";
-import { TRIAGE_HREF } from "../screen/dom";
+import { BROWSE_HREF } from "../screen/dom";
 import { navigateInApp } from "./navigate";
 import { TriagePage } from "./TriagePage";
 import { triageStore } from "./triage-store";
@@ -35,12 +35,12 @@ export function TriageSidebarPanel() {
   return <TriagePage heading={false} />;
 }
 
-/** In bb's title bar over the item's page: the same Triage, in the Plugins screen. */
+/** In bb's title bar over the item's page: a way into the Plugins screen, at Browse plugins. */
 export function TriageSidebarHeader() {
   return (
-    <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => navigateInApp(TRIAGE_HREF)}>
+    <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => navigateInApp(BROWSE_HREF)}>
       <Icon name="ArrowUpRight" aria-hidden />
-      Open in Plugins
+      Browse plugins
     </Button>
   );
 }
