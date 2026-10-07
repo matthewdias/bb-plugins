@@ -559,9 +559,20 @@ export { isDone, isInProgress };
 export const isFiled = (row: FollowUp): boolean =>
   row.filedAt !== undefined && row.filedAt !== null;
 
+/**
+ * How long a filing may go unanswered before the row stops saying "filing…".
+ * A command answers within its own two-minute limit; a helper thread reports
+ * when it settles — but a settle missed (the plugin restarted while the helper
+ * worked) would otherwise leave the row spinning, and unfileable, for good.
+ */
+export const FILING_STALE_MS = 30 * 60 * 1000;
+
 /** Being filed right now, by a destination that has not answered yet. */
-export const isFiling = (row: FollowUp): boolean =>
-  !isFiled(row) && row.filingSince !== undefined && row.filingSince !== null;
+export function isFiling(row: FollowUp, now: number = Date.now()): boolean {
+  if (isFiled(row) || row.filingSince === undefined || row.filingSince === null) return false;
+  const since = Date.parse(row.filingSince);
+  return Number.isNaN(since) || now - since < FILING_STALE_MS;
+}
 
 /** What a filed row's done note says, for every surface that shows done notes. */
 export function filedNote(to: FiledTo, ref: string | null): string {

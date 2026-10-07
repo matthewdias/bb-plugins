@@ -72,6 +72,7 @@ import {
   destinationSchema,
   DESTINATIONS_MAX,
   filedToOf,
+  filingPrompt,
   refFromOutput,
   findDestination,
   parseDestinations,
@@ -702,6 +703,9 @@ const tombsKey = (threadId: string) => `${TOMBS_PREFIX}${threadId}`;
 const expandingKey = (helperThreadId: string) => `${EXPANDING_PREFIX}${helperThreadId}`;
 const seenKey = (threadId: string) => `${SEEN_PREFIX}${threadId}`;
 const nextKey = (threadId: string) => `${NEXT_PREFIX}${threadId}`;
+/** Which rows a filing helper thread was given, so its settling can be noticed. */
+const FILING_HELPER_PREFIX = "filing-helper:";
+const filingHelperKey = (helperThreadId: string) => `${FILING_HELPER_PREFIX}${helperThreadId}`;
 const filedKey = (threadId: string) => `${FILED_PREFIX}${threadId}`;
 
 /**
@@ -1095,14 +1099,103 @@ export default async function plugin(bb: BbPluginApi) {
     bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
   }
 
-  /** What became of one row a filing was asked for. */
+  /**
+   * What became of one row a filing was asked for. "pending": handed to a
+   * helper thread, which will report it, or not, when it is done.
+   */
   type FilingReport = {
     id: string;
     text: string;
-    outcome: "filed" | "failed";
+    outcome: "filed" | "failed" | "pending";
     ref: string | null;
     note: string | null;
   };
+
+  type FilingHelperRecord = { threadId: string; ids: string[]; destination: string };
+
+  /**
+   * An agent-recipe destination: one hidden helper for the whole batch, in the
+   * thread's own checkout, so its `bb follow-up filed` lands on these rows. It
+   * runs on the destination's model, or the describing helper's, or the
+   * project's defaults — the same fallback Describe uses.
+   */
+  async function fileByAgent(
+    threadId: string,
+    rows: readonly FollowUp[],
+    destination: Destination,
+  ): Promise<FilingReport[]> {
+    const ids = rows.map((row) => row.id);
+    const fail = async (note: string) => {
+      await setFiling(threadId, ids, { note });
+      return rows.map((row) => ({ id: row.id, text: row.text, outcome: "failed" as const, ref: null, note }));
+    };
+    const thread = await bb.sdk.threads.get({ threadId });
+    if (thread.environmentId === null || thread.environmentId === undefined) {
+      return fail("This thread has no checkout for a helper to work in.");
+    }
+    const execution = destination.execution ?? (await readExpansionExecution());
+    let helperId: string;
+    try {
+      const helper = await bb.sdk.threads.spawn({
+        projectId: thread.projectId,
+        environment: { type: "reuse", environmentId: thread.environmentId },
+        prompt: filingPrompt(rows, destination, threadId),
+        // Housekeeping the user asked for, not work to watch; it archives
+        // itself, and is archived for it when it settles either way.
+        visibility: "hidden",
+        origin: "plugin",
+        originPluginId: "follow-up",
+        ...(execution === null
+          ? {}
+          : {
+              providerId: execution.providerId,
+              model: execution.model,
+              reasoningLevel: execution.reasoningLevel,
+              ...(execution.serviceTier === undefined ? {} : { serviceTier: execution.serviceTier }),
+              executionInputSources: {
+                providerId: "explicit" as const,
+                model: "explicit" as const,
+                reasoningLevel: "explicit" as const,
+                ...(execution.serviceTier === undefined ? {} : { serviceTier: "explicit" as const }),
+              },
+            }),
+      });
+      helperId = helper.id;
+    } catch (error) {
+      return fail(`Could not start the ${destination.name} helper: ${String(error)}`.slice(0, 300));
+    }
+    const record: FilingHelperRecord = { threadId, ids, destination: destination.name };
+    await bb.storage.kv.set(filingHelperKey(helperId), record);
+    bb.log.info(`handed ${ids.length} follow-up(s) on ${threadId} to ${destination.name} helper ${helperId}`);
+    return rows.map((row) => ({ id: row.id, text: row.text, outcome: "pending" as const, ref: null, note: null }));
+  }
+
+  /**
+   * A filing helper stopped. Whatever it reported is filed already; whatever
+   * it did not is open again, saying so. Archived either way, since a hidden
+   * thread nobody archives is still a thread holding an environment.
+   */
+  async function onFilingSettled(helperThreadId: string, failure: string | null): Promise<void> {
+    const key = filingHelperKey(helperThreadId);
+    const record = await bb.storage.kv.get<FilingHelperRecord>(key);
+    if (record === undefined || record === null) return;
+    await bb.storage.kv.delete(key);
+    try {
+      await bb.sdk.threads.archive({ threadId: helperThreadId });
+    } catch (error) {
+      bb.log.error(`could not archive filing helper ${helperThreadId}: ${String(error)}`);
+    }
+    const items = await readItems(record.threadId);
+    const unfiled = items
+      .filter((row) => record.ids.includes(row.id) && !isFiled(row) && row.filingSince)
+      .map((row) => row.id);
+    if (unfiled.length === 0) return;
+    const note =
+      failure === null
+        ? `The ${record.destination} helper finished without filing this.`
+        : `The ${record.destination} helper stopped: ${failure}`.slice(0, 300);
+    await setFiling(record.threadId, unfiled, { note });
+  }
 
   const hostClient = bb.hosts.experimental_client({ contract: hostContract });
 
@@ -1198,10 +1291,9 @@ export default async function plugin(bb: BbPluginApi) {
     const ids = rows.map((row) => row.id);
     await setFiling(threadId, ids, { by });
     try {
-      if (destination.kind === "command") return await fileByCommand(threadId, rows, destination, by);
-      const note = "Agent destinations are not wired up yet.";
-      await setFiling(threadId, ids, { note });
-      return rows.map((row) => ({ id: row.id, text: row.text, outcome: "failed" as const, ref: null, note }));
+      return destination.kind === "command"
+        ? await fileByCommand(threadId, rows, destination, by)
+        : await fileByAgent(threadId, rows, destination);
     } catch (error) {
       const note = `Filing to ${destination.name} failed: ${String(error)}`.slice(0, 300);
       await setFiling(threadId, ids, { note });
@@ -1950,6 +2042,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.events.on("thread.idle", ({ thread }) => {
     void onChildSettled(thread, "finished");
     void onExpansionSettled(thread.id, null);
+    void onFilingSettled(thread.id, null);
   });
   bb.events.on("thread.failed", ({ thread, error }) => {
     void onChildSettled(thread, "failed");
@@ -1957,6 +2050,7 @@ export default async function plugin(bb: BbPluginApi) {
     // naming a provider that no longer exists ends up. The message is passed
     // through so the log names the real cause rather than "it stopped".
     void onExpansionSettled(thread.id, error ?? "no error message");
+    void onFilingSettled(thread.id, error ?? "no error message");
   });
 
   /**
@@ -3255,7 +3349,9 @@ export default async function plugin(bb: BbPluginApi) {
             const lines = reports.map((report) =>
               report.outcome === "filed"
                 ? `Filed${report.ref ? ` (${report.ref})` : ""}: ${report.text}`
-                : `Not filed: ${report.text} — ${report.note}`,
+                : report.outcome === "pending"
+                  ? `Handed to the ${resolved.destination.name} helper: ${report.text}`
+                  : `Not filed: ${report.text} — ${report.note}`,
             );
             const failed = reports.some((report) => report.outcome === "failed");
             return failed
