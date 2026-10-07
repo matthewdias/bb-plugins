@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-plugin-triage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -28,7 +28,7 @@
     "name": "Plugin Triage",
     "description": "Decide on plugins one card at a time from a Triage tab in bb's Plugins screen: queue newly published plugins to install, queue pending updates, and clear out plugins you turned off or don't use, then run the queue in the background.",
     "branding": {
-      "icon": "Layers"
+      "icon": "./assets/icon.svg"
     },
     "server": "./server.ts",
     "app": "./app.tsx"

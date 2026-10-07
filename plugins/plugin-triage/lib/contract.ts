@@ -110,6 +110,11 @@ export const rpcContract = defineRpcContract({
     input: z.object({ key: z.string().min(1) }),
     output: z.custom<{ removed: boolean; reason: string | null }>(() => true),
   },
+  /** Take every job that hasn't started off the queue, each card back to what it was. */
+  queue_clear: {
+    input: z.object({}),
+    output: z.custom<{ removed: number }>(() => true),
+  },
   cleanup_deck: {
     input: z.object({}),
     /** `history`: finished removals, newest first. */

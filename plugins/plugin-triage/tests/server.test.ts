@@ -305,6 +305,32 @@ describe("installing", () => {
     service.controller.abort();
   });
 
+  it("clears the queue, putting every card back where it was", async () => {
+    const { rpc, decide, deck, run, harness, service } = await host();
+    await decide("beta", "save");
+    await decide("beta", "install");
+    await decide("alpha", "install");
+    expect(await rpc("queue_clear", {})).toEqual({ removed: 2 });
+    expect((await rpc<{ jobs: Job[] }>("queue_status", {})).jobs).toEqual([]);
+    expect((await rpc<{ cards: NewCard[] }>("deck_saved", {})).cards.map((c) => c.entryId)).toEqual(["beta"]);
+    expect(await deck()).toEqual(["alpha"]);
+    await run();
+    expect(harness.sdk.callsTo("plugins.catalog.install")).toHaveLength(0);
+    expect(await rpc("queue_clear", {})).toEqual({ removed: 0 });
+    service.controller.abort();
+  });
+
+  it("clears only what hasn't started, leaving the install under way", async () => {
+    const { rpc, decide, run, service } = await host({ install: () => new Promise(() => {}) });
+    await decide("alpha", "install");
+    await decide("beta", "install");
+    await run();
+    expect(await rpc("queue_clear", {})).toEqual({ removed: 1 });
+    const status = await rpc<{ jobs: Job[] }>("queue_status", {});
+    expect(status.jobs.map((j) => [j.key, j.state])).toEqual([["alpha@bb-community", "running"]]);
+    service.controller.abort();
+  });
+
   it("won't take an install off once it is installing", async () => {
     const { rpc, decide, run, service } = await host({ install: () => new Promise(() => {}) });
     await decide("alpha", "install");

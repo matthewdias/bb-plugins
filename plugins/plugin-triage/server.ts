@@ -55,6 +55,7 @@ import {
   type CleanupDecisions,
   type Installed,
 } from "./lib/cleanup-deck.ts";
+import { COUNT_SETTINGS } from "./lib/count.ts";
 import { removalCost } from "./lib/removal-cost.ts";
 import { observe, type Observations, type PluginSample } from "./lib/usage.ts";
 
@@ -90,6 +91,24 @@ export default async function plugin(bb: BbPluginApi) {
       description:
         "Uses the login the GitHub CLI holds (gh auth token), as bb itself does for git, or GH_TOKEN if it is set. The token is only sent to api.github.com, for read-only lookups of the commits an update brings, and lifts GitHub's limit from 60 requests an hour to 5,000. Off, change lists are looked up without a login.",
       default: true,
+    },
+    countNew: {
+      type: "boolean",
+      label: "Count new plugins",
+      description: "Include new plugins from the store in the count on the Triage sidebar item and the Triage row.",
+      default: COUNT_SETTINGS.countNew.default,
+    },
+    countUpdates: {
+      type: "boolean",
+      label: "Count updates",
+      description: "Include plugins with updates in the count.",
+      default: COUNT_SETTINGS.countUpdates.default,
+    },
+    countCleanup: {
+      type: "boolean",
+      label: "Count cleanup suggestions",
+      description: "Include broken, turned-off and unused plugins in the count.",
+      default: COUNT_SETTINGS.countCleanup.default,
     },
   });
 
@@ -127,6 +146,40 @@ export default async function plugin(bb: BbPluginApi) {
   }
   bb.background.schedule("usage", "17 * * * *", sample);
   void sample().catch((error) => bb.log.warn(`usage sample failed: ${message(error)}`));
+
+  /**
+   * Puts the cards of jobs taken off the queue back to what they were before
+   * they were queued: a save, a keep, or nothing. Call while holding the lock.
+   */
+  async function putBack(taken: readonly Job[]): Promise<void> {
+    const installs = taken.filter((job): job is InstallJob => job.kind === "install");
+    const updates = taken.filter((job): job is UpdateJob => job.kind === "update");
+    const removals = taken.filter((job): job is RemoveJob => job.kind === "remove");
+    if (installs.length > 0) {
+      const decisions = await readDecisions();
+      for (const job of installs) {
+        if (job.previous == null) delete decisions[job.key];
+        else decisions[job.key] = job.previous as Decisions[string];
+      }
+      await kv.set(DECISIONS, decisions);
+    }
+    if (updates.length > 0) {
+      const decisions = await readUpdateDecisions();
+      for (const job of updates) {
+        if (job.previous == null) delete decisions[job.pluginId];
+        else decisions[job.pluginId] = job.previous as UpdateDecision;
+      }
+      await kv.set(UPDATE_DECISIONS, decisions);
+    }
+    if (removals.length > 0) {
+      const decisions = await readCleanupDecisions();
+      for (const job of removals) {
+        if (job.previous == null) delete decisions[job.pluginId];
+        else decisions[job.pluginId] = job.previous as CleanupDecision;
+      }
+      await kv.set(CLEANUP_DECISIONS, decisions);
+    }
+  }
 
   function changed(reason: string): void {
     bb.realtime.publish(CHANGED_CHANNEL, { reason });
@@ -522,26 +575,27 @@ export default async function plugin(bb: BbPluginApi) {
           return { removed: false, reason: `It's already ${doing}.` };
         }
         await kv.set(JOBS, cancelPending(jobs, key, Date.now()).jobs);
-        // The card goes back to what it was before it was queued.
-        if (job.kind === "install") {
-          const decisions = await readDecisions();
-          if (job.previous == null) delete decisions[key];
-          else decisions[key] = job.previous as Decisions[string];
-          await kv.set(DECISIONS, decisions);
-        } else if (job.kind === "remove") {
-          const decisions = await readCleanupDecisions();
-          if (job.previous == null) delete decisions[job.pluginId];
-          else decisions[job.pluginId] = job.previous as CleanupDecision;
-          await kv.set(CLEANUP_DECISIONS, decisions);
-        } else {
-          const decisions = await readUpdateDecisions();
-          if (job.previous == null) delete decisions[job.pluginId];
-          else decisions[job.pluginId] = job.previous as UpdateDecision;
-          await kv.set(UPDATE_DECISIONS, decisions);
-        }
+        await putBack([job]);
         return { removed: true, reason: null };
       });
       if (result.removed) changed("undo");
+      return result;
+    },
+
+    queue_clear: async () => {
+      const result = await locked(async () => {
+        const jobs = await readJobs();
+        const taken = jobs.filter((job) => job.state === "pending");
+        if (taken.length === 0) return { removed: 0 };
+        const now = Date.now();
+        await kv.set(
+          JOBS,
+          jobs.map((job) => (job.state === "pending" ? { ...job, state: "cancelled" as const, finishedAt: now } : job)),
+        );
+        await putBack(taken);
+        return { removed: taken.length };
+      });
+      if (result.removed > 0) changed("undo");
       return result;
     },
 

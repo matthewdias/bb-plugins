@@ -64,6 +64,19 @@ describe("the Updates deck over RPC", () => {
     service.controller.abort();
   });
 
+  it("clears queued updates, dealing their cards again", async () => {
+    const { rpc, decide, cards, applied, advance, service } = await host();
+    await decide("alpha", "queue");
+    await decide("beta", "queue");
+    expect(await cards()).toEqual([SELF]);
+    expect(await rpc("queue_clear", {})).toEqual({ removed: 2 });
+    expect(await cards()).toEqual(["alpha", "beta", SELF]);
+    await rpc("queue_start");
+    await advance(10);
+    expect(applied()).toEqual([]);
+    service.controller.abort();
+  });
+
   it("holds queued updates until the batch starts", async () => {
     const { decide, deck, queue, applied, advance, service } = await host();
     await decide("alpha", "queue");

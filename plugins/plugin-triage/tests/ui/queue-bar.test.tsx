@@ -17,11 +17,12 @@ const update = (name: string, overrides: Partial<Job> = {}) =>
 function rpcFake(unqueue: unknown = { removed: true, reason: null }) {
   const call = vi.fn(async (method: string, _input?: unknown) => {
     if (method === "queue_start") return { started: 3 };
+    if (method === "queue_clear") return { removed: 3 };
     if (method === "unqueue") return unqueue;
     if (method === "deck_new" || method === "deck_saved") return { cards: [] };
     if (method === "updates_deck") return { cards: [], unavailable: [], history: [] };
     if (method === "queue_status") return { jobs: [], running: false };
-    if (method === "cleanup_deck") return { cards: [], graveyard: [] };
+    if (method === "cleanup_deck") return { cards: [], history: [] };
     return {};
   });
   return { rpc: { call } as unknown as TriageRpc, call };
@@ -54,6 +55,16 @@ describe("the queue bar", () => {
     );
     expect(screen.getByText("Installing alpha…")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Run all" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+  });
+
+  it("clears the whole queue in one go, and the page catches up", async () => {
+    const { rpc, call } = rpcFake();
+    render(<QueueBar rpc={rpc} queue={{ jobs: [install("alpha"), install("beta"), update("gamma")], running: false }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("queue_clear", {}));
+    await waitFor(() => expect(call).toHaveBeenCalledWith("queue_status", {}));
+    expect(call).not.toHaveBeenCalledWith("queue_start", {});
   });
 
   it("lists what is queued for review, and takes one off", async () => {

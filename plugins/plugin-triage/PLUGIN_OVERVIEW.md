@@ -19,7 +19,7 @@ for later.
 **One queue.** Installs and updates you queue wait in a bar above every tab
 until you press Run all, then run in the background, one at a time, and keep
 going if you close the window. Review the queue and take anything back off
-before it runs; Z takes back the last decision.
+before it runs, or clear it all; Z takes back the last decision.
 
 **Updates in one batch.** An Updates deck deals each installed plugin with a
 newer version, showing the version now and next and, for GitHub sources,
@@ -42,8 +42,10 @@ before you trust it: what it registers, what it reaches over the network,
 what data it touches, and whether it does what its listing says. Plugins run
 with full access to bb, so this is worth doing for anything you don't know.
 
-**A count on the tab.** The Triage row in the Plugins sidebar shows how many
-cards are waiting.
+**A count in the sidebar.** A Triage item in bb's sidebar, and the Triage
+row in the Plugins screen, show how many cards are waiting; the item opens
+the same Triage page. Choose in settings whether new plugins, updates and
+cleanup suggestions count.
 
 ## How it works
 

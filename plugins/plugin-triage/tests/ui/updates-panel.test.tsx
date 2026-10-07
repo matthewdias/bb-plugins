@@ -237,7 +237,7 @@ describe("undoing a queued update", () => {
         await refreshing;
         return answer;
       }
-      if (method === "cleanup_deck") return { cards: [], graveyard: [] };
+      if (method === "cleanup_deck") return { cards: [], history: [] };
       if (method === "queue_status") {
         const answer = { jobs: queued, running: false };
         await refreshing;
