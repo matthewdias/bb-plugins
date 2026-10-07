@@ -23,7 +23,8 @@ before it runs, or clear it all; Z takes back the last decision.
 
 **Updates in one batch.** An Updates deck deals each installed plugin with a
 newer version, showing the version now and next and, for GitHub sources,
-the commits that change this plugin and the release notes. An update that
+the commits that change this plugin and the release notes; tap a card to
+read them in full. An update that
 only touched other plugins in a shared repository says so. Drag right to queue it, left to skip that
 version, up to be reminded in a week. Queued updates run with the installs
 when you press Run all.

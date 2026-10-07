@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UpdatesPanel, resetChangesCache } from "../../ui/UpdatesPanel";
 import { decideUpdate, resetUpdateDecisions, undoLastUpdate } from "../../ui/update-decisions";
@@ -118,8 +118,85 @@ describe("the Updates tab", () => {
     expect(screen.getByRole("button", { name: "Queue the update (→)" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip this version (←)" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remind me in a week (↑)" })).toBeTruthy();
-    // Update cards have no details to open.
-    expect(screen.getByText(/skip version/).textContent).not.toMatch(/space details/);
+    expect(screen.getByText(/skip version/).textContent).toMatch(/space details · esc close/);
+  });
+});
+
+describe("an update card's details", () => {
+  const notes = "A long story about everything in this release.";
+  const open = () => screen.getByRole("button", { name: /Details|Less/ }).getAttribute("aria-pressed");
+
+  it("open from a tap on the card, as a New card's do, and close from the footer", async () => {
+    const { rpc } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    expect(screen.getByTestId("card-body").hasAttribute("data-scroll")).toBe(false);
+    fireEvent.click(screen.getByText("alpha does things."));
+    expect(open()).toBe("true");
+    expect(screen.getByTestId("card-body").hasAttribute("data-scroll")).toBe(true);
+    // A tap inside the open details is for reading.
+    fireEvent.click(screen.getByText("alpha does things."));
+    expect(open()).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Less" }));
+    expect(open()).toBe("false");
+  });
+
+  it("open on Space and close on Escape, before bb's own Escape hears it", () => {
+    const { rpc } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    fireEvent.keyDown(window, { key: " " });
+    expect(open()).toBe("true");
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      document.body.dispatchEvent(escape);
+    });
+    expect(escape.defaultPrevented).toBe(true);
+    expect(open()).toBe("false");
+  });
+
+  it("show the whole description and release notes once open", async () => {
+    changesAnswer = {
+      kind: "github",
+      commits: [{ sha: "c4".padEnd(40, "0"), subject: "Polish", date: null, author: null }],
+      total: 1,
+      repoWide: 1,
+      subdirectory: null,
+      releaseNotes: { name: "v1.1.0", body: notes, url: "https://github.com/acme/x/releases/v1.1.0" },
+      url: "https://github.com/acme/x/compare/a...b",
+    };
+    const { rpc } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    const body = await screen.findByText(notes);
+    const description = screen.getByText("alpha does things.");
+    expect(body.parentElement?.className).toMatch(/line-clamp-4/);
+    expect(description.className).toMatch(/line-clamp-2/);
+    fireEvent.click(description);
+    expect(screen.getByText(notes).parentElement?.className).not.toMatch(/line-clamp/);
+    expect(screen.getByText("alpha does things.").className).not.toMatch(/line-clamp/);
+  });
+
+  it("leave a tap on a control in the card to that control", async () => {
+    changesAnswer = { kind: "deferred", remaining: 3, resetAt: null };
+    const { rpc } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load changes" }));
+    expect(open()).toBe("false");
+  });
+
+  it("close when the card leaves the top", async () => {
+    const { rpc } = rpcFake();
+    const view = render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha"), card("beta")] })} keyboard />);
+    fireEvent.click(screen.getByText("alpha does things."));
+    expect(open()).toBe("true");
+    view.rerender(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("beta")] })} keyboard />);
+    expect(open()).toBe("false");
+  });
+
+  it("leave Open to take the plugin to bb's own detail pane", () => {
+    const { rpc } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    fireEvent.click(screen.getByRole("button", { name: "Open in bb's plugin details" }));
+    expect(window.location.pathname).toBe("/plugins/alpha");
+    expect(window.location.search).toBe("?view=triage&tab=updates");
   });
 });
 
