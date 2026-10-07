@@ -25,6 +25,11 @@ Then open **Plugins** and choose **Triage** in its sidebar.
 | Leave the overview | | Escape |
 | Undo the last decision | | Z |
 
+Each tab has its own address, so Back moves between tabs and a reload or a
+link opens the same one: `/plugins?view=triage&tab=updates` in the Plugins
+screen, `/plugins/plugin-triage/triage/updates` under the sidebar item. New
+needs no `tab`.
+
 The buttons under the deck do the same. A card leads with the plugin's first
 screenshot: tap it to open every screenshot full screen, and swipe or use the
 arrows to move through them. Pinch, double-tap, pinch on a trackpad or ⌃-scroll
