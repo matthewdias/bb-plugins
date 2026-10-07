@@ -81,8 +81,37 @@ describe("the agent's offer", () => {
     const slot = renderBanner("thr_whole", { offer: offerOf(long) });
     const chip = await slot.findByRole("button", { name: `Send "${long}"` });
     expect(chip.textContent).toBe(long);
-    expect(chip.className).not.toMatch(/max-w-/);
+    // Wraps onto more lines instead: never clipped, never cut with an ellipsis.
+    expect(chip.className).toMatch(/\bwhitespace-normal\b/);
+    expect(chip.className).not.toMatch(/\btruncate\b|whitespace-nowrap|max-w-\[/);
     expect(chip.querySelector(".truncate")).toBeNull();
+  });
+
+  it("wraps onto a second line rather than scrolling steps off the edge", async () => {
+    // Scrolling sideways left a step half off a phone's screen, with "Next"
+    // scrolled away: hidden text by another route.
+    const slot = renderBanner("thr_wrap", { offer: offerOf("Open a PR", "Add a test", "Bump the version") });
+    const group = await slot.findByRole("group", { name: "Next steps" });
+    expect(group.className).toMatch(/\bflex-wrap\b/);
+    expect(group.className).not.toMatch(/overflow-x-(auto|scroll)/);
+  });
+
+  it("every chip looks pressable, not only the first", async () => {
+    const slot = renderBanner("thr_edges", { offer: offerOf("Open a PR", "Add a test") });
+    const second = await slot.findByRole("button", { name: 'Send "Add a test"' });
+    // A ghost button beside a filled one read as plain text on a phone.
+    expect(second.className).toMatch(/\bborder\b/);
+  });
+
+  it("the ⋯ menu quotes each step whole, under its action", async () => {
+    const long = "Merge PR #33, then start phase 2 of the destinations work";
+    const slot = renderBanner("thr_menu_whole", { offer: offerOf("Open a PR", long) });
+    fireEvent.keyDown(await slot.findByRole("button", { name: "More next-step actions" }), {
+      key: "Enter",
+    });
+    const item = await slot.findByRole("menuitem", { name: `Keep "${long}" as a follow-up` });
+    expect(item.textContent).toContain(long);
+    expect(item.querySelector(".truncate")).toBeNull();
   });
 
   it("a press sends that step, naming the offer it belonged to", async () => {

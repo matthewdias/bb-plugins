@@ -158,14 +158,18 @@ function Chip({
   return (
     <span
       title={hint ?? undefined}
-      className="inline-flex min-w-0 shrink-0"
+      className="inline-flex min-w-0 max-w-full"
       onMouseEnter={() => onHover?.(true)}
       onMouseLeave={() => onHover?.(false)}
     >
       <Button
-        variant={emphasis ? "secondary" : "ghost"}
+        // Every chip has an edge. A ghost button beside a filled one read as
+        // plain text on a phone, not as something to press.
+        variant={emphasis ? "secondary" : "outline"}
         size="sm"
-        className="h-7 gap-1.5 px-2 text-xs"
+        // Wraps rather than truncating or scrolling: all of a step is sent, so
+        // all of it is on screen, on as many lines as it takes.
+        className="h-auto min-h-7 max-w-full gap-1.5 whitespace-normal px-2 py-1 text-left text-xs leading-snug"
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
         onFocus={() => onHover?.(true)}
@@ -178,7 +182,7 @@ function Chip({
         }}
         aria-label={ariaLabel}
       >
-        <span>{label}</span>
+        <span className="min-w-0 break-words">{label}</span>
       </Button>
     </span>
   );
@@ -295,15 +299,20 @@ export function NextSteps({
   const hint = isCompact ? null : "⌥-click to edit it in the composer first.";
 
   return (
-    <div className="flex min-w-0 items-center gap-1">
-      {/* Scrolls rather than wraps: a second line of chips pushes the
-          composer down by a row on every turn that offers three. */}
+    <div className="flex min-w-0 items-start gap-1">
+      {/* Wraps rather than scrolling sideways. Scrolling kept every chip on
+          one line, but on a phone that line is two chips wide: it left a
+          step half off the edge with "Next" scrolled away, which is hidden
+          text by another route, and every swipe across it started on a chip.
+          A second line costs a row of height, only when there is that much
+          to offer. The label sits outside the wrapping group, so a chip that
+          wraps lines up under the first one rather than under "Next". */}
+      <span className="shrink-0 px-1 text-xs font-medium leading-7 text-foreground">Next</span>
       <div
         role="group"
         aria-label="Next steps"
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none]"
+        className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
       >
-        <span className="shrink-0 px-1 text-xs font-medium text-foreground">Next</span>
         {steps.map((step, index) => (
           <Chip
             key={`${offer?.offeredAt}-${step}`}
@@ -352,7 +361,8 @@ export function NextSteps({
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-6 text-muted-foreground"
+                // A chip's height, so it lines up with the first row of chips.
+                className="size-7 text-muted-foreground"
                 disabled={busy}
                 onMouseDown={(event) => event.preventDefault()}
                 aria-label="More next-step actions"
@@ -361,15 +371,23 @@ export function NextSteps({
               </Button>
             </DropdownMenuTrigger>
           </span>
-          <DropdownMenuContent align="end">
+          {/* Sized to the screen, and each item wraps: the step is quoted in
+              full under its action, so a long one is not cut off mid-word. */}
+          <DropdownMenuContent align="end" className="max-w-[min(20rem,calc(100vw-2rem))]">
             {steps.map((step, index) => (
               <DropdownMenuItem
                 key={`keep-${step}`}
+                className="items-start"
                 onSelect={() => void keep(index)}
                 aria-label={`Keep "${step}" as a follow-up`}
               >
-                <Icon name="ListTodo" className="size-3.5" aria-hidden />
-                <span className="max-w-[16rem] truncate">Keep &ldquo;{step}&rdquo; for later</span>
+                <Icon name="ListTodo" className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span className="flex min-w-0 flex-col">
+                  <span>Keep for later</span>
+                  <span className="whitespace-normal break-words text-xs text-muted-foreground">
+                    {step}
+                  </span>
+                </span>
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
