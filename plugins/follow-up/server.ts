@@ -69,6 +69,7 @@ import { COMMAND_TIMEOUT_MS, hostContract } from "./lib/host-contract.ts";
 import {
   commandEnv,
   commandStdin,
+  approvalStillHolds,
   CONFIRM_FILING_RENDERER,
   type ConfirmFilingPayload,
   destinationSchema,
@@ -2772,11 +2773,17 @@ export default async function plugin(bb: BbPluginApi) {
         return `No destination called "${destination}". Nothing was filed. ${await destinationsForAgent()}`;
       }
 
+      let approved: ConfirmFilingPayload | null = null;
       if (!(await settings.get()).agentFileWithoutAsking) {
         const payload: ConfirmFilingPayload = {
           destination: resolved.destination.name,
           kind: resolved.destination.kind,
-          rows: resolved.rows.map((row) => ({ id: row.id, text: row.text })),
+          rows: resolved.rows.map((row) => ({
+            id: row.id,
+            text: row.text,
+            detail: row.detail ?? null,
+            file: row.file ?? null,
+          })),
         };
         const count = resolved.rows.length;
         const answer = await bb.ui.requestInput(
@@ -2796,6 +2803,7 @@ export default async function plugin(bb: BbPluginApi) {
         if (!confirmed) {
           return "The user did not confirm filing these. Nothing was filed; they stay on this thread's list.";
         }
+        approved = payload;
       }
 
       // Again, after the wait: a row filed or taken off the list meanwhile is
@@ -2807,6 +2815,15 @@ export default async function plugin(bb: BbPluginApi) {
       );
       if (fresh.outcome !== "ok") {
         return "Nothing to file any more: those follow-ups were filed or closed while waiting.";
+      }
+      // The answer was to what was shown. A row reworded or re-detailed, or a
+      // destination edited, while the user decided is something else, and is
+      // not filed on the strength of a yes to the old version.
+      if (approved !== null && !approvalStillHolds(approved, fresh.rows, fresh.destination, resolved.destination)) {
+        return (
+          "Those follow-ups, or the destination, changed while the user was deciding. " +
+          "Nothing was filed; ask again if they still want it."
+        );
       }
       const reports = await fileRows(threadId, fresh.rows, fresh.destination, "agent");
       const lines = reports.map((report) =>

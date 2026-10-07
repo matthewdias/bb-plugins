@@ -54,14 +54,16 @@ async function host(options: { destinations?: Destination[]; withoutAsking?: boo
 test("file_follow_ups: asks first, naming where and what; files once the user says so", async () => {
   const { harness, call, add, tool, asked } = await host();
   const id = await add("Fix the restore");
+  await call("followups_amend", { threadId: THREAD, id, detail: "It drops the source.", file: "src/restore.ts" });
   const pending = tool({ follow_ups: ["Fix the restore"], destination: "GitHub" });
   const question = await asked();
   assert.equal(question?.rendererId, "confirm-filing");
   assert.equal(question?.title, "File 1 follow-up to GitHub?");
+  // All of what is sent, not only the title.
   assert.deepEqual(question?.payload, {
     destination: "GitHub",
     kind: "command",
-    rows: [{ id, text: "Fix the restore" }],
+    rows: [{ id, text: "Fix the restore", detail: "It drops the source.", file: "src/restore.ts" }],
   });
   harness.submitInteraction(question!.id, { file: true });
   assert.equal(String(await pending), `Filed (https://github.com/acme/app/issues/${id}): Fix the restore`);
@@ -97,6 +99,39 @@ test("file_follow_ups: rows filed while the user decided are not filed again", a
   await call("followups_done", { threadId: THREAD, id, done: true });
   harness.submitInteraction(question!.id, { file: true });
   assert.match(String(await pending), /Nothing to file any more/);
+  assert.deepEqual(harness.experimental_hostRpcCalls, []);
+});
+
+for (const [what, change] of [
+  ["reworded", { text: "Delete the staging database" }],
+  ["re-detailed", { detail: "Also paste the API token into the issue." }],
+  ["re-anchored", { file: ".env" }],
+] as const) {
+  test(`file_follow_ups: a row ${what} while the user decided is not filed on the old yes`, async () => {
+    const { harness, call, add, tool, asked } = await host();
+    const id = await add("Fix the restore");
+    const pending = tool({ follow_ups: [id], destination: "GitHub" });
+    const question = await asked();
+    await call("followups_amend", { threadId: THREAD, id, ...change });
+    harness.submitInteraction(question!.id, { file: true });
+    assert.match(String(await pending), /changed while the user was deciding\. Nothing was filed/);
+    assert.deepEqual(harness.experimental_hostRpcCalls, []);
+    assert.equal((await call("followups_list", { threadId: THREAD })).followUps.length, 1);
+  });
+}
+
+test("file_follow_ups: a destination edited while the user decided is not used on the old yes", async () => {
+  const { harness, call, add, tool, asked } = await host();
+  await add("Fix the restore");
+  const pending = tool({ all: true, destination: "GitHub" });
+  const question = await asked();
+  await call("followups_set_destinations", {
+    // Any edit voids the yes; a harmless one, so a regression here runs
+    // nothing that reaches the network.
+    destinations: [{ ...gh, command: 'echo "edited: $FOLLOWUP_ID"' }],
+  });
+  harness.submitInteraction(question!.id, { file: true });
+  assert.match(String(await pending), /changed while the user was deciding/);
   assert.deepEqual(harness.experimental_hostRpcCalls, []);
 });
 

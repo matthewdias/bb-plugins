@@ -4,10 +4,13 @@
 // the user switched the question off. Filing writes outside bb — an issue it
 // opens cannot be closed from here — and an agent steered by something it
 // read could otherwise file things nobody asked for. So the card names where
-// the rows are going and lists them, and either button settles it.
+// the rows are going and shows all of what each one sends — its title, and the
+// detail and file that go with it — and either button settles it. A row
+// carrying characters that draw nothing is flagged: it would be sent as it is,
+// not as it looks.
 import { useState } from "react";
 import type { PluginPendingInteractionProps } from "@get-bb/plugin-sdk/app";
-import { confirmFilingPayloadSchema } from "../lib/destinations.ts";
+import { confirmFilingPayloadSchema, hasUnseenCharacters } from "../lib/destinations.ts";
 import { Button } from "@/components/ui/button";
 
 export function ConfirmFiling({ interaction, submit }: PluginPendingInteractionProps) {
@@ -45,12 +48,30 @@ export function ConfirmFiling({ interaction, submit }: PluginPendingInteractionP
         {kind === "agent" ? ", by a helper following your recipe" : ""}. Filed follow-ups leave
         this thread&rsquo;s list and are tracked there.
       </p>
-      <ul className="flex max-h-40 flex-col gap-0.5 overflow-y-auto pl-4 text-xs text-muted-foreground">
-        {rows.map((row) => (
-          <li key={row.id} className="list-disc break-words">
-            {row.text}
-          </li>
-        ))}
+      <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto pl-4 text-xs">
+        {rows.map((row) => {
+          const unseen =
+            hasUnseenCharacters(row.text) ||
+            hasUnseenCharacters(row.detail) ||
+            hasUnseenCharacters(row.file);
+          return (
+            <li key={row.id} className="flex list-disc flex-col gap-0.5 break-words">
+              <span className="font-medium">{row.text}</span>
+              {row.file !== null && row.file !== "" && (
+                <span className="font-mono text-[11px] text-muted-foreground">{row.file}</span>
+              )}
+              {row.detail !== null && row.detail !== "" && (
+                <span className="whitespace-pre-wrap text-muted-foreground">{row.detail}</span>
+              )}
+              {unseen && (
+                <span role="alert" className="text-destructive">
+                  Contains characters that do not show on screen. What is sent is not quite
+                  what you see here; check it in the panel first.
+                </span>
+              )}
+            </li>
+          );
+        })}
       </ul>
       <div className="flex items-center gap-1.5">
         <Button

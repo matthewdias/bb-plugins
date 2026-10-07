@@ -27,8 +27,8 @@ const payload = {
   destination: "Jira ENG",
   kind: "agent",
   rows: [
-    { id: "a1", text: "Fix the restore" },
-    { id: "b2", text: "Rate-limit the export" },
+    { id: "a1", text: "Fix the restore", detail: "It drops the source.\nEvery time.", file: "src/restore.ts" },
+    { id: "b2", text: "Rate-limit the export", detail: null, file: null },
   ],
 };
 
@@ -39,6 +39,21 @@ describe("confirming an agent's filing", () => {
     expect(slot.getByText(/by a helper following your recipe/)).toBeDefined();
     expect(slot.getByText("Fix the restore")).toBeDefined();
     expect(slot.getByText("Rate-limit the export")).toBeDefined();
+  });
+
+  it("shows all of what each row sends: title, detail and file", async () => {
+    const { slot } = renderConfirm(payload);
+    expect(await slot.findByText("src/restore.ts")).toBeDefined();
+    expect(slot.getByText(/It drops the source\.\s+Every time\./)).toBeDefined();
+    expect(slot.queryByRole("alert")).toBeNull();
+  });
+
+  it("flags a row carrying characters that do not show", async () => {
+    const { slot } = renderConfirm({
+      ...payload,
+      rows: [{ id: "a1", text: "Fix the\u200B restore", detail: null, file: null }],
+    });
+    expect((await slot.findByRole("alert")).textContent).toMatch(/do not show on screen/);
   });
 
   it("File answers yes; Don't file answers no", async () => {

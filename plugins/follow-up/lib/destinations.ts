@@ -223,12 +223,59 @@ export function filingPrompt(
 /** The one-tap form an agent's request to file is confirmed with. */
 export const CONFIRM_FILING_RENDERER = "confirm-filing";
 
+/**
+ * What the user approves: every part of each row a destination is sent — the
+ * title, and the detail and file that go with it — not a summary of it. A
+ * title alone would have the user approve text they never saw, usually an
+ * agent's.
+ */
 export const confirmFilingPayloadSchema = z
   .object({
     destination: z.string(),
     kind: z.enum(DESTINATION_KINDS),
-    rows: z.array(z.object({ id: z.string(), text: z.string() })),
+    rows: z.array(
+      z.object({
+        id: z.string(),
+        text: z.string(),
+        detail: z.string().nullable(),
+        file: z.string().nullable(),
+      }),
+    ),
   })
   .strict();
+
+/**
+ * Characters that draw nothing or rearrange what is drawn, other than the
+ * line breaks and tabs a detail legitimately holds. A row carrying any is shown
+ * flagged in the confirmation: it would be sent as it is, not as it looks.
+ */
+const UNSEEN = /[\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/u;
+export function hasUnseenCharacters(text: string | null): boolean {
+  return text !== null && UNSEEN.test(text);
+}
+
+/**
+ * Has anything the user approved changed since? A row reworded, detailed or
+ * re-anchored while they decided, or the destination edited, is not what
+ * they said yes to.
+ */
+export function approvalStillHolds(
+  approved: ConfirmFilingPayload,
+  rows: readonly FollowUp[],
+  destination: Destination,
+  approvedDestination: Destination,
+): boolean {
+  if (JSON.stringify(destination) !== JSON.stringify(approvedDestination)) return false;
+  if (rows.length !== approved.rows.length) return false;
+  return approved.rows.every((shown) => {
+    const now = rows.find((row) => row.id === shown.id);
+    return (
+      now !== undefined &&
+      now.text === shown.text &&
+      (now.detail ?? null) === shown.detail &&
+      (now.file ?? null) === shown.file
+    );
+  });
+}
 
 export type ConfirmFilingPayload = z.infer<typeof confirmFilingPayloadSchema>;
