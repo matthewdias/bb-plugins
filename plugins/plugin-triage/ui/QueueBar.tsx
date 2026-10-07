@@ -1,6 +1,6 @@
 // The queue, above every tab: what is waiting to install or update, a button
-// to run it all, and a list to review it and take things back off. Nothing
-// queued, nothing drawn.
+// to run it all, one to clear it, and a list to review it and take things back
+// off. Nothing queued, nothing drawn.
 import { useState } from "react";
 import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -34,6 +34,7 @@ const DOING: Record<Job["kind"], string> = { install: "Installing", update: "Upd
 export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) {
   const [open, setOpen] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [clearing, setClearing] = useState(false);
   if (queue.jobs.length === 0) return null;
   const current = queue.jobs.find((job) => job.state === "running");
 
@@ -46,6 +47,23 @@ export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) 
       toast.error(`Couldn't start: ${message(cause)}`);
     } finally {
       setStarting(false);
+    }
+  }
+
+  /** Takes everything off, each card back where it was, as if undone one by one. */
+  async function clear() {
+    setClearing(true);
+    try {
+      const { removed } = await rpc.call("queue_clear", {});
+      if (removed > 0) {
+        haptic("impact-light");
+        toast(`Took ${removed} off the queue`);
+      }
+      void triageStore.load(rpc);
+    } catch (cause) {
+      toast.error(`Couldn't clear the queue: ${message(cause)}`);
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -89,9 +107,14 @@ export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) 
           </p>
         </button>
         {!queue.running && (
-          <Button size="sm" onClick={() => void start()} disabled={starting}>
-            Run all
-          </Button>
+          <>
+            <Button variant="ghost" size="sm" onClick={() => void clear()} disabled={clearing || starting}>
+              Clear
+            </Button>
+            <Button size="sm" onClick={() => void start()} disabled={starting || clearing}>
+              Run all
+            </Button>
+          </>
         )}
       </div>
       {open && (

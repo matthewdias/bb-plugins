@@ -178,6 +178,25 @@ describe("the Cleanup deck over RPC", () => {
     service.controller.abort();
   });
 
+  it("clears removals and updates together, restoring each card's decision", async () => {
+    const { harness, rpc, decide, cards, run, service } = await host();
+    const label = (version: string) => ({ version, display: version });
+    harness.sdk.stub("plugins.checkUpdates", () => [{ id: "fine", outcome: "update-available", installed: label("1"), candidate: label("2") }]);
+    harness.sdk.stub("plugins.applyUpdate", () => ({ applied: true, outcome: "updated", from: label("1"), to: label("2") }));
+    await rpc("update_decide", { pluginId: "fine", displayName: "fine", action: "queue", from: label("1"), to: label("2") });
+    await decide("off", "keep");
+    vi.setSystemTime(NOW + 91 * 24 * 60 * 60 * 1000);
+    await decide("off", "remove");
+    expect(await rpc("queue_clear", {})).toEqual({ removed: 2 });
+    vi.setSystemTime(NOW + 1);
+    // The keep the removal replaced is back, so "off" stays out of the deck.
+    expect(await cards()).toEqual([["broken", "broken"]]);
+    await run();
+    expect(harness.sdk.callsTo("plugins.remove")).toHaveLength(0);
+    expect(harness.sdk.callsTo("plugins.applyUpdate")).toHaveLength(0);
+    service.controller.abort();
+  });
+
   it("takes a queued removal off the queue, restoring a keep it replaced", async () => {
     const { rpc, decide, cards, service } = await host();
     vi.setSystemTime(NOW);

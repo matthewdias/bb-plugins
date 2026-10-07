@@ -48,7 +48,9 @@ Android vibrates instead; iOS Safari has no way to.
 A swipe right doesn't install anything yet: it queues the plugin. The queue
 bar above every tab sums up what is waiting ("2 to install, 1 to update"),
 **Run all** starts it, and tapping the bar lists each item with a ✕ to take it
-back off; until then **Z** also takes back the last decision. A run installs
+back off. **Clear** takes everything off at once, each card back where it was
+(a saved plugin to Saved, a kept one kept), as if you'd undone them one by one;
+until then **Z** also takes back the last decision. A run installs
 first, then updates, one at a time as bb applies them, with Plugin Triage's
 own update last. It lives on the bb server: it keeps going if you close the
 window, and picks up where it left off if the plugin reloads. A toast reports

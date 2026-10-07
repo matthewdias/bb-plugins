@@ -19,7 +19,7 @@ for later.
 **One queue.** Installs and updates you queue wait in a bar above every tab
 until you press Run all, then run in the background, one at a time, and keep
 going if you close the window. Review the queue and take anything back off
-before it runs; Z takes back the last decision.
+before it runs, or clear it all; Z takes back the last decision.
 
 **Updates in one batch.** An Updates deck deals each installed plugin with a
 newer version, showing the version now and next and, for GitHub sources,
