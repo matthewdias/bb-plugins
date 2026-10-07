@@ -74,7 +74,7 @@ async function send(rpc: TriageRpc, card: NewCard, action: Sent): Promise<{ prev
     // this throws and the card goes back, rather than installing whatever
     // the listing points at now. Normally loaded while the card sat on top.
     const plan = await planFor(rpc, card);
-    // Null only for a plugin bundled with bb, which has no listing to move.
+    // Null for bb's own marketplaces, which bb refuses a source for.
     confirmedSource = plan.confirmedSource ?? undefined;
   }
   const { previous } = await rpc.call("decide", {

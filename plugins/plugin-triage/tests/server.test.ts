@@ -10,6 +10,15 @@ import { NOW, entry } from "./fixtures";
 type Rpc = <T>(method: string, input: unknown) => Promise<T>;
 
 const sourceOf = (entryId: string) => ({ kind: "git", url: `https://github.com/someone/${entryId}.git`, range: "^0.1.0" });
+const RESERVED = ["bb-official", "bb-community"];
+
+/** bb's install, which takes a confirmed source only for a third-party marketplace. */
+function bbInstall(args: { entryId: string; marketplace: string; confirmedSource?: unknown }) {
+  if (RESERVED.includes(args.marketplace) && args.confirmedSource !== undefined) {
+    throw new Error("HTTP 422: install refused: confirmedSource applies only to third-party marketplaces");
+  }
+  return { id: args.entryId };
+}
 
 async function host(options: { install?: (args: { entryId: string }) => unknown } = {}) {
   const catalog = [entry({ entryId: "alpha" }), entry({ entryId: "beta" })];
@@ -21,8 +30,8 @@ async function host(options: { install?: (args: { entryId: string }) => unknown 
     pluginId: args.entryId,
     displayName: args.entryId,
     marketplace: args.marketplace,
-    marketplaceDisplayName: "BB Community",
-    official: true,
+    marketplaceDisplayName: args.marketplace,
+    official: RESERVED.includes(args.marketplace),
     author: { name: "someone", github: null, url: null },
     source: "git:…",
     resolvedSource: { kind: "git", url: `https://github.com/someone/${args.entryId}.git`, range: "^0.1.0" },
@@ -31,7 +40,7 @@ async function host(options: { install?: (args: { entryId: string }) => unknown 
   }));
   harness.sdk.stub(
     "plugins.catalog.install",
-    options.install ?? ((args: { entryId: string }) => ({ id: args.entryId })),
+    options.install ?? bbInstall,
   );
   await plugin(bb);
   const service = harness.runService("queue");
@@ -46,8 +55,6 @@ async function host(options: { install?: (args: { entryId: string }) => unknown 
       pluginId: entryId,
       displayName: entryId,
       action,
-      // What the card showed, as the page always sends with an install.
-      ...(action === "install" ? { confirmedSource: sourceOf(entryId) } : {}),
     });
   /** Runs the queue, as Run all does, and lets the runner work through it. */
   const run = async () => {
@@ -97,14 +104,25 @@ describe("the New deck over RPC", () => {
     service.controller.abort();
   });
 
-  it("summarizes the source an install would use", async () => {
+  it("summarizes the source an install would use, to confirm for a third-party marketplace", async () => {
+    const { rpc, service } = await host();
+    const plan = await rpc<{ summary: { label: string }; confirmedSource: unknown }>("entry_plan", {
+      entryId: "alpha",
+      marketplace: "acme",
+    });
+    expect(plan.summary.label).toBe("github.com/someone/alpha @ ^0.1.0");
+    expect(plan.confirmedSource).toMatchObject({ kind: "git", range: "^0.1.0" });
+    service.controller.abort();
+  });
+
+  it("offers no source to confirm for BB Community, which bb would refuse", async () => {
     const { rpc, service } = await host();
     const plan = await rpc<{ summary: { label: string }; confirmedSource: unknown }>("entry_plan", {
       entryId: "alpha",
       marketplace: "bb-community",
     });
     expect(plan.summary.label).toBe("github.com/someone/alpha @ ^0.1.0");
-    expect(plan.confirmedSource).toMatchObject({ kind: "git", range: "^0.1.0" });
+    expect(plan.confirmedSource).toBeNull();
     service.controller.abort();
   });
 });
@@ -120,19 +138,19 @@ describe("installing", () => {
 
     await run();
     expect(harness.sdk.callsTo("plugins.catalog.install")).toEqual([
-      [{ entryId: "alpha", marketplace: "bb-community", confirmedSource: sourceOf("alpha") }],
+      [{ entryId: "alpha", marketplace: "bb-community" }],
     ]);
     expect((await jobs())[0]).toMatchObject({ state: "done", pluginId: "alpha" });
     service.controller.abort();
   });
 
-  it("sends the confirmed source back with the install", async () => {
+  it("sends the confirmed source back with a third-party install", async () => {
     const { harness, rpc, advance, run, service } = await host();
     const confirmedSource = { kind: "git", url: "https://github.com/someone/alpha.git", range: "^0.1.0" };
     await rpc("decide", {
-      key: "alpha@bb-community",
+      key: "alpha@acme",
       entryId: "alpha",
-      marketplace: "bb-community",
+      marketplace: "acme",
       pluginId: "alpha",
       displayName: "alpha",
       action: "install",
@@ -140,8 +158,25 @@ describe("installing", () => {
     });
     await run();
     expect(harness.sdk.callsTo("plugins.catalog.install")[0]).toEqual([
-      { entryId: "alpha", marketplace: "bb-community", confirmedSource },
+      { entryId: "alpha", marketplace: "acme", confirmedSource },
     ]);
+    service.controller.abort();
+  });
+
+  it("drops a source an older Triage queued for BB Community, so bb takes the install", async () => {
+    const { harness, rpc, jobs, run, service } = await host();
+    await rpc("decide", {
+      key: "alpha@bb-community",
+      entryId: "alpha",
+      marketplace: "bb-community",
+      pluginId: "alpha",
+      displayName: "alpha",
+      action: "install",
+      confirmedSource: sourceOf("alpha"),
+    });
+    await run();
+    expect(harness.sdk.callsTo("plugins.catalog.install")).toEqual([[{ entryId: "alpha", marketplace: "bb-community" }]]);
+    expect((await jobs())[0]).toMatchObject({ state: "done", error: null });
     service.controller.abort();
   });
 
@@ -165,7 +200,6 @@ describe("installing", () => {
       pluginId: "beta",
       displayName: "beta",
       action: "install",
-      confirmedSource: sourceOf("beta"),
     });
     expect(previous).toMatchObject({ action: "save" });
     await rpc("undo", { key: "beta@bb-community", restore: previous });
@@ -250,18 +284,18 @@ describe("installing", () => {
     const { jobs } = (await next.harness.callRpc("jobs_list", {})) as { jobs: Job[] };
     expect(jobs[0]).toMatchObject({ state: "done", error: null });
     expect(next.harness.sdk.callsTo("plugins.catalog.install")).toEqual([
-      [{ entryId: "alpha", marketplace: "bb-community", confirmedSource: sourceOf("alpha") }],
+      [{ entryId: "alpha", marketplace: "bb-community" }],
     ]);
     service.controller.abort();
   });
 
-  it("refuses an install that arrives without the source its card showed", async () => {
+  it("refuses a third-party install that arrives without the source its card showed", async () => {
     const { rpc, jobs, deck, service } = await host();
     await expect(
       rpc("decide", {
-        key: "alpha@bb-community",
+        key: "alpha@acme",
         entryId: "alpha",
-        marketplace: "bb-community",
+        marketplace: "acme",
         pluginId: "alpha",
         displayName: "alpha",
         action: "install",

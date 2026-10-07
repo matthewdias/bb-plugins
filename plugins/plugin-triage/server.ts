@@ -69,8 +69,16 @@ const OBSERVATIONS = "usage";
 const REMOVALS_SHOWN = 20;
 /** Finished updates the Updates tab lists. */
 const HISTORY_SHOWN = 20;
-/** The marketplace of plugins bundled with bb. */
-const BUNDLED_MARKETPLACE = "bb-official";
+/**
+ * bb's own marketplaces: plugins bundled with bb, and BB Community. bb pins
+ * an install to the source its card showed only for third-party marketplaces,
+ * and refuses a confirmed source for these.
+ */
+const RESERVED_MARKETPLACES = new Set(["bb-official", "bb-community"]);
+
+function thirdParty(marketplace: string): boolean {
+  return !RESERVED_MARKETPLACES.has(marketplace);
+}
 const JOBS = "jobs";
 const FIRST_RUN_AT = "firstRunAt";
 
@@ -214,7 +222,11 @@ export default async function plugin(bb: BbPluginApi) {
       const installed = await bb.sdk.plugins.catalog.install({
         entryId: job.entryId,
         marketplace: job.marketplace,
-        ...(job.confirmedSource == null ? {} : { confirmedSource: job.confirmedSource as never }),
+        // A job queued before Triage knew better may carry a source for one
+        // of bb's own marketplaces, which bb would refuse.
+        ...(job.confirmedSource == null || !thirdParty(job.marketplace)
+          ? {}
+          : { confirmedSource: job.confirmedSource as never }),
       });
       return { ok: true, pluginId: installed.id };
     } catch (error) {
@@ -364,7 +376,7 @@ export default async function plugin(bb: BbPluginApi) {
       }
       return {
         summary: summarizeSource(plan.resolvedSource as ResolvedSource),
-        confirmedSource: plan.resolvedSource,
+        confirmedSource: thirdParty(plan.marketplace) ? plan.resolvedSource : null,
         compatible: plan.compatible,
         incompatibleReason: plan.incompatibleReason,
       };
@@ -372,9 +384,9 @@ export default async function plugin(bb: BbPluginApi) {
 
     decide: async (input) => {
       // Fail closed: without the source the card showed, bb could not refuse
-      // an install whose listing moved after the swipe. Only plugins bundled
-      // with bb, whose plan has no listing source, install without one.
-      if (input.action === "install" && input.confirmedSource == null && input.marketplace !== BUNDLED_MARKETPLACE) {
+      // an install whose listing moved after the swipe. Only bb's own
+      // marketplaces, which bb refuses a source for, install without one.
+      if (input.action === "install" && input.confirmedSource == null && thirdParty(input.marketplace)) {
         throw new Error("This install is missing the source its card showed. Reload Triage and try again.");
       }
       const { job, previous } = await locked(async () => {
