@@ -58,6 +58,7 @@ const HELP = [
   "  bb follow-up amend         Change a follow-up in place, keeping its id, age and position",
   "  bb follow-up done          Mark a follow-up finished; it moves to Done",
   "  bb follow-up reopen        Move a finished follow-up back to the open list",
+  "  bb follow-up file          File follow-ups to a destination (this project's default unless --to), and wait for the result",
   "  bb follow-up destinations  List where follow-ups can be filed, as set up in the plugin's settings",
   "  bb follow-up filed         Record that a follow-up was filed somewhere else; it moves to Done and is not recorded here again",
   "  bb follow-up clear-done    Empty Done, so finished follow-ups can be recorded again if they recur (filed ones cannot)",

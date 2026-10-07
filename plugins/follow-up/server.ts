@@ -49,6 +49,7 @@ import {
   titleAndDetail,
   fileFollowUp,
   isFiled,
+  isFiling,
   keysOf,
   unfiled,
   withMarks,
@@ -64,10 +65,14 @@ import {
   SERVICE_TIER_MAX,
   type ExpansionExecution,
 } from "./lib/expansion-execution.ts";
+import { COMMAND_TIMEOUT_MS, hostContract } from "./lib/host-contract.ts";
 import {
+  commandEnv,
+  commandStdin,
   destinationSchema,
   DESTINATIONS_MAX,
   filedToOf,
+  refFromOutput,
   findDestination,
   parseDestinations,
   slugFor,
@@ -339,6 +344,27 @@ export const rpcContract = defineRpcContract({
       .object({
         outcome: z.enum(["saved", "duplicate-name"]),
         destinations: z.array(destinationSchema),
+      })
+      .strict(),
+  },
+  /**
+   * File rows to a destination: the named one, or this project's default.
+   * Returns at once — a command per row, or a helper thread, can take a while,
+   * and the rows say "filing…" until each lands. Null ids means every open row.
+   */
+  followups_file: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        ids: z.array(z.string().min(1).max(64)).min(1).max(CAP_CEILING).nullable(),
+        destinationId: z.string().min(1).max(60).nullable(),
+      })
+      .strict(),
+    output: z
+      .object({
+        outcome: z.enum(["started", "no-destination", "unknown-destination", "nothing-to-file"]),
+        destinationId: z.string().nullable(),
+        count: z.number().int(),
       })
       .strict(),
   },
@@ -1035,6 +1061,182 @@ export default async function plugin(bb: BbPluginApi) {
     const id = await bb.storage.kv.get<string>(defaultDestinationKey(projectId));
     if (typeof id !== "string") return null;
     return (await readDestinations()).find((destination) => destination.id === id) ?? null;
+  }
+
+  /** The project a thread belongs to, or null when it has none or is gone. */
+  async function projectOf(threadId: string): Promise<string | null> {
+    try {
+      return (await bb.sdk.threads.get({ threadId })).projectId ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Mark rows as being filed, or stop marking them — with a note saying why,
+   * when the filing did not land. One write and one signal for the batch.
+   */
+  async function setFiling(
+    threadId: string,
+    ids: readonly string[],
+    state: { by: "agent" | "user" } | { note: string | null },
+  ): Promise<void> {
+    const items = await readItems(threadId);
+    const now = new Date().toISOString();
+    await bb.storage.kv.set(
+      itemsKey(threadId),
+      items.map((row) => {
+        if (!ids.includes(row.id) || isFiled(row)) return row;
+        return "by" in state
+          ? { ...row, filingSince: now, filingBy: state.by, filingNote: null }
+          : { ...row, filingSince: null, filingBy: null, filingNote: state.note };
+      }),
+    );
+    bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
+  }
+
+  /** What became of one row a filing was asked for. */
+  type FilingReport = {
+    id: string;
+    text: string;
+    outcome: "filed" | "failed";
+    ref: string | null;
+    note: string | null;
+  };
+
+  const hostClient = bb.hosts.experimental_client({ contract: hostContract });
+
+  /** The last line of output worth showing, for a note on a row that did not file. */
+  const lastLine = (text: string) =>
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== "")
+      .at(-1) ?? "";
+
+  /**
+   * A command destination: run once per row, on the host the thread lives on,
+   * in its checkout. Exit 0 files the row with whatever ref its output gives;
+   * anything else leaves the row open with the reason on it.
+   */
+  async function fileByCommand(
+    threadId: string,
+    rows: readonly FollowUp[],
+    destination: Destination,
+    by: "agent" | "user",
+  ): Promise<FilingReport[]> {
+    let where: { hostId: string; path: string } | { problem: string };
+    try {
+      const thread = await bb.sdk.threads.get({ threadId });
+      if (thread.environmentId === null || thread.environmentId === undefined) {
+        where = { problem: "This thread has no checkout to run the command in." };
+      } else {
+        const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId });
+        where =
+          environment.path === null || environment.path === ""
+            ? { problem: "This thread's checkout has no path on its host." }
+            : { hostId: environment.hostId, path: environment.path };
+      }
+    } catch (error) {
+      where = { problem: `Could not find this thread's checkout: ${String(error)}` };
+    }
+
+    const reports: FilingReport[] = [];
+    for (const row of rows) {
+      if ("problem" in where) {
+        await setFiling(threadId, [row.id], { note: where.problem });
+        reports.push({ id: row.id, text: row.text, outcome: "failed", ref: null, note: where.problem });
+        continue;
+      }
+      let note: string;
+      try {
+        const result = await hostClient.call(
+          "run_command",
+          {
+            command: destination.command ?? "",
+            cwd: where.path,
+            env: commandEnv(row, threadId),
+            stdin: commandStdin(row, threadId),
+            timeoutMs: COMMAND_TIMEOUT_MS,
+          },
+          // A little longer than the command's own limit, so the host reports
+          // the timeout rather than the call giving up first.
+          { hostId: where.hostId, timeoutMs: COMMAND_TIMEOUT_MS + 15_000 },
+        );
+        if (result.exitCode === 0) {
+          const ref = refFromOutput(result.stdout);
+          await markFiled(threadId, row.id, filedToOf(destination), ref, by);
+          reports.push({ id: row.id, text: row.text, outcome: "filed", ref, note: null });
+          continue;
+        }
+        const said = lastLine(result.stderr) || lastLine(result.stdout);
+        note = result.timedOut
+          ? `${destination.name} timed out after ${COMMAND_TIMEOUT_MS / 1000}s.`
+          : `${destination.name} exited ${result.exitCode ?? "abnormally"}${said === "" ? "." : `: ${said}`}`;
+      } catch (error) {
+        note = `Could not run ${destination.name} on this thread's host: ${String(error)}`;
+      }
+      note = note.slice(0, 300);
+      await setFiling(threadId, [row.id], { note });
+      bb.log.warn(`filing to ${destination.name} failed on ${threadId}: ${note}`);
+      reports.push({ id: row.id, text: row.text, outcome: "failed", ref: null, note });
+    }
+    return reports;
+  }
+
+  /**
+   * File rows to a destination, whatever its kind. The rows are marked as
+   * being filed first, so every surface shows it while this runs; anything
+   * that escapes leaves them open with the reason rather than spinning.
+   */
+  async function fileRows(
+    threadId: string,
+    rows: readonly FollowUp[],
+    destination: Destination,
+    by: "agent" | "user",
+  ): Promise<FilingReport[]> {
+    const ids = rows.map((row) => row.id);
+    await setFiling(threadId, ids, { by });
+    try {
+      if (destination.kind === "command") return await fileByCommand(threadId, rows, destination, by);
+      const note = "Agent destinations are not wired up yet.";
+      await setFiling(threadId, ids, { note });
+      return rows.map((row) => ({ id: row.id, text: row.text, outcome: "failed" as const, ref: null, note }));
+    } catch (error) {
+      const note = `Filing to ${destination.name} failed: ${String(error)}`.slice(0, 300);
+      await setFiling(threadId, ids, { note });
+      return rows.map((row) => ({ id: row.id, text: row.text, outcome: "failed" as const, ref: null, note }));
+    }
+  }
+
+  /**
+   * Which rows and which destination a filing request means, or why it means
+   * nothing. Shared by the card, the CLI and the agent tool.
+   */
+  async function resolveFiling(
+    threadId: string,
+    ids: readonly string[] | null,
+    destinationName: string | null,
+  ): Promise<
+    | { outcome: "ok"; rows: FollowUp[]; destination: Destination; projectId: string | null }
+    | { outcome: "no-destination" | "unknown-destination" | "nothing-to-file" }
+  > {
+    // Rows first: nobody should be asked to pick a destination for nothing.
+    // Open rows not already on their way somewhere, since filing one twice
+    // would file it twice.
+    const open = (await listFollowUps(threadId)).filter((row) => !isFiling(row));
+    const rows = ids === null ? open : open.filter((row) => ids.includes(row.id));
+    if (rows.length === 0) return { outcome: "nothing-to-file" };
+    const projectId = await projectOf(threadId);
+    let destination: Destination | null;
+    if (destinationName === null) {
+      destination = await readDefaultDestination(projectId);
+      if (destination === null) return { outcome: "no-destination" };
+    } else {
+      destination = findDestination(await readDestinations(), destinationName);
+      if (destination === null) return { outcome: "unknown-destination" };
+    }
+    return { outcome: "ok", rows, destination, projectId };
   }
 
   async function readFiledMarks(threadId: string): Promise<FiledMark[]> {
@@ -2672,6 +2874,26 @@ export default async function plugin(bb: BbPluginApi) {
       bb.log.info(`saved ${saved.length} destination(s)`);
       return { outcome: "saved" as const, destinations: parseDestinations(saved) };
     },
+    followups_file: async ({ threadId, ids, destinationId }) => {
+      const resolved = await resolveFiling(threadId, ids, destinationId);
+      if (resolved.outcome !== "ok") {
+        return { outcome: resolved.outcome, destinationId: null, count: 0 };
+      }
+      const { rows, destination, projectId } = resolved;
+      // The first destination someone picks in a project becomes its default:
+      // that is what File all then reaches for.
+      if (destinationId !== null && projectId !== null) {
+        const existing = await bb.storage.kv.get<string>(defaultDestinationKey(projectId));
+        if (typeof existing !== "string") {
+          await bb.storage.kv.set(defaultDestinationKey(projectId), destination.id);
+        }
+      }
+      // Marked before answering, so the rows already say "filing…" when the
+      // card refetches on this answer.
+      await setFiling(threadId, rows.map((row) => row.id), { by: "user" });
+      void fileRows(threadId, rows, destination, "user");
+      return { outcome: "started" as const, destinationId: destination.id, count: rows.length };
+    },
     followups_set_default_destination: async ({ projectId, id }) => {
       if (id === null) {
         await bb.storage.kv.delete(defaultDestinationKey(projectId));
@@ -2981,6 +3203,66 @@ export default async function plugin(bb: BbPluginApi) {
 
         done: setDoneCommand(true),
         reopen: setDoneCommand(false),
+        file: cliCommand({
+          summary:
+            "File follow-ups to a destination (this project's default unless --to), and wait for the result",
+          positionals: [
+            {
+              name: "id",
+              required: false,
+              variadic: true,
+              description: "Follow-ups to file; omit with --all",
+            },
+          ],
+          options: {
+            thread: threadOption,
+            json: jsonResult,
+            all: { type: "boolean", description: "File every open follow-up" },
+            to: {
+              type: "string",
+              placeholder: "destination",
+              description: "A destination's name or id; see `bb follow-up destinations`",
+            },
+          },
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const ids = positionals.id ?? [];
+            if (options.all !== true && ids.length === 0) {
+              throw new PluginCliError("Name the follow-ups to file, or pass --all.");
+            }
+            const resolved = await resolveFiling(
+              threadId,
+              options.all === true ? null : ids,
+              options.to ?? null,
+            );
+            if (resolved.outcome === "no-destination") {
+              throw new PluginCliError(
+                "This project has no default destination. Pass --to, or pick one in the card once.",
+              );
+            }
+            if (resolved.outcome === "unknown-destination") {
+              throw new PluginCliError(
+                `No destination called ${options.to}. \`bb follow-up destinations\` lists them.`,
+              );
+            }
+            if (resolved.outcome !== "ok") {
+              throw new PluginCliError("Nothing to file: no open follow-up matches.");
+            }
+            const reports = await fileRows(threadId, resolved.rows, resolved.destination, "user");
+            if (options.json) {
+              return { exitCode: 0, stdout: `${JSON.stringify({ reports })}\n` };
+            }
+            const lines = reports.map((report) =>
+              report.outcome === "filed"
+                ? `Filed${report.ref ? ` (${report.ref})` : ""}: ${report.text}`
+                : `Not filed: ${report.text} — ${report.note}`,
+            );
+            const failed = reports.some((report) => report.outcome === "failed");
+            return failed
+              ? { exitCode: 1, stdout: `${lines.join("\n")}\n`, stderr: "" }
+              : { exitCode: 0, stdout: `${lines.join("\n")}\n` };
+          },
+        }),
         destinations: cliCommand({
           summary: "List where follow-ups can be filed, as set up in the plugin's settings",
           options: { thread: threadOption, json: jsonResult },
