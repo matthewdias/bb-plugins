@@ -47,6 +47,14 @@ import {
   TEXT_MAX,
   TITLE_MAX,
   titleAndDetail,
+  fileFollowUp,
+  isFiled,
+  keysOf,
+  unfiled,
+  withMarks,
+  withoutMarks,
+  type FiledMark,
+  type FiledTo,
   MENTION_PROVIDER,
   followUpMentionId,
   type FollowUp,
@@ -111,6 +119,12 @@ const followUpSchema = z.object({
   doneBy: z.enum(["agent", "user"]).nullable().optional(),
   doneNote: z.string().nullable().optional(),
   createdBy: z.enum(["agent", "user"]).nullable().optional(),
+  filedAt: z.string().nullable().optional(),
+  filedTo: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
+  filedRef: z.string().nullable().optional(),
+  filingSince: z.string().nullable().optional(),
+  filingBy: z.enum(["agent", "user"]).nullable().optional(),
+  filingNote: z.string().nullable().optional(),
 });
 
 const nextOfferSchema = z
@@ -272,7 +286,7 @@ export const rpcContract = defineRpcContract({
     input: nextStepRef,
     output: z
       .object({
-        outcome: z.enum(["added", "duplicate", "dismissed", "full", "stale"]),
+        outcome: z.enum(["added", "duplicate", "dismissed", "filed", "full", "stale"]),
         offer: nextOfferSchema.nullable(),
         followUps: z.array(followUpSchema),
         done: z.array(followUpSchema),
@@ -364,7 +378,7 @@ export const rpcContract = defineRpcContract({
       .strict(),
     output: z
       .object({
-        outcome: z.enum(["added", "duplicate", "dismissed", "full"]),
+        outcome: z.enum(["added", "duplicate", "dismissed", "filed", "full"]),
         // Null unless something was added. The caller needs it to expand the
         // row it has just created without matching on text.
         id: z.string().nullable(),
@@ -604,12 +618,15 @@ const SEEN_PREFIX = "seen:";
  * see lib/next-steps.ts for why an offer never outlives its turn.
  */
 const NEXT_PREFIX = "next:";
+/** Texts this thread filed somewhere, which may not be recorded here again. */
+const FILED_PREFIX = "filed:";
 
 const itemsKey = (threadId: string) => `${ITEMS_PREFIX}${threadId}`;
 const tombsKey = (threadId: string) => `${TOMBS_PREFIX}${threadId}`;
 const expandingKey = (helperThreadId: string) => `${EXPANDING_PREFIX}${helperThreadId}`;
 const seenKey = (threadId: string) => `${SEEN_PREFIX}${threadId}`;
 const nextKey = (threadId: string) => `${NEXT_PREFIX}${threadId}`;
+const filedKey = (threadId: string) => `${FILED_PREFIX}${threadId}`;
 
 /**
  * Frontend refetch signal for offers, separate from FOLLOWUPS_CHANGED because
@@ -958,6 +975,41 @@ export default async function plugin(bb: BbPluginApi) {
     return (await bb.storage.kv.get<string[]>(tombsKey(threadId))) ?? [];
   }
 
+  async function readFiledMarks(threadId: string): Promise<FiledMark[]> {
+    return (await bb.storage.kv.get<FiledMark[]>(filedKey(threadId))) ?? [];
+  }
+
+  /**
+   * File one row: done, with where it went, and its text kept from coming
+   * back. The one writer of the filed state — the CLI a helper reports through,
+   * a command destination's result and a person's own `bb follow-up filed` all
+   * land here.
+   */
+  async function markFiled(
+    threadId: string,
+    id: string,
+    to: FiledTo,
+    ref: string | null,
+    fallbackBy: "agent" | "user",
+  ): Promise<{ outcome: "filed" | "not-found" | "already-filed"; row: FollowUp | null }> {
+    const [items, marks] = await Promise.all([readItems(threadId), readFiledMarks(threadId)]);
+    const target = items.find((row) => row.id === id);
+    const result = fileFollowUp(items, id, {
+      to,
+      ref,
+      at: new Date().toISOString(),
+      // Whoever asked for the filing, when one was in flight: the helper that
+      // reports it is only the messenger.
+      by: target?.filingBy ?? fallbackBy,
+    });
+    if (result.outcome !== "filed") return { outcome: result.outcome, row: result.row };
+    await bb.storage.kv.set(itemsKey(threadId), result.list);
+    await bb.storage.kv.set(filedKey(threadId), withMarks(marks, result.marks));
+    bb.log.info(`filed follow-up on ${threadId} to ${to.name}: ${result.row?.text}`);
+    bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
+    return { outcome: "filed", row: result.row };
+  }
+
   /** Remember that this thread has tracked something. Never unset. */
   async function markEverRecorded(threadId: string): Promise<void> {
     await bb.storage.kv.set(seenKey(threadId), true);
@@ -1206,12 +1258,18 @@ export default async function plugin(bb: BbPluginApi) {
     const items = await readItems(threadId);
     const target = items.find((row) => row.id === id);
     if (target === undefined) return null;
+    // Reopening a filed row makes it this thread's again: no longer filed,
+    // and its text free to stand on its own here.
+    if (!done && isFiled(target)) {
+      const marks = await readFiledMarks(threadId);
+      await bb.storage.kv.set(filedKey(threadId), withoutMarks(marks, keysOf(target)));
+    }
     await bb.storage.kv.set(
       itemsKey(threadId),
       items.map((row) =>
         row.id === id
           ? {
-              ...row,
+              ...(done ? row : unfiled(row)),
               doneAt: done ? new Date().toISOString() : null,
               // Reopening clears the attribution with the completion: the
               // claim it recorded is no longer true of the row.
@@ -1399,6 +1457,7 @@ export default async function plugin(bb: BbPluginApi) {
       readTombstones(parent),
     ]);
     const cap = await threadCap();
+    const marks = await readFiledMarks(parent);
     let list = items;
     let added = 0;
     for (const row of carried) {
@@ -1407,6 +1466,7 @@ export default async function plugin(bb: BbPluginApi) {
         carriedFromChild(row, child, randomUUID().slice(0, 8), new Date().toISOString()),
         tombstones,
         cap,
+        marks,
       );
       list = result.list;
       if (result.outcome === "added") added += 1;
@@ -1680,7 +1740,13 @@ export default async function plugin(bb: BbPluginApi) {
     };
     // Same gate as the agent tool: a dismissed text stays dismissed, and a
     // duplicate is refused, whoever is asking.
-    const { list, outcome } = addFollowUp(items, row, tombstones, await threadCap());
+    const { list, outcome } = addFollowUp(
+      items,
+      row,
+      tombstones,
+      await threadCap(),
+      await readFiledMarks(threadId),
+    );
     if (outcome === "added") {
       await bb.storage.kv.set(itemsKey(threadId), list);
       await markEverRecorded(threadId);
@@ -1871,7 +1937,13 @@ export default async function plugin(bb: BbPluginApi) {
         createdBy: "agent",
       };
       const cap = await threadCap();
-      const { list, outcome } = addFollowUp(items, row, tombstones, cap);
+      const { list, outcome, filedAs } = addFollowUp(
+        items,
+        row,
+        tombstones,
+        cap,
+        await readFiledMarks(threadId),
+      );
 
       switch (outcome) {
         case "added": {
@@ -1911,6 +1983,11 @@ export default async function plugin(bb: BbPluginApi) {
           return "Already recorded on this thread — not added again.";
         case "dismissed":
           return "The user dismissed this follow-up earlier; not re-adding it.";
+        case "filed":
+          return (
+            `This was filed to ${filedAs?.to ?? "a destination"} from this thread earlier` +
+            `${filedAs?.ref ? ` (${filedAs.ref})` : ""}, so it is tracked there; not re-adding it.`
+          );
         case "full":
           return `This thread already holds the maximum of ${cap} follow-ups. Nothing was added.`;
       }
@@ -2647,6 +2724,16 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   // Done and reopen are one operation run in two directions.
+  /**
+   * The destination a name stands for. Until destinations can be configured
+   * this is the name as given, with an id derived from it — enough for a
+   * person recording something they filed by hand.
+   */
+  async function destinationFor(name: string): Promise<FiledTo> {
+    const trimmed = name.trim();
+    return { id: trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), name: trimmed };
+  }
+
   const setDoneCommand = (done: boolean) =>
     cliCommand({
       summary: done
@@ -2723,6 +2810,11 @@ export default async function plugin(bb: BbPluginApi) {
                   "That follow-up was dismissed on this thread and will not come " +
                     "back. `bb follow-up forget` releases dismissed texts.",
                 );
+              case "filed":
+                throw new PluginCliError(
+                  "That follow-up was filed elsewhere from this thread, so it is " +
+                    "tracked there and will not be added again.",
+                );
               default:
                 throw new PluginCliError("This thread is holding as many follow-ups as it may.");
             }
@@ -2789,6 +2881,49 @@ export default async function plugin(bb: BbPluginApi) {
 
         done: setDoneCommand(true),
         reopen: setDoneCommand(false),
+        filed: cliCommand({
+          summary:
+            "Record that a follow-up was filed somewhere else; it moves to Done and is not recorded here again",
+          positionals: [idArgument],
+          options: {
+            thread: threadOption,
+            json: jsonFailure,
+            to: {
+              type: "string",
+              required: true,
+              placeholder: "destination",
+              description: "Where it was filed",
+            },
+            ref: {
+              type: "string",
+              placeholder: "ref",
+              description: "What the destination gave back: a URL or a key like ENG-1482",
+            },
+          },
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const to = await destinationFor(options.to);
+            const { outcome, row } = await markFiled(
+              threadId,
+              positionals.id,
+              to,
+              options.ref ?? null,
+              "user",
+            );
+            if (outcome === "not-found") {
+              throw new PluginCliError(`No follow-up with id ${positionals.id} on ${threadId}.`);
+            }
+            if (outcome === "already-filed") {
+              throw new PluginCliError(
+                `Already filed to ${row?.filedTo?.name ?? "a destination"}${row?.filedRef ? ` (${row.filedRef})` : ""}.`,
+              );
+            }
+            return {
+              exitCode: 0,
+              stdout: `Filed to ${to.name}${options.ref ? ` (${options.ref})` : ""}: ${row?.text}\n`,
+            };
+          },
+        }),
 
         "clear-done": cliCommand({
           summary: "Empty Done, so those follow-ups can be recorded again if they recur",

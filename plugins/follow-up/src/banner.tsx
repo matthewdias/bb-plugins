@@ -19,7 +19,9 @@ import {
   TITLE_MAX,
   type FollowUp,
   type Reason,
+  isFiled,
 } from "../lib/followups.ts";
+import { FiledBadge } from "./filed-badge.tsx";
 import {
   setAutoCollapseAt,
   setCollapsed,
@@ -685,9 +687,17 @@ function DoneSection({
           {done.map((row) => (
             <li key={row.id} className="flex items-start gap-2 py-1 pl-4">
               <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-1">
-                <span className="min-w-0 break-words text-xs text-muted-foreground line-through">
+                {/* Not struck through when filed: the work is not done, it is
+                    tracked somewhere else, and the badge says where. */}
+                <span
+                  className={cn(
+                    "min-w-0 break-words text-xs text-muted-foreground",
+                    !isFiled(row) && "line-through",
+                  )}
+                >
                   {row.text}
                 </span>
+                <FiledBadge row={row} />
                 {/* Who closed it, because an agent's "done" is a claim and
                     the user's is a decision. The note it gave is the thing
                     to check, so it is the tooltip. */}

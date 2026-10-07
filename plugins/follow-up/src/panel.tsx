@@ -14,7 +14,9 @@ import {
   isExpanding,
   TITLE_MAX,
   type FollowUp,
+  isFiled,
 } from "../lib/followups.ts";
+import { FiledBadge } from "./filed-badge.tsx";
 import { FollowUpSortable, useSortableRow } from "./sortable.tsx";
 import {
   ComposerInsert,
@@ -89,8 +91,13 @@ function DonePanelSection({
         {done.map((row) => (
           <li key={row.id} className="flex flex-col gap-0.5">
             <span className="flex items-start gap-1">
-              <span className="min-w-0 flex-1 break-words text-muted-foreground line-through">
-                {row.text}
+              <span
+                className={cn(
+                  "flex min-w-0 flex-1 flex-wrap items-baseline gap-1 break-words text-muted-foreground",
+                )}
+              >
+                <span className={cn(!isFiled(row) && "line-through")}>{row.text}</span>
+                <FiledBadge row={row} />
               </span>
               {/* The panel had no actions on done rows at all, so reopening
                   something closed by mistake meant going back to the

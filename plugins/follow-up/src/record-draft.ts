@@ -36,6 +36,7 @@ export type RecordOutcome =
   | "added"
   | "duplicate"
   | "dismissed"
+  | "filed"
   | "full"
   | "empty"
   | "failed"
@@ -45,6 +46,7 @@ export type RecordOutcome =
 export const REFUSAL_DETAIL: Record<Exclude<RecordOutcome, "added">, string> = {
   duplicate: "Another follow-up on this thread already says that.",
   dismissed: "You dismissed that wording earlier, so it cannot come back.",
+  filed: "That was filed elsewhere from this thread, so it is tracked there already.",
   full: "This thread has hit the follow-up cap. Clear some first.",
   empty: "Nothing to record: the draft has no text.",
   failed: "The follow-up was not recorded. Try again.",
