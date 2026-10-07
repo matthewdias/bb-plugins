@@ -130,6 +130,7 @@ function Chip({
   label,
   hint,
   ariaLabel,
+  primary = false,
   disabled,
   onSend,
   onEdit,
@@ -146,6 +147,11 @@ function Chip({
   /** Hover text. Desktop only: a phone has no hover. */
   hint: string | null;
   ariaLabel: string;
+  /**
+   * Inverted, like a primary button: the agent's first step, the one it
+   * expects. Only that one: a row of primaries says nothing about any of them.
+   */
+  primary?: boolean;
   disabled: boolean;
   onSend: () => void;
   onEdit: () => void;
@@ -161,11 +167,11 @@ function Chip({
       onMouseLeave={() => onHover?.(false)}
     >
       <Button
-        // Every chip is a filled pill, all alike. On a phone a ghost chip read
-        // as plain text and an outlined one as a text box; a filled shape with
-        // round ends is the one that reads as something to press. The order,
-        // most likely first, is the agent's; the chips do not restate it.
-        variant="secondary"
+        // Every chip is a filled pill. On a phone a ghost chip read as plain
+        // text and an outlined one as a text box; a filled shape with round
+        // ends is the one that reads as something to press. The first step the
+        // agent offers is inverted so the one it expects stands out.
+        variant={primary ? "default" : "secondary"}
         size="sm"
         // Wraps rather than truncating or scrolling: all of a step is sent, so
         // all of it is on screen, on as many lines as it takes. 14px rounds a
@@ -320,6 +326,7 @@ export function NextSteps({
             label={step}
             hint={hint}
             ariaLabel={`Send "${step}"`}
+            primary={index === 0}
             disabled={busy}
             onSend={() => void take(index)}
             onEdit={() => edit(step)}
