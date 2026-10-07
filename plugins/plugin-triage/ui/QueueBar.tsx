@@ -1,6 +1,6 @@
-// The queue, above every tab: what is waiting to install or update, a button
-// to run it all, one to clear it, and a list to review it and take things back
-// off. Nothing queued, nothing drawn.
+// The queue, floating at the bottom of every tab: what is waiting to install or
+// update, a button to run it all, one to clear it, and a list to review it and
+// take things back off. Nothing queued, nothing drawn.
 import { useState } from "react";
 import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -83,7 +83,7 @@ export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) 
   }
 
   return (
-    <div className="mx-auto w-full max-w-md shrink-0 rounded-xl border border-border bg-card" role="status" aria-label="Queue">
+    <div className="mx-auto flex w-full max-w-md flex-col-reverse rounded-xl border border-border bg-card shadow-lg" role="status" aria-label="Queue">
       <div className="flex items-center gap-3 px-3 py-2">
         <button
           type="button"
@@ -118,7 +118,8 @@ export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) 
         )}
       </div>
       {open && (
-        <ul className="divide-y divide-border border-t border-border">
+        // The bar floats at the bottom of the page, so the list opens upward.
+        <ul className="max-h-[50dvh] divide-y divide-border overflow-y-auto border-b border-border">
           {queue.jobs.map((job) => (
             <li key={job.id} className="flex items-center gap-3 px-3 py-1.5">
               <span

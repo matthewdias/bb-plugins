@@ -76,8 +76,9 @@ export function TriagePage({ heading = true }: { heading?: boolean } = {}) {
     if (card.link !== null) navigate.openUrl(card.link);
   }, [navigate]);
 
+  const queued = deck.status === "ready" && deck.queue.jobs.length > 0;
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <header className="flex items-center gap-3 border-b border-border px-4 py-3 sm:gap-4 sm:px-6 sm:py-4">
         {/* bb's own title bar already says Plugins, and the row says Triage;
             on a phone the space is worth more than the heading. */}
@@ -124,12 +125,16 @@ export function TriagePage({ heading = true }: { heading?: boolean } = {}) {
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:pt-6">
-        {deck.status === "ready" && (
-          <div className="mb-4 shrink-0">
-            <QueueBar rpc={rpc} queue={deck.queue} />
-          </div>
+      {/* The queue floats over the bottom of the page rather than sitting
+          above the deck, so the first decision that fills it moves nothing.
+          While it's there, the page gets room to scroll out from under it. */}
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-4 sm:px-6 sm:pt-6",
+          queued ? "pb-[calc(max(1rem,env(safe-area-inset-bottom))+5rem)]" : "pb-[max(1rem,env(safe-area-inset-bottom))]",
         )}
+        data-testid="triage-scroll"
+      >
         {deck.status === "error" && (
           <div className="mx-auto max-w-md space-y-3 text-center text-sm">
             <p>Couldn't load the catalog: {deck.error}</p>
@@ -182,6 +187,13 @@ export function TriagePage({ heading = true }: { heading?: boolean } = {}) {
           />
         )}
       </div>
+      {deck.status === "ready" && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+          <div className="pointer-events-auto">
+            <QueueBar rpc={rpc} queue={deck.queue} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
