@@ -65,6 +65,15 @@ import {
   type ExpansionExecution,
 } from "./lib/expansion-execution.ts";
 import {
+  destinationSchema,
+  DESTINATIONS_MAX,
+  filedToOf,
+  findDestination,
+  parseDestinations,
+  slugFor,
+  type Destination,
+} from "./lib/destinations.ts";
+import {
   doAsk,
   isShowable,
   makeOffer,
@@ -79,6 +88,15 @@ import {
 
 /** Global, not per-thread: settings have no project or thread scope. */
 const EXECUTION_KEY = "expansion-execution";
+/** Where follow-ups can be filed: defined once, for every project. */
+const DESTINATIONS_KEY = "destinations";
+/**
+ * Each project's default destination, the one File all uses. Per project
+ * because the tracker and the backlog differ from repo to repo; set the first
+ * time someone picks a destination there, and changed from the same menu.
+ */
+const DEFAULT_DESTINATION_PREFIX = "default-destination:";
+const defaultDestinationKey = (projectId: string) => `${DEFAULT_DESTINATION_PREFIX}${projectId}`;
 
 /**
  * The version stamped into `getFollowUpCountsV1`'s payload.
@@ -302,6 +320,38 @@ export const rpcContract = defineRpcContract({
    * "Do" on the top follow-up: hand it to this thread's agent now, the way a
    * mention pill would on send, without going through the composer.
    */
+  /** The destinations set up in Settings, and this project's default among them. */
+  followups_destinations: {
+    input: z.object({ projectId: z.string().min(1).max(200).nullable() }).strict(),
+    output: z
+      .object({
+        destinations: z.array(destinationSchema),
+        defaultId: z.string().nullable(),
+      })
+      .strict(),
+  },
+  /** Replace the whole list, from the Settings section that edits it. */
+  followups_set_destinations: {
+    input: z
+      .object({ destinations: z.array(destinationSchema).max(DESTINATIONS_MAX) })
+      .strict(),
+    output: z
+      .object({
+        outcome: z.enum(["saved", "duplicate-name"]),
+        destinations: z.array(destinationSchema),
+      })
+      .strict(),
+  },
+  /** Make one destination this project's default, or clear it. */
+  followups_set_default_destination: {
+    input: z
+      .object({
+        projectId: z.string().min(1).max(200),
+        id: z.string().min(1).max(60).nullable(),
+      })
+      .strict(),
+    output: z.object({ defaultId: z.string().nullable() }).strict(),
+  },
   followups_next_do: {
     input: z
       .object({
@@ -973,6 +1023,18 @@ export default async function plugin(bb: BbPluginApi) {
 
   async function readTombstones(threadId: string): Promise<string[]> {
     return (await bb.storage.kv.get<string[]>(tombsKey(threadId))) ?? [];
+  }
+
+  async function readDestinations(): Promise<Destination[]> {
+    return parseDestinations(await bb.storage.kv.get<unknown>(DESTINATIONS_KEY));
+  }
+
+  /** This project's default, as long as it is still set up. */
+  async function readDefaultDestination(projectId: string | null): Promise<Destination | null> {
+    if (projectId === null) return null;
+    const id = await bb.storage.kv.get<string>(defaultDestinationKey(projectId));
+    if (typeof id !== "string") return null;
+    return (await readDestinations()).find((destination) => destination.id === id) ?? null;
   }
 
   async function readFiledMarks(threadId: string): Promise<FiledMark[]> {
@@ -2584,6 +2646,42 @@ export default async function plugin(bb: BbPluginApi) {
       await writeOffer(threadId, null);
       return { ok: true as const };
     },
+    followups_destinations: async ({ projectId }) => ({
+      destinations: await readDestinations(),
+      defaultId: (await readDefaultDestination(projectId))?.id ?? null,
+    }),
+    followups_set_destinations: async ({ destinations }) => {
+      // Names are what people type after `--to` and pick from a menu, so two
+      // destinations may not share one; ids follow the names, made unique.
+      const names = new Set<string>();
+      for (const destination of destinations) {
+        const key = destination.name.trim().toLowerCase();
+        if (names.has(key)) {
+          return { outcome: "duplicate-name" as const, destinations: await readDestinations() };
+        }
+        names.add(key);
+      }
+      const ids = new Set<string>();
+      const saved = destinations.map((destination) => {
+        let id = destination.id;
+        for (let n = 2; ids.has(id); n += 1) id = `${destination.id}-${n}`;
+        ids.add(id);
+        return { ...destination, id };
+      });
+      await bb.storage.kv.set(DESTINATIONS_KEY, saved);
+      bb.log.info(`saved ${saved.length} destination(s)`);
+      return { outcome: "saved" as const, destinations: parseDestinations(saved) };
+    },
+    followups_set_default_destination: async ({ projectId, id }) => {
+      if (id === null) {
+        await bb.storage.kv.delete(defaultDestinationKey(projectId));
+        return { defaultId: null };
+      }
+      const known = (await readDestinations()).some((destination) => destination.id === id);
+      if (!known) return { defaultId: (await readDefaultDestination(projectId))?.id ?? null };
+      await bb.storage.kv.set(defaultDestinationKey(projectId), id);
+      return { defaultId: id };
+    },
     followups_next_do: async ({ threadId, id }) => {
       const current = await settings.get();
       const row = (await listFollowUps(threadId)).find((entry) => entry.id === id);
@@ -2725,13 +2823,15 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Done and reopen are one operation run in two directions.
   /**
-   * The destination a name stands for. Until destinations can be configured
-   * this is the name as given, with an id derived from it — enough for a
-   * person recording something they filed by hand.
+   * The destination a name stands for: a configured one by id or name, or
+   * else the name as given — someone recording a row they filed by hand, in a
+   * place nobody set up as a destination, is still telling the truth.
    */
   async function destinationFor(name: string): Promise<FiledTo> {
+    const configured = findDestination(await readDestinations(), name);
+    if (configured !== null) return filedToOf(configured);
     const trimmed = name.trim();
-    return { id: trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), name: trimmed };
+    return { id: slugFor(trimmed), name: trimmed };
   }
 
   const setDoneCommand = (done: boolean) =>
@@ -2881,6 +2981,44 @@ export default async function plugin(bb: BbPluginApi) {
 
         done: setDoneCommand(true),
         reopen: setDoneCommand(false),
+        destinations: cliCommand({
+          summary: "List where follow-ups can be filed, as set up in the plugin's settings",
+          options: { thread: threadOption, json: jsonResult },
+          async run({ options }, ctx) {
+            const destinations = await readDestinations();
+            // The default belongs to the thread's project; outside a thread
+            // there is no project to ask about, and the list is still useful.
+            let projectId: string | null = null;
+            const threadId = options.thread ?? ctx.threadId ?? null;
+            if (threadId !== null) {
+              try {
+                projectId = (await bb.sdk.threads.get({ threadId })).projectId ?? null;
+              } catch {
+                projectId = null;
+              }
+            }
+            const fallback = await readDefaultDestination(projectId);
+            if (options.json) {
+              return {
+                exitCode: 0,
+                stdout: `${JSON.stringify({ destinations, defaultId: fallback?.id ?? null })}\n`,
+              };
+            }
+            if (destinations.length === 0) {
+              return {
+                exitCode: 0,
+                stdout: "No destinations yet. Set them up under Settings → Plugins → Follow Up.\n",
+              };
+            }
+            const width = Math.max(...destinations.map((destination) => destination.name.length));
+            const lines = destinations.map((destination) => {
+              const kind = destination.kind === "command" ? "command" : "agent";
+              const mark = destination.id === fallback?.id ? "  (default for this project)" : "";
+              return `${destination.name.padEnd(width)}  ${kind}${mark}`;
+            });
+            return { exitCode: 0, stdout: `${lines.join("\n")}\n` };
+          },
+        }),
         filed: cliCommand({
           summary:
             "Record that a follow-up was filed somewhere else; it moves to Done and is not recorded here again",
@@ -2926,7 +3064,7 @@ export default async function plugin(bb: BbPluginApi) {
         }),
 
         "clear-done": cliCommand({
-          summary: "Empty Done, so those follow-ups can be recorded again if they recur",
+          summary: "Empty Done, so finished follow-ups can be recorded again if they recur (filed ones cannot)",
           options: { thread: threadOption, json: jsonFailure },
           async run({ options }, ctx) {
             const cleared = await clearDone(threadFor(options.thread, ctx));
