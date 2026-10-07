@@ -130,7 +130,6 @@ function Chip({
   label,
   hint,
   ariaLabel,
-  emphasis,
   disabled,
   onSend,
   onEdit,
@@ -147,7 +146,6 @@ function Chip({
   /** Hover text. Desktop only: a phone has no hover. */
   hint: string | null;
   ariaLabel: string;
-  emphasis: boolean;
   disabled: boolean;
   onSend: () => void;
   onEdit: () => void;
@@ -163,13 +161,16 @@ function Chip({
       onMouseLeave={() => onHover?.(false)}
     >
       <Button
-        // Every chip has an edge. A ghost button beside a filled one read as
-        // plain text on a phone, not as something to press.
-        variant={emphasis ? "secondary" : "outline"}
+        // Every chip is a filled pill, all alike. On a phone a ghost chip read
+        // as plain text and an outlined one as a text box; a filled shape with
+        // round ends is the one that reads as something to press. The order,
+        // most likely first, is the agent's; the chips do not restate it.
+        variant="secondary"
         size="sm"
         // Wraps rather than truncating or scrolling: all of a step is sent, so
-        // all of it is on screen, on as many lines as it takes.
-        className="h-auto min-h-7 max-w-full gap-1.5 whitespace-normal px-2 py-1 text-left text-xs leading-snug"
+        // all of it is on screen, on as many lines as it takes. 14px rounds a
+        // one-line chip (28px) into a pill and keeps a wrapped one soft.
+        className="h-auto min-h-7 max-w-full gap-1.5 whitespace-normal rounded-[14px] px-3 py-1 text-left text-xs leading-snug"
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
         onFocus={() => onHover?.(true)}
@@ -319,7 +320,6 @@ export function NextSteps({
             label={step}
             hint={hint}
             ariaLabel={`Send "${step}"`}
-            emphasis={index === 0}
             disabled={busy}
             onSend={() => void take(index)}
             onEdit={() => edit(step)}
@@ -341,7 +341,6 @@ export function NextSteps({
                 : `${visibleText(candidate.text)}\n\nSends this follow-up to the agent now. ⌥-click to put it in the composer first.`
             }
             ariaLabel={`Do "${candidate.text}" now`}
-            emphasis
             disabled={busy}
             onSend={() => void doRow(candidate)}
             onEdit={() => onInsertRow(candidate)}

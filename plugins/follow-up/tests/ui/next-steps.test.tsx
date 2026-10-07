@@ -96,11 +96,16 @@ describe("the agent's offer", () => {
     expect(group.className).not.toMatch(/overflow-x-(auto|scroll)/);
   });
 
-  it("every chip looks pressable, not only the first", async () => {
+  it("every chip is a filled pill, so none reads as text or as a text box", async () => {
     const slot = renderBanner("thr_edges", { offer: offerOf("Open a PR", "Add a test") });
-    const second = await slot.findByRole("button", { name: 'Send "Add a test"' });
-    // A ghost button beside a filled one read as plain text on a phone.
-    expect(second.className).toMatch(/\bborder\b/);
+    // On a phone a ghost chip read as plain text, and an outlined one as an
+    // input field. Filled, with round ends, all alike.
+    for (const name of ['Send "Open a PR"', 'Send "Add a test"']) {
+      const chip = await slot.findByRole("button", { name });
+      expect(chip.className).toMatch(/\bbg-secondary\b/);
+      expect(chip.className).toMatch(/\brounded-\[14px\]/);
+      expect(chip.className).not.toMatch(/\bborder\b|\bborder-input\b/);
+    }
   });
 
   it("the ⋯ menu quotes each step whole, under its action", async () => {
