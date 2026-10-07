@@ -219,3 +219,16 @@ export function filingPrompt(
     "When you are done, run `bb thread archive --self` and stop.",
   ].join("\n");
 }
+
+/** The one-tap form an agent's request to file is confirmed with. */
+export const CONFIRM_FILING_RENDERER = "confirm-filing";
+
+export const confirmFilingPayloadSchema = z
+  .object({
+    destination: z.string(),
+    kind: z.enum(DESTINATION_KINDS),
+    rows: z.array(z.object({ id: z.string(), text: z.string() })),
+  })
+  .strict();
+
+export type ConfirmFilingPayload = z.infer<typeof confirmFilingPayloadSchema>;

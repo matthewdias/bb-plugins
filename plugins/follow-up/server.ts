@@ -69,6 +69,8 @@ import { COMMAND_TIMEOUT_MS, hostContract } from "./lib/host-contract.ts";
 import {
   commandEnv,
   commandStdin,
+  CONFIRM_FILING_RENDERER,
+  type ConfirmFilingPayload,
   destinationSchema,
   DESTINATIONS_MAX,
   filedToOf,
@@ -838,6 +840,18 @@ const CAPTURE_RULE = [
   "the handoff picker\".",
 ].join("\n");
 
+const FILE_TOOL_INSTRUCTIONS = [
+  "When the user asks to move follow-ups to wherever they track work — \"add these",
+  "to the backlog\", \"file the out-of-scope ones in Jira\" — call file_follow_ups.",
+  "It files them to a destination the user set up, by name, or to the project's",
+  "default when you leave the destination out; filed rows leave this thread's list",
+  "and are not recorded here again.",
+  "",
+  "Do not file on your own initiative. Unless the user turned it off, they are",
+  "asked to confirm each time, and a request they did not expect is one they will",
+  "decline.",
+].join("\n");
+
 const OFFER_TOOL_INSTRUCTIONS = [
   "When your reply would end by offering to do something in this thread — \"Want",
   "me to open a PR?\", \"Shall I add the test?\" — call offer_next_steps with it,",
@@ -904,6 +918,16 @@ export default async function plugin(bb: BbPluginApi) {
         "message; nothing is sent until you do. Turn it off and agents are not " +
         "told about the buttons, and any offer they make anyway is refused.",
       default: true,
+    },
+    agentFileWithoutAsking: {
+      type: "boolean",
+      label: "Let agents file follow-ups without asking",
+      description:
+        "When an agent files follow-ups to one of your destinations, you are asked " +
+        "first with one tap: filing writes to your tracker or backlog, and an agent " +
+        "steered by something it read could otherwise open issues there. Turn this " +
+        "on to let it file straight away.",
+      default: false,
     },
     mentionInAtMenu: {
       type: "boolean",
@@ -2671,6 +2695,129 @@ export default async function plugin(bb: BbPluginApi) {
   const bothLists = async (threadId: string) => ({
     followUps: await listFollowUps(threadId),
     done: await listDone(threadId),
+  });
+
+  /** The destinations, listed for an agent that named none or the wrong one. */
+  async function destinationsForAgent(): Promise<string> {
+    const destinations = await readDestinations();
+    return destinations.length === 0
+      ? "The user has not set up anywhere to file follow-ups yet (Settings → Plugins → Follow Up, or the Follow-ups panel)."
+      : `Destinations set up: ${destinations.map((destination) => `"${destination.name}"`).join(", ")}.`;
+  }
+
+  bb.agents.registerTool({
+    name: "file_follow_ups",
+    description:
+      "File follow-ups on this thread to a destination the user set up — their tracker " +
+      "or backlog — so they are tracked there and leave this thread's list.",
+    instructions: FILE_TOOL_INSTRUCTIONS,
+    presentation: {
+      label: { pending: "Filing follow-ups", completed: "Filed follow-ups" },
+      icon: { glyph: "TextWrap" },
+    },
+    parameters: z.object({
+      follow_ups: z
+        .array(z.string().trim().min(1).max(TEXT_MAX))
+        .min(1)
+        .max(CAP_CEILING)
+        .optional()
+        .describe("Ids, or enough of each one's text to identify it. Leave out with all: true."),
+      all: z.boolean().optional().describe("File every open follow-up on this thread."),
+      destination: z
+        .string()
+        .trim()
+        .min(1)
+        .max(60)
+        .optional()
+        .describe("A destination's name or id. Leave out for this project's default."),
+    }),
+    async execute({ follow_ups, all, destination }, { threadId, signal }) {
+      if (all !== true && (follow_ups === undefined || follow_ups.length === 0)) {
+        return "Name the follow-ups to file, or pass all: true. Nothing was filed.";
+      }
+      let ids: string[] | null = null;
+      if (all !== true) {
+        const candidates = await listFollowUps(threadId);
+        ids = [];
+        for (const wanted of follow_ups ?? []) {
+          const match = matchFollowUp(candidates, wanted);
+          if (match.kind === "none") {
+            return [
+              `No open follow-up matches "${wanted}". Nothing was filed.`,
+              candidates.length === 0
+                ? "This thread has no open follow-ups."
+                : `Open follow-ups:\n${formatListForAgent(candidates)}`,
+            ].join("\n");
+          }
+          if (match.kind === "ambiguous") {
+            // Never guessed through, as complete_follow_up does not: filing the
+            // wrong row opens an issue nobody asked for.
+            return [
+              `"${wanted}" matches ${match.rows.length} follow-ups. Nothing was filed — call again with one of these ids:`,
+              formatListForAgent(match.rows),
+            ].join("\n");
+          }
+          ids.push(match.row.id);
+        }
+      }
+
+      const resolved = await resolveFiling(threadId, ids, destination ?? null);
+      if (resolved.outcome === "nothing-to-file") {
+        return "Nothing to file: those follow-ups are already filed, or on their way.";
+      }
+      if (resolved.outcome === "no-destination") {
+        return `This project has no default destination, and you named none. Nothing was filed. ${await destinationsForAgent()}`;
+      }
+      if (resolved.outcome !== "ok") {
+        return `No destination called "${destination}". Nothing was filed. ${await destinationsForAgent()}`;
+      }
+
+      if (!(await settings.get()).agentFileWithoutAsking) {
+        const payload: ConfirmFilingPayload = {
+          destination: resolved.destination.name,
+          kind: resolved.destination.kind,
+          rows: resolved.rows.map((row) => ({ id: row.id, text: row.text })),
+        };
+        const count = resolved.rows.length;
+        const answer = await bb.ui.requestInput(
+          {
+            threadId,
+            rendererId: CONFIRM_FILING_RENDERER,
+            title: `File ${count} follow-up${count === 1 ? "" : "s"} to ${resolved.destination.name}?`,
+            payload,
+          },
+          { signal },
+        );
+        const confirmed =
+          answer.outcome === "submitted" &&
+          typeof answer.value === "object" &&
+          answer.value !== null &&
+          (answer.value as { file?: unknown }).file === true;
+        if (!confirmed) {
+          return "The user did not confirm filing these. Nothing was filed; they stay on this thread's list.";
+        }
+      }
+
+      // Again, after the wait: a row filed or taken off the list meanwhile is
+      // not filed a second time on the strength of an older answer.
+      const fresh = await resolveFiling(
+        threadId,
+        resolved.rows.map((row) => row.id),
+        resolved.destination.id,
+      );
+      if (fresh.outcome !== "ok") {
+        return "Nothing to file any more: those follow-ups were filed or closed while waiting.";
+      }
+      const reports = await fileRows(threadId, fresh.rows, fresh.destination, "agent");
+      const lines = reports.map((report) =>
+        report.outcome === "filed"
+          ? `Filed${report.ref ? ` (${report.ref})` : ""}: ${report.text}`
+          : report.outcome === "pending"
+            ? `Handed to the ${fresh.destination.name} helper, which reports it when done: ${report.text}`
+            : `Not filed: ${report.text} — ${report.note}`,
+      );
+      return lines.join("\n");
+    },
   });
 
   bb.agents.registerTool({

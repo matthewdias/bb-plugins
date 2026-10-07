@@ -42,6 +42,12 @@ of which you can bind to a key.
 Follow-ups in the `@` menu, so a row can be pulled into a prompt by name.
 Mentioning one can claim it, marking it in progress as you send.
 
+File a follow-up to wherever you track work: a destination you set up, which
+runs a command on the thread's own host (`gh issue create …`) or has a
+hidden helper follow your recipe (an MCP, a CLI). Filed rows move to Done with
+a link back and are not recorded on that thread again. File one from its menu,
+or all at once from the header; an agent can file too, after you confirm.
+
 ## How it works
 
 There is no background model call. Capture happens inside a turn the agent is
@@ -70,5 +76,9 @@ the RPC surface is this plugin talking to its own frontend and may change shape.
 ## Requirements
 
 None beyond BB. Follow-ups are stored per thread in this plugin's own database
-on the BB server; nothing leaves the machine, and no account or API key is
-needed.
+on the BB server, and no account or API key is needed. Nothing leaves the
+machine unless you set up a destination and file to it: then it goes where
+your command or recipe sends it, and nowhere else.
+
+Command destinations run through a host entry on bb's experimental host API,
+so they may need updating when that API settles.
