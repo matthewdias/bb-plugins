@@ -16,7 +16,7 @@ import {
   expansionGaveUp,
   isFollowUpInDraft,
   mainActionFor,
-  TEXT_MAX,
+  TITLE_MAX,
   type FollowUp,
   type Reason,
 } from "../lib/followups.ts";
@@ -35,6 +35,9 @@ import { commitOrder as commitRowOrder, insertRow } from "./reorder.ts";
 import { useFollowUps } from "./use-follow-ups.ts";
 import { HandoffAction, useHandoff } from "./handoff.tsx";
 import { EmptyState } from "./empty-state.tsx";
+import { NextSteps } from "./next-steps.tsx";
+import { useNextStepsFetch, useOffer } from "./use-next-steps.ts";
+import { doCandidate } from "../lib/next-steps.ts";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeftRightIcon } from "@hugeicons/core-free-icons";
 import { toast } from "sonner";
@@ -70,6 +73,9 @@ const AMEND_REFUSAL: Partial<Record<string, string>> = {
   dismissed: "You dismissed that wording earlier, so it cannot come back.",
   "not-found": "That follow-up no longer exists.",
   forbidden: "That follow-up cannot be edited.",
+  // Only reachable editing a row recorded before titles were capped: the field
+  // itself stops at the limit, but it shows the old text whole.
+  "too-long": `Titles are ${TITLE_MAX} characters or fewer. Put the rest in the detail.`,
 };
 
 /**
@@ -165,7 +171,7 @@ function RowTextEditor({
       ref={field}
       value={value}
       rows={1}
-      maxLength={TEXT_MAX}
+      maxLength={TITLE_MAX}
       // A follow-up is one line, so a pasted newline becomes a space.
       onChange={(event) => {
         setValue(event.target.value.replace(/\r?\n/g, " "));
@@ -200,6 +206,7 @@ function FollowUpRow({
   showDetail,
   hoverActions,
   active,
+  highlighted,
   onEnter,
   onPeek,
   onOpenInPanel,
@@ -223,6 +230,8 @@ function FollowUpRow({
   showDetail: boolean;
   hoverActions: boolean;
   active: boolean;
+  /** Marked because the Next row's "Do" chip, which stands for it, is hovered. */
+  highlighted: boolean;
   onEnter: (id: string | null) => void;
   onPeek: (row: FollowUp | null) => void;
   onOpenInPanel: () => void;
@@ -263,7 +272,9 @@ function FollowUpRow({
         // Opaque only while lifted: a transparent row would show the rows
         // sliding underneath it.
         isDragging && "rounded bg-card shadow-sm ring-1 ring-border",
+        highlighted && !isDragging && "rounded bg-state-hover",
       )}
+      data-highlighted={highlighted || undefined}
       onMouseEnter={() => {
         if (anyDragging) return;
         onEnter(row.id);
@@ -802,10 +813,23 @@ export function FollowUpBanner() {
   // that defaults on and so has to lean the other way.
   const offerOnEveryThread = settings.values?.offerOnEveryThread === true;
   const cleared = isCleared(rows, everRecorded, offerOnEveryThread) && !running;
+  // The Next row: what the agent offered under its reply, or else the top of
+  // the list. Only between turns — an offer answers the reply above it, and
+  // while a turn runs there is no settled reply to answer. See next-steps.tsx.
+  useNextStepsFetch(threadId);
+  const offer = useOffer(threadId);
+  const candidate = doCandidate(rows);
+  const offered = (offer?.steps.length ?? 0) > 0;
+  // The "Do" chip shows only the start of the top row; while it is pointed at,
+  // the row it stands for is marked in the list, where all of it is.
+  const [candidateLit, setCandidateLit] = useState(false);
+  const nextShown = !running && (offered || candidate !== null);
   // What the card's own entrance keys off. `hasContent` alone stopped being the
   // answer the moment the card could also be showing nothing: a fully cleared
-  // thread has neither list, and the card would have sat at opacity zero.
-  const visible = hasContent || cleared;
+  // thread has neither list, and the card would have sat at opacity zero. And
+  // an offer is worth the card on its own, on a thread that never recorded a
+  // follow-up at all.
+  const visible = hasContent || cleared || nextShown;
 
   // Which rows became in progress since the last render, so the glyph can
   // announce itself once. Seeded on the first pass rather than compared against
@@ -1065,7 +1089,7 @@ export function FollowUpBanner() {
         // Collapsed the card holds one line, so it should not carry the
         // padding a list needs. Cleared it is not collapsed — there is no list
         // behind it to open — so it takes the roomier pair.
-        collapsed && !cleared ? "gap-0 py-1" : "gap-1.5 py-2",
+        collapsed && !cleared && !nextShown ? "gap-0 py-1" : "gap-1.5 py-2",
         // The card is the one surface here that materialises beside the
         // cursor: an agent records something mid-turn, realtime fires, and a
         // block of UI arrives above the composer you are typing in. 150ms is
@@ -1076,6 +1100,15 @@ export function FollowUpBanner() {
         "motion-reduce:translate-y-0",
       )}
     >
+      {nextShown && (
+        <NextSteps
+          threadId={threadId}
+          offer={offer}
+          candidate={candidate}
+          onInsertRow={insert}
+          onHighlightCandidate={setCandidateLit}
+        />
+      )}
       {cleared ? (
         <>
           {/* No collapse wrapper and no header. There is no list behind this to
@@ -1086,6 +1119,10 @@ export function FollowUpBanner() {
             threadId={threadId}
             done={done}
             animate={justCleared}
+            // The agent has already said what it would do next, so asking it
+            // again is a button for the same answer.
+            offerSuggest={!offered}
+            goalMet={offer?.goalMet === true}
           />
           {done.length > 0 && (
             <DoneSection
@@ -1099,7 +1136,7 @@ export function FollowUpBanner() {
             />
           )}
         </>
-      ) : (
+      ) : !hasContent ? null : (
         <>
         {/* Portaled to the body and positioned `fixed`, so it takes no layout
             space and is not clipped by the scrolling list. An in-flow strip grew
@@ -1289,6 +1326,7 @@ export function FollowUpBanner() {
               onDismiss={() => void dismiss(row)}
               onDone={() => void markDone(row, true)}
               active={hoveredId === row.id}
+              highlighted={candidateLit && candidate?.id === row.id}
               onEnter={setHoveredId}
               onPeek={schedulePeek}
               onCancelExpand={() => void cancelExpand(row)}

@@ -11,13 +11,21 @@ has a ⋯ menu that edits the text in place, marks it done, or dismisses it. Mar
 dismissing it takes its pill back out of your draft. A dismissed row stays
 gone: an agent that notices the same thing again cannot re-add it.
 
+Between turns, the card offers what comes next. When an agent's reply ends
+with "want me to…?", the answers are buttons under it: press one and it is
+sent as your message, or ⌥-click (hold, on a phone) to edit it first. An offer
+lasts until the next turn starts, so a button always answers the reply right
+above it. When the agent offered nothing, *Do* sends the top follow-up to the
+agent now.
+
 Record a follow-up yourself: *Record as follow-up* in the menu beside the send
 button, or the *Follow-ups: record the draft* command, files what you typed
 and clears the draft. It works on phones too, from a long-press on Send.
 
-Five agent tools — `record_follow_up`, `list_follow_ups`, `complete_follow_up`,
-`prioritize_follow_up`, and `amend_follow_up`. Agents record as they work and
-close the rows they finish, including rows you wrote yourself.
+Six agent tools — `record_follow_up`, `list_follow_ups`, `complete_follow_up`,
+`prioritize_follow_up`, `amend_follow_up`, and `offer_next_steps`. Agents record
+as they work, close the rows they finish, including rows you wrote yourself,
+and offer what they would do next.
 
 A `bb follow-up` command covering the same ground from a terminal: `add`,
 `show`, `move`, `amend`, `done`, `reopen`, `clear-done`, `describe`, `dismiss`,
@@ -28,7 +36,8 @@ The `+` menu's Follow-ups row opens a picker of this thread's open follow-ups:
 search, choose one, and its pill goes into the composer.
 
 Palette commands to show or hide the list, open the panel, start a handoff,
-record the draft, or open the picker, each of which you can bind to a key.
+take one of the offered next steps, record the draft, or open the picker, each
+of which you can bind to a key.
 
 Follow-ups in the `@` menu, so a row can be pulled into a prompt by name.
 Mentioning one can claim it, marking it in progress as you send.

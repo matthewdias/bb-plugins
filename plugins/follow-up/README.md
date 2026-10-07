@@ -49,11 +49,49 @@ Highlighting a sentence in a message and choosing *Record as follow-up* records
 that sentence instead, with the prose around it kept as detail. A refusal there
 is a toast too.
 
+**Titles, not sentences.** A follow-up's text is a title of at most 50
+characters; its detail says why, where and how. Agents are held to that: a
+longer title is refused with the reason, so they write a shorter one. What you
+write is never refused: past 50 characters its start (its headline, or its
+first words) becomes the title, ending in "…", and everything you wrote goes
+into the detail. Rows recorded before this keep their wording; change one and
+the new wording has to fit.
+
 Dismissal beats recording: once you delete a follow-up it stays gone, even if an
 agent notices the same thing again. Recording the same text twice is a no-op —
 matching ignores case and punctuation, because agents rarely reproduce their own
 wording exactly. Each thread holds at most 50 by default; beyond that the tool
 refuses and says so rather than evicting older rows.
+
+**Next.** Between turns, a row at the top of the card answers the reply right
+above it. When an agent's reply ends by offering to do something ("Want me to
+open a PR?"), it offers the same thing through `offer_next_steps`, and each
+step becomes a button: press it and its text is sent as your message, with
+nothing to type. Hold ⌥ while clicking, or press and hold on a phone, to put
+it in the composer instead and edit it first. The ⋯ beside the buttons keeps a
+step as a follow-up for later, or clears them.
+
+A button sends exactly what it shows, never more. The agent writes the words
+and a press sends them under your name, so there is no hidden prompt behind a
+short label. A step too long to show whole is refused rather than cut off, and
+so is one carrying characters that draw nothing on screen but still reach the
+agent (zero-width, bidi, Unicode tag or variation-selector characters).
+
+An offer belongs to one reply. It goes the moment the next turn starts,
+however that turn starts, so a button is never the answer to an older reply.
+There are no buttons on earlier messages for the same reason: a "yes" to a
+reply from five turns ago is almost always a mistake by the time it is sent.
+
+When the agent offered nothing, the row offers the top of the list instead:
+*Do* sends that follow-up to the agent now, with its whole record, and marks it
+in progress, as mentioning it would. It skips an out-of-scope row, which leads
+with a handoff, and does not skip past the top to find another: the list's
+order is yours. The chip shows the row's title whole. A row recorded before
+titles were capped shows its start instead, usually its headline ("Fix the
+restore…"), ending in "…". Hover the chip for the whole row, which is also
+marked in the list while you do. That cut is made from the row's own words
+rather than written separately, so it can never say something the row does
+not.
 
 **The empty state.** When the list empties, the banner offers three things:
 *suggest what's next*, start a new thread in the same checkout, or archive this
@@ -63,6 +101,11 @@ timeline and stoppable like any other. There is still no *background* model
 call: the turn happens because you clicked. The prompt tells the agent that
 "nothing worth doing next" is a real answer, so the button cannot manufacture
 work to justify itself.
+
+If the agent has already offered next steps above it, *suggest what's next*
+is left out: it would ask the question the agent has just answered. If the
+agent said this thread's goal is met, *archive* is drawn as a button rather
+than a quiet link.
 
 The banner only does this on a thread that has actually tracked something. A
 thread that never recorded a follow-up has nothing for this plugin to say about
@@ -77,7 +120,7 @@ thread's open follow-ups. Type to narrow it, use the arrow keys to choose, and
 press Enter (or click) to put that row's pill in the composer; the row moves to
 the top of the list, as inserting from the banner does.
 
-**Palette commands.** Five commands in bb's command palette, none bound to a
+**Palette commands.** Eight commands in bb's command palette, none bound to a
 key by default. Bind any of them under Settings → Keyboard.
 
 | Command | What it does |
@@ -85,6 +128,7 @@ key by default. Bind any of them under Settings → Keyboard.
 | Follow-ups: show or hide the list | Expand or collapse the banner on a thread with open follow-ups |
 | Follow-ups: open panel | Open the Follow-ups tab in the side panel |
 | Follow-ups: hand off… | Open the Hand off tab, composing a new thread in this checkout |
+| Follow-ups: take the first next step | Press the first of the agent's offered steps (also second, third) |
 | Follow-ups: record the draft | Record the composer's draft as a follow-up and clear it |
 | Follow-ups: insert one… | Open the follow-up picker in the composer |
 
@@ -97,6 +141,7 @@ and can ask the agent to fill in a missing file anchor or detail.
 | | Default |
 | --- | --- |
 | Remind agents to record follow-ups | on |
+| Let agents offer next steps | on |
 | List follow-ups in the `@` menu | on |
 | Mentioning a follow-up claims it | on |
 | Ask for a mentioned row's missing file and detail | on |
@@ -117,9 +162,13 @@ pick — the settings section renders bb's own provider-and-model picker over th
 live catalog, rather than a fixed list that goes stale or a free-text field that
 lets you misconfigure it silently.
 
+A next-step button, or *Do*, sends a message into the thread exactly as typing
+one would. The turn it starts is the thread's own, on the thread's own model;
+the plugin adds nothing to it.
+
 ## For agents
 
-Five tools:
+Six tools:
 
 | | |
 | --- | --- |
@@ -128,8 +177,9 @@ Five tools:
 | `complete_follow_up` | close a row whose work is finished |
 | `prioritize_follow_up` | move a row to the front |
 | `amend_follow_up` | add detail to a row without rewording it |
+| `offer_next_steps` | offer what it would do next here, as buttons under its reply |
 
-`record_follow_up` takes `text` (one imperative line, ≤240 chars), `reason`
+`record_follow_up` takes `text` (a title naming the specific thing, ≤50 chars), `reason`
 (`out-of-scope`, `blocked`, `deferred`, `risk`, or `cleanup`), an optional
 `file` anchor as `path` or `path:line`, and optional `detail` (≤1000 chars).
 

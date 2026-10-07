@@ -12,6 +12,7 @@ import {
   orderFollowUps,
   selectionToFollowUp,
   TEXT_MAX,
+  TITLE_MAX,
   matchFollowUp,
   MAX_PER_THREAD,
   normalizeKey,
@@ -497,26 +498,40 @@ test("a long selection is truncated for the row and kept whole as detail", () =>
   const selection = `${"word ".repeat(80)}end`;
   const captured = selectionToFollowUp(selection);
   assert.ok(captured !== null);
-  assert.ok(captured.text.length <= TEXT_MAX);
+  assert.ok(captured.text.length <= TITLE_MAX);
   assert.match(captured.text, /\u2026$/);
   // The point of capturing a selection is not losing it.
   assert.equal(captured.detail, selection.trim());
 });
 
+test("a selection longer than a title is split even when it is a single sentence", () => {
+  // Between TITLE_MAX and the old 240-character bound: every other fixture
+  // here is longer than 240, so a split that still used the old bound passed
+  // them all.
+  const selection = "Check the retry budget before the queue drains, or the worker spins forever";
+  assert.ok(selection.length > TITLE_MAX && selection.length < 240);
+  const captured = selectionToFollowUp(selection);
+  assert.deepEqual(captured, {
+    text: "Check the retry budget before the queue drains\u2026",
+    detail: selection,
+  });
+});
+
 test("truncation does not cut a word in half", () => {
-  // The word length matters: with a 7-character cycle the hard cut at
-  // TEXT_MAX lands one character into a word, so a version that ignored word
-  // boundaries would end "\u2026a\u2026" here. An earlier fixture used a length that
-  // divided evenly and passed either way, proving nothing.
-  const captured = selectionToFollowUp("abcdef ".repeat(60));
+  // The word length matters: with a 6-character cycle the hard cut at
+  // TITLE_MAX - 1 (room for the ellipsis) lands one character into a word, so a
+  // version that ignored word boundaries would end "a\u2026" here. A fixture whose
+  // length divided evenly would pass either way, proving nothing — the old
+  // 7-character one did exactly that once the limit moved from 240 to 50.
+  const captured = selectionToFollowUp("abcde ".repeat(60));
   assert.ok(captured !== null);
-  assert.match(captured.text, /abcdef\u2026$/);
+  assert.match(captured.text, /abcde\u2026$/);
 });
 
 test("an unbroken run is cut hard rather than losing everything", () => {
   const captured = selectionToFollowUp("x".repeat(400));
   assert.ok(captured !== null);
-  assert.equal(captured.text.length, TEXT_MAX);
+  assert.equal(captured.text.length, TITLE_MAX);
 });
 
 test("a blank selection captures nothing", () => {

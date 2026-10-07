@@ -6,7 +6,30 @@
 // a plugin's registrations wholesale whenever it re-runs the app's setup.
 import type { PluginCommandRegistration } from "@get-bb/plugin-sdk/app";
 import { FOLLOWUPS_PANEL_ACTION, HANDOFF_PANEL_ACTION } from "./panel-ids.ts";
+import { getRpc } from "./rpc.ts";
 import { hasFollowUps, toggleCollapsed } from "./store.ts";
+import { peekOffer, takeStep } from "./use-next-steps.ts";
+
+/**
+ * "Take the first next step", and the second and third: the keyboard's way to
+ * press a chip. By position, not by label — a label changes every turn, and a
+ * key bound to one would mean something different each time.
+ */
+const takeCommands: PluginCommandRegistration[] = ["first", "second", "third"].map(
+  (ordinal, index) => ({
+    id: `take-next-step-${index + 1}`,
+    title: `Follow-ups: take the ${ordinal} next step`,
+    // The offer is cleared the moment a turn starts, so "there is a step at
+    // this position" also means "the thread is between turns".
+    isAvailable: ({ threadId }) => (peekOffer(threadId)?.steps.length ?? 0) > index,
+    run: ({ threadId }) => {
+      const offer = peekOffer(threadId);
+      const rpc = getRpc();
+      if (threadId === null || offer === null || rpc === null) return;
+      void takeStep(rpc, threadId, offer, index);
+    },
+  }),
+);
 
 export const commands: readonly PluginCommandRegistration[] = [
   {
@@ -40,4 +63,5 @@ export const commands: readonly PluginCommandRegistration[] = [
       openPanel({ actionId: HANDOFF_PANEL_ACTION });
     },
   },
+  ...takeCommands,
 ];
