@@ -141,6 +141,13 @@ test("doCandidate: only the top row — the list's order is the user's priority"
     doCandidate([row("a", "deferred", { handoffState: "running" }), row("b", "deferred")]),
     null,
   );
+  // Being filed: leaving the list, so not next here either.
+  assert.equal(
+    doCandidate([row("a", "deferred", { filingSince: new Date().toISOString() }), row("b", "deferred")]),
+    null,
+  );
+  // A filing that did not land leaves an ordinary open row.
+  assert.equal(doCandidate([row("a", "deferred", { filingNote: "It failed." })])?.id, "a");
 });
 
 test("doAsk: one line that reads as typed", () => {
