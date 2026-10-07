@@ -64,10 +64,15 @@ and a failed install puts its card back
 with the error. Queued items count toward the number waiting, so a queue
 nobody ran doesn't go unnoticed.
 
-**Saved** lists the plugins you saved, most recent first, as cards like bb's
-own. Click one to open its full listing in bb's detail pane beside the list,
-or queue it from the card's Install button. The ⋯ menu vets it with an agent, opens its page,
-or removes it from Saved.
+**Saved** deals the plugins you saved, most recent first, as the same cards
+as New, which open, vet and link the same way.
+
+| | Drag | Key |
+| --- | --- | --- |
+| Queue the install | right | → |
+| Forget it, as a dismiss: it comes back only if its listing changes | left | ← |
+| Move it to the back of the deck; it stays saved | up | ↑ |
+| Undo | | Z |
 
 **Show incompatible** adds plugins that need a newer bb, with the reason.
 
@@ -78,8 +83,10 @@ the card on top also lists what the update changes: the commits between the
 two versions that touch the plugin (when it shares a repository with other
 plugins, only those in its own folder), and the release notes when the new
 version is a release. An update that touches nothing of the plugin's says so,
-so it can be skipped with confidence. **Changes** opens the full comparison
-on GitHub; **Details** opens the plugin in bb's detail pane.
+so it can be skipped with confidence. As on a New card, tap the card,
+**Details**, or Space to open the whole description, release notes and
+change list in place, and Escape to close them. **Changes** opens the full
+comparison on GitHub; **Open** opens the plugin in bb's detail pane.
 
 The lists come from GitHub's API. To get its 5,000-an-hour limit rather than
 the 60 GitHub allows without a login, Plugin Triage uses this machine's
@@ -97,6 +104,8 @@ and kept; and when fewer than ten requests are left in the hour, cards offer
 | Queue the update | right | → |
 | Skip this version (it comes back when a newer one is out) | left | ← |
 | Remind me in a week | up | ↑ |
+| Show the details | | Space or Enter |
+| Leave the details | | Escape |
 | Undo | | Z |
 
 Queued updates join the same queue as installs and run with **Run all**,

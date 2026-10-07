@@ -23,7 +23,8 @@ before it runs, or clear it all; Z takes back the last decision.
 
 **Updates in one batch.** An Updates deck deals each installed plugin with a
 newer version, showing the version now and next and, for GitHub sources,
-the commits that change this plugin and the release notes. An update that
+the commits that change this plugin and the release notes; tap a card to
+read them in full. An update that
 only touched other plugins in a shared repository says so. Drag right to queue it, left to skip that
 version, up to be reminded in a week. Queued updates run with the installs
 when you press Run all.
@@ -34,8 +35,8 @@ fortnight without it, or queue it to uninstall. The card says what
 uninstalling deletes for good (changed settings, secrets, scheduled work), and
 Recent lists what was removed.
 
-**Saved for later.** The Saved list keeps the plugins you swiped up, with
-buttons to install one, open its store page, or forget it.
+**Saved for later.** The plugins you swiped up wait in a Saved deck of their
+own: drag right to install, left to forget, up to send one to the back.
 
 **Vet with an agent.** One button starts a thread that reads a plugin's code
 before you trust it: what it registers, what it reaches over the network,

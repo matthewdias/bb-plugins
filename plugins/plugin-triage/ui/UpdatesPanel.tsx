@@ -98,7 +98,10 @@ function message(cause: unknown): string {
 export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updates: UpdatesState; keyboard: boolean }) {
   const navigate = useBbNavigate();
   const [checking, setChecking] = useState<string | "all" | null>(null);
-  const { changes, load: loadChanges } = useChanges(rpc, updates.cards[0] ?? null);
+  const [expanded, setExpanded] = useState(false);
+  const top = updates.cards[0] ?? null;
+  useEffect(() => setExpanded(false), [top?.key]);
+  const { changes, load: loadChanges } = useChanges(rpc, top);
 
   async function check(pluginId?: string) {
     setChecking(pluginId ?? "all");
@@ -120,19 +123,21 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
         <CardStack
           cards={updates.cards}
           actions={UPDATE_ACTIONS}
-          details={false}
           keyboard={keyboard}
+          scrollable={expanded}
           onDecide={(card, direction) => void decideUpdate(rpc, card, direction)}
           onUndo={() => void undoLastUpdate(rpc)}
-          onDetails={() => {}}
-          render={(card, top) => (
+          onDetails={() => setExpanded((value) => !value)}
+          render={(card, isTop) => (
             <UpdateCard
               card={card}
-              top={top}
-              changes={top ? changes : undefined}
+              top={isTop}
+              changes={isTop ? changes : undefined}
               onLoadChanges={loadChanges}
               onChanges={() => card.compareUrl !== null && navigate.openUrl(card.compareUrl)}
-              onDetails={() => navigateInApp(pluginDetailsPath(card.pluginId, "updates"))}
+              expanded={isTop && expanded}
+              onToggleDetails={() => setExpanded((value) => !value)}
+              onOpen={() => navigateInApp(pluginDetailsPath(card.pluginId, "updates"))}
             />
           )}
         />

@@ -1,41 +1,18 @@
-// The Triage page, drawn inside bb's Plugins screen: the New deck, and the
-// list of plugins saved for later.
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { useBbNavigate, useRpc, experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
+// The Triage page, drawn inside bb's Plugins screen: the New deck, Updates,
+// Cleanup, and the plugins saved for later, each dealt as a deck.
+import { useEffect, useSyncExternalStore } from "react";
+import { useRpc, experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { rpcContract } from "../lib/contract";
-import type { NewCard } from "../lib/new-deck";
 import { TABS, type Tab } from "../lib/tabs";
-import { vetPrompt } from "../lib/source";
-import { CardStack } from "./CardStack";
-import { decide, planFor, undoLast, type Plan } from "./decisions";
-import { EntryCard } from "./EntryCard";
-import { navigateInApp, pluginDetailsPath } from "./navigate";
-import { SavedList } from "./SavedList";
+import { EntryDeck } from "./EntryDeck";
 import { CleanupPanel } from "./CleanupPanel";
 import { QueueBar } from "./QueueBar";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { triageStore } from "./triage-store";
 
 const TAB_LABELS: Record<Tab, string> = { new: "New", updates: "Updates", cleanup: "Cleanup", saved: "Saved" };
-
-function usePlan(card: NewCard | null) {
-  const rpc = useRpc<typeof rpcContract>();
-  const [plan, setPlan] = useState<{ key: string; plan: Plan | null; error: string | null } | null>(null);
-  useEffect(() => {
-    if (card === null) return;
-    let live = true;
-    planFor(rpc, card).then(
-      (value) => live && setPlan({ key: card.key, plan: value, error: null }),
-      (cause) => live && setPlan({ key: card.key, plan: null, error: cause instanceof Error ? cause.message : String(cause) }),
-    );
-    return () => {
-      live = false;
-    };
-  }, [card, rpc]);
-  return plan !== null && card !== null && plan.key === card.key ? plan : null;
-}
 
 /**
  * The tab comes from the address, so Back walks tabs and a reload or a link
@@ -44,39 +21,11 @@ function usePlan(card: NewCard | null) {
  */
 export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (tab: Tab) => void; heading?: boolean }) {
   const rpc = useRpc<typeof rpcContract>();
-  const navigate = useBbNavigate();
   const deck = useSyncExternalStore(triageStore.subscribe, triageStore.getSnapshot);
-  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     void triageStore.load(rpc);
   }, [rpc]);
-
-  const top = deck.cards[0] ?? null;
-  useEffect(() => setExpanded(false), [top?.key]);
-  const plan = usePlan(top);
-
-  const vet = useCallback(
-    (card: NewCard, sourceLabel: string | null) => {
-      navigate.toCompose({
-        initialPrompt: vetPrompt({
-          displayName: card.displayName,
-          entryId: card.entryId,
-          marketplaceDisplayName: card.marketplaceDisplayName,
-          author: card.author?.name ?? null,
-          source: card.source,
-          sourceLabel,
-          link: card.link,
-        }),
-        focusPrompt: true,
-      });
-    },
-    [navigate],
-  );
-
-  const open = useCallback((card: NewCard) => {
-    if (card.link !== null) navigate.openUrl(card.link);
-  }, [navigate]);
 
   const queued = deck.status === "ready" && deck.queue.jobs.length > 0;
   return (
@@ -147,30 +96,13 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
         )}
         {deck.status === "loading" && <p className="text-center text-sm text-muted-foreground">Loading…</p>}
         {deck.status === "ready" && tab === "new" && (
-          deck.cards.length === 0 ? (
-            <Empty />
-          ) : (
-            <CardStack
-              cards={deck.cards}
-              keyboard={tab === "new"}
-              scrollable={expanded}
-              onDecide={(card, direction) => void decide(rpc, card, direction)}
-              onUndo={() => void undoLast(rpc)}
-              onDetails={() => setExpanded((value) => !value)}
-              render={(card, isTop) => (
-                <EntryCard
-                  card={card}
-                  top={isTop}
-                  plan={isTop ? plan?.plan ?? null : null}
-                  planError={isTop ? plan?.error ?? null : null}
-                  expanded={isTop && expanded}
-                  onToggleDetails={() => setExpanded((value) => !value)}
-                  onVet={() => vet(card, plan?.plan?.summary?.label ?? null)}
-                  onOpen={() => open(card)}
-                />
-              )}
-            />
-          )
+          <EntryDeck
+            key="new"
+            deck="new"
+            cards={deck.cards}
+            keyboard
+            empty={<Empty title="You're all caught up" detail="New plugins appear here as they're published." />}
+          />
         )}
         {deck.status === "ready" && tab === "updates" && (
           <UpdatesPanel rpc={rpc} updates={deck.updates} keyboard={tab === "updates"} />
@@ -179,13 +111,12 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
           <CleanupPanel rpc={rpc} cleanup={deck.cleanup} keyboard={tab === "cleanup"} />
         )}
         {deck.status === "ready" && tab === "saved" && (
-          <SavedList
+          <EntryDeck
+            key="saved"
+            deck="saved"
             cards={deck.saved}
-            onDetails={(card) => navigateInApp(pluginDetailsPath(card.pluginId, "saved"))}
-            onInstall={(card) => void decide(rpc, card, "right")}
-            onRemove={(card) => void decide(rpc, card, "left")}
-            onOpen={open}
-            onVet={(card) => vet(card, null)}
+            keyboard
+            empty={<Empty title="Nothing saved" detail="Drag a new plugin up, or press ↑, to keep it here for later." />}
           />
         )}
       </div>
@@ -200,12 +131,12 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
   );
 }
 
-function Empty() {
+function Empty({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="mx-auto flex max-w-sm flex-col items-center gap-2 pt-16 text-center">
       <Icon name="CircleCheck" className="size-8 text-muted-foreground" aria-hidden />
-      <p className="text-sm font-medium">You're all caught up</p>
-      <p className="text-xs text-muted-foreground">New plugins appear here as they're published.</p>
+      <p className="text-sm font-medium">{title}</p>
+      <p className="text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }
