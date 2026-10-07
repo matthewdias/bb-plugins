@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-swipe-controls",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -29,7 +29,7 @@
     "name": "Swipe Controls",
     "description": "Swipe sidebar threads to mark them read, pin or archive them, and swipe the page with two fingers to go back and forward, with haptic feedback in the bb mobile app.",
     "branding": {
-      "icon": "Hand"
+      "icon": "./assets/icon.svg"
     },
     "server": "./server.ts",
     "app": "./app.tsx"
