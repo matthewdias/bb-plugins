@@ -4,12 +4,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetTriageStore, triageStore, type TriageRpc } from "../../ui/triage-store";
 
 let settings: Record<string, boolean> | undefined;
+const toPluginPanel = vi.fn();
 vi.mock("@get-bb/plugin-sdk/app", () => ({
   useSettings: () => ({ values: settings, isLoading: false }),
+  useBbNavigate: () => ({ toPluginPanel }),
   experimental_Icon: () => null,
 }));
 vi.mock("../../ui/TriagePage", () => ({
-  TriagePage: ({ heading }: { heading?: boolean }) => <main data-heading={String(heading ?? true)}>Triage page</main>,
+  TriagePage: ({ heading, tab, onTab }: { heading?: boolean; tab: string; onTab: (tab: string) => void }) => (
+    <main data-heading={String(heading ?? true)} data-tab={tab}>
+      Triage page
+      <button type="button" onClick={() => onTab("updates")}>to updates</button>
+      <button type="button" onClick={() => onTab("new")}>to new</button>
+    </main>
+  ),
 }));
 
 const { TriageSidebarCount, TriageSidebarHeader, TriageSidebarPanel } = await import("../../ui/TriageSidebar");
@@ -53,11 +61,20 @@ describe("the Triage sidebar item", () => {
     window.history.replaceState({}, "", "/plugins/plugin-triage/triage");
     const heard = vi.fn();
     window.addEventListener("popstate", heard);
-    render(<TriageSidebarPanel />);
+    render(<TriageSidebarPanel subPath="" />);
     window.removeEventListener("popstate", heard);
     expect(screen.getByText("Triage page").getAttribute("data-heading")).toBe("false");
     expect(window.location.pathname + window.location.search).toBe("/plugins/plugin-triage/triage");
     expect(heard).not.toHaveBeenCalled();
+  });
+
+  it("takes its tab from the path under the item's page, and switches through bb's panel navigation", () => {
+    render(<TriageSidebarPanel subPath="cleanup" />);
+    expect(screen.getByText("Triage page").getAttribute("data-tab")).toBe("cleanup");
+    screen.getByRole("button", { name: "to updates" }).click();
+    expect(toPluginPanel).toHaveBeenLastCalledWith("triage", { subPath: "updates" });
+    screen.getByRole("button", { name: "to new" }).click();
+    expect(toPluginPanel).toHaveBeenLastCalledWith("triage", { subPath: "" });
   });
 
   it("links from bb's title bar to Browse plugins", () => {

@@ -4,9 +4,10 @@
 // "Back to app" returns to the last page outside that screen, which would be
 // this one, and a redirect would send you straight back in.
 import { useSyncExternalStore } from "react";
-import { experimental_Icon as Icon, useSettings } from "@get-bb/plugin-sdk/app";
+import { experimental_Icon as Icon, useBbNavigate, useSettings, type PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { countText, countedDecks, waitingCount } from "../lib/count";
+import { subPathForTab, tabFromSubPath } from "../lib/tabs";
 import { BROWSE_HREF } from "../screen/dom";
 import { navigateInApp } from "./navigate";
 import { TriagePage } from "./TriagePage";
@@ -30,9 +31,23 @@ export function TriageSidebarCount() {
   );
 }
 
-/** The item's page: the Triage page, under bb's title bar. */
-export function TriageSidebarPanel() {
-  return <TriagePage heading={false} />;
+/** The item's path, as registered in app.tsx. */
+export const SIDEBAR_PATH = "triage";
+
+/**
+ * The item's page: the Triage page, under bb's title bar. The tab is the path
+ * under the item's page, `/plugins/plugin-triage/triage/updates`, and switching
+ * goes through bb's panel navigation, so Back walks tabs here too.
+ */
+export function TriageSidebarPanel({ subPath }: PluginNavPanelProps) {
+  const navigate = useBbNavigate();
+  return (
+    <TriagePage
+      tab={tabFromSubPath(subPath)}
+      onTab={(tab) => navigate.toPluginPanel(SIDEBAR_PATH, { subPath: subPathForTab(tab) })}
+      heading={false}
+    />
+  );
 }
 
 /** In bb's title bar over the item's page: a way into the Plugins screen, at Browse plugins. */

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { rpcContract } from "../lib/contract";
 import type { NewCard } from "../lib/new-deck";
+import { TABS, type Tab } from "../lib/tabs";
 import { vetPrompt } from "../lib/source";
 import { CardStack } from "./CardStack";
 import { decide, planFor, undoLast, type Plan } from "./decisions";
@@ -16,8 +17,6 @@ import { CleanupPanel } from "./CleanupPanel";
 import { QueueBar } from "./QueueBar";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { triageStore } from "./triage-store";
-
-type Tab = "new" | "updates" | "cleanup" | "saved";
 
 const TAB_LABELS: Record<Tab, string> = { new: "New", updates: "Updates", cleanup: "Cleanup", saved: "Saved" };
 
@@ -38,12 +37,15 @@ function usePlan(card: NewCard | null) {
   return plan !== null && card !== null && plan.key === card.key ? plan : null;
 }
 
-/** `heading` is off where bb's own title bar already says Triage. */
-export function TriagePage({ heading = true }: { heading?: boolean } = {}) {
+/**
+ * The tab comes from the address, so Back walks tabs and a reload or a link
+ * keeps one; whoever hosts the page reads it and changes it (`onTab`).
+ * `heading` is off where bb's own title bar already says Triage.
+ */
+export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (tab: Tab) => void; heading?: boolean }) {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const deck = useSyncExternalStore(triageStore.subscribe, triageStore.getSnapshot);
-  const [tab, setTab] = useState<Tab>("new");
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -84,12 +86,12 @@ export function TriagePage({ heading = true }: { heading?: boolean } = {}) {
             on a phone the space is worth more than the heading. */}
         {heading && <h1 className="hidden text-lg font-semibold sm:block">Triage</h1>}
         <nav className="flex min-w-0 shrink overflow-x-auto rounded-lg border border-border p-0.5 [scrollbar-width:none]" aria-label="Decks">
-          {(["new", "updates", "cleanup", "saved"] as const).map((id) => (
+          {TABS.map((id) => (
             <button
               key={id}
               type="button"
               aria-pressed={tab === id}
-              onClick={() => setTab(id)}
+              onClick={() => id !== tab && onTab(id)}
               className={cn(
                 "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
                 tab === id && "bg-state-active text-foreground",
@@ -179,7 +181,7 @@ export function TriagePage({ heading = true }: { heading?: boolean } = {}) {
         {deck.status === "ready" && tab === "saved" && (
           <SavedList
             cards={deck.saved}
-            onDetails={(card) => navigateInApp(pluginDetailsPath(card.pluginId))}
+            onDetails={(card) => navigateInApp(pluginDetailsPath(card.pluginId, "saved"))}
             onInstall={(card) => void decide(rpc, card, "right")}
             onRemove={(card) => void decide(rpc, card, "left")}
             onOpen={open}

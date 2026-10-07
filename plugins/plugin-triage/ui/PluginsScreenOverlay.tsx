@@ -18,6 +18,7 @@ import { haptic } from "./haptics";
 import { jobToast } from "./job-toasts";
 import { navigateInApp } from "./navigate";
 import { TriagePage } from "./TriagePage";
+import { useScreenTab } from "./screen-tab";
 import { useWaitingCount } from "./TriageSidebar";
 import { triageStore } from "./triage-store";
 
@@ -61,6 +62,11 @@ function useInstallToasts() {
     void refresh.current();
   }, []);
   return () => void refresh.current();
+}
+
+function ScreenTriagePage() {
+  const [tab, setTab] = useScreenTab();
+  return <TriagePage tab={tab} onTab={setTab} />;
 }
 
 export function PluginsScreenOverlay() {
@@ -108,7 +114,7 @@ export function PluginsScreenOverlay() {
           className="h-full"
           data-bb-plugin={typeof __BB_PLUGIN_ID__ === "string" ? __BB_PLUGIN_ID__ : undefined}
         >
-          <TriagePage />
+          <ScreenTriagePage />
         </div>,
         container,
       );

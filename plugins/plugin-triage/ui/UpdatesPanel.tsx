@@ -132,7 +132,7 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
               changes={top ? changes : undefined}
               onLoadChanges={loadChanges}
               onChanges={() => card.compareUrl !== null && navigate.openUrl(card.compareUrl)}
-              onDetails={() => navigateInApp(pluginDetailsPath(card.pluginId))}
+              onDetails={() => navigateInApp(pluginDetailsPath(card.pluginId, "updates"))}
             />
           )}
         />

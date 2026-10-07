@@ -114,7 +114,7 @@ function CleanupCardView({ card, top, cost }: { card: Card; top: boolean; cost?:
       </div>
       {top && (
         <footer className="border-t border-border p-2">
-          <Button variant="ghost" size="sm" className="w-full" onClick={() => navigateInApp(pluginDetailsPath(card.pluginId))}>
+          <Button variant="ghost" size="sm" className="w-full" onClick={() => navigateInApp(pluginDetailsPath(card.pluginId, "cleanup"))}>
             <Icon name="Info" aria-hidden /> Details
           </Button>
         </footer>

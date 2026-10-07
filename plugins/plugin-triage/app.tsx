@@ -3,7 +3,7 @@
 // and a Triage item in bb's own sidebar carrying the count.
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { PluginsScreenOverlay } from "./ui/PluginsScreenOverlay";
-import { TriageSidebarCount, TriageSidebarHeader, TriageSidebarPanel } from "./ui/TriageSidebar";
+import { SIDEBAR_PATH, TriageSidebarCount, TriageSidebarHeader, TriageSidebarPanel } from "./ui/TriageSidebar";
 
 export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({
@@ -16,7 +16,7 @@ export default definePluginApp((app) => {
     // Not in bb's icon set, so this falls back to the plugin's branding:
     // Hugeicons' cards-02, in assets/icon.svg.
     icon: "Cards02",
-    path: "triage",
+    path: SIDEBAR_PATH,
     component: TriageSidebarPanel,
     headerContent: TriageSidebarHeader,
     experimental_sidebarAccessory: TriageSidebarCount,
