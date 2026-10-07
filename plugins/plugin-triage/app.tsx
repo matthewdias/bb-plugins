@@ -13,7 +13,9 @@ export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "triage",
     title: "Triage",
-    icon: "Layers",
+    // Not in bb's icon set, so this falls back to the plugin's branding:
+    // Hugeicons' cards-02, in assets/icon.svg.
+    icon: "Cards02",
     path: "triage",
     component: TriageSidebarPanel,
     headerContent: TriageSidebarHeader,

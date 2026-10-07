@@ -28,7 +28,7 @@
     "name": "Plugin Triage",
     "description": "Decide on plugins one card at a time from a Triage tab in bb's Plugins screen: queue newly published plugins to install, queue pending updates, and clear out plugins you turned off or don't use, then run the queue in the background.",
     "branding": {
-      "icon": "Layers"
+      "icon": "./assets/icon.svg"
     },
     "server": "./server.ts",
     "app": "./app.tsx"
