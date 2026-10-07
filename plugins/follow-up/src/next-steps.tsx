@@ -148,8 +148,8 @@ function Chip({
   hint: string | null;
   ariaLabel: string;
   /**
-   * Inverted, like a primary button: the agent's first step, the one it
-   * expects. Only that one: a row of primaries says nothing about any of them.
+   * The agent's first step, the one it expects: a lighter fill than the rest.
+   * Only that one, since a row of primaries says nothing about any of them.
    */
   primary?: boolean;
   disabled: boolean;
@@ -169,14 +169,20 @@ function Chip({
       <Button
         // Every chip is a filled pill. On a phone a ghost chip read as plain
         // text and an outlined one as a text box; a filled shape with round
-        // ends is the one that reads as something to press. The first step the
-        // agent offers is inverted so the one it expects stands out.
-        variant={primary ? "default" : "secondary"}
+        // ends is the one that reads as something to press.
+        variant="secondary"
         size="sm"
-        // Wraps rather than truncating or scrolling: all of a step is sent, so
-        // all of it is on screen, on as many lines as it takes. 14px rounds a
-        // one-line chip (28px) into a pill and keeps a wrapped one soft.
-        className="h-auto min-h-7 max-w-full gap-1.5 whitespace-normal rounded-[14px] px-3 py-1 text-left text-xs leading-snug"
+        className={cn(
+          // Wraps rather than truncating or scrolling: all of a step is sent,
+          // so all of it is on screen, on as many lines as it takes. 14px
+          // rounds a one-line chip (28px) into a pill and keeps a wrapped one
+          // soft.
+          "h-auto min-h-7 max-w-full gap-1.5 whitespace-normal rounded-[14px] px-3 py-1 text-left text-xs leading-snug",
+          // The first step stands out by a lighter fill, not by inverting.
+          // Fully inverted, it was the brightest thing on a phone's screen
+          // and pulled the eye off the reply it answers.
+          primary && "bg-foreground/30 hover:bg-foreground/35",
+        )}
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
         onFocus={() => onHover?.(true)}

@@ -96,26 +96,28 @@ describe("the agent's offer", () => {
     expect(group.className).not.toMatch(/overflow-x-(auto|scroll)/);
   });
 
-  it("every chip is a filled pill, and the agent's first step is inverted", async () => {
+  it("every chip is a filled pill, and the agent's first step a lighter one", async () => {
     const slot = renderBanner("thr_edges", { offer: offerOf("Open a PR", "Add a test", "Bump it") });
     // On a phone a ghost chip read as plain text, and an outlined one as an
     // input field. Filled, with round ends; the first, the one the agent
-    // expects, inverted like a primary button, and only that one.
+    // expects, a lighter fill — not inverted, which was loud enough to pull
+    // the eye off the timeline — and only that one.
     const fills = [];
     for (const name of ['Send "Open a PR"', 'Send "Add a test"', 'Send "Bump it"']) {
       const chip = await slot.findByRole("button", { name });
       expect(chip.className).toMatch(/\brounded-\[14px\]/);
       expect(chip.className).not.toMatch(/\bborder\b|\bborder-input\b/);
-      fills.push(chip.className.match(/\bbg-(foreground|secondary)\b/)?.[1]);
+      expect(chip.className).not.toMatch(/\btext-background\b/);
+      fills.push(chip.className.match(/\bbg-(foreground\/30|foreground|secondary)(?=\s|$)/)?.[1]);
     }
-    expect(fills).toEqual(["foreground", "secondary", "secondary"]);
+    expect(fills).toEqual(["foreground/30", "secondary", "secondary"]);
   });
 
-  it("the Do chip is not inverted: it is the list's suggestion, on every such turn", async () => {
+  it("the Do chip is not lifted: it is the list's suggestion, on every such turn", async () => {
     const slot = renderBanner("thr_do_plain", { rows: [row("r1", "Tidy the loader", "deferred")] });
     const chip = await slot.findByRole("button", { name: 'Do "Tidy the loader" now' });
     expect(chip.className).toMatch(/\bbg-secondary\b/);
-    expect(chip.className).not.toMatch(/\bbg-foreground\b/);
+    expect(chip.className).not.toMatch(/\bbg-foreground/);
   });
 
   it("the ⋯ menu quotes each step whole, under its action", async () => {
