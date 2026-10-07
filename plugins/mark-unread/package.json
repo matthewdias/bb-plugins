@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-mark-unread",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -28,7 +28,7 @@
     "name": "Mark Unread",
     "description": "Mark a thread unread from any message, as in Slack. A New line marks the spot, and coming back scrolls you to it.",
     "branding": {
-      "icon": "MessageSquareDot"
+      "icon": "./assets/icon.svg"
     },
     "server": "./server.ts",
     "app": "./app.tsx"
