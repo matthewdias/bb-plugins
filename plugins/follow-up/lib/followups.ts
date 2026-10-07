@@ -150,6 +150,8 @@ export interface FollowUp {
   filingSince?: string | null;
   /** Who asked for the filing in flight, which becomes `doneBy` once it lands. */
   filingBy?: RankBy | null;
+  /** Where the filing in flight is going, so the row can say. */
+  filingTo?: string | null;
   /** Why the last filing attempt did not land, shown until the next one. */
   filingNote?: string | null;
 }
@@ -605,6 +607,7 @@ export function fileFollowUp(
     filedRef: ref,
     filingSince: null,
     filingBy: null,
+    filingTo: null,
     filingNote: null,
   };
   return {

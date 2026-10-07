@@ -148,6 +148,7 @@ const followUpSchema = z.object({
   filedRef: z.string().nullable().optional(),
   filingSince: z.string().nullable().optional(),
   filingBy: z.enum(["agent", "user"]).nullable().optional(),
+  filingTo: z.string().nullable().optional(),
   filingNote: z.string().nullable().optional(),
 });
 
@@ -328,7 +329,13 @@ export const rpcContract = defineRpcContract({
    */
   /** The destinations set up in Settings, and this project's default among them. */
   followups_destinations: {
-    input: z.object({ projectId: z.string().min(1).max(200).nullable() }).strict(),
+    input: z
+      .object({
+        projectId: z.string().min(1).max(200).nullable(),
+        /** Or the thread whose project to ask about, for a surface that knows only that. */
+        threadId: z.string().min(1).max(200).optional(),
+      })
+      .strict(),
     output: z
       .object({
         destinations: z.array(destinationSchema),
@@ -715,6 +722,9 @@ const filedKey = (threadId: string) => `${FILED_PREFIX}${threadId}`;
  */
 const NEXT_CHANGED = "followups-next-changed";
 
+/** Destinations or a project's default changed: menus that list them refetch. */
+const DESTINATIONS_CHANGED = "followups-destinations-changed";
+
 const TOOL_INSTRUCTIONS = [
   "When you notice work you are not going to do in this turn — something out of",
   "scope, blocked, deliberately deferred, a risk you spotted, or cleanup worth",
@@ -1083,7 +1093,7 @@ export default async function plugin(bb: BbPluginApi) {
   async function setFiling(
     threadId: string,
     ids: readonly string[],
-    state: { by: "agent" | "user" } | { note: string | null },
+    state: { by: "agent" | "user"; to: string } | { note: string | null },
   ): Promise<void> {
     const items = await readItems(threadId);
     const now = new Date().toISOString();
@@ -1092,8 +1102,8 @@ export default async function plugin(bb: BbPluginApi) {
       items.map((row) => {
         if (!ids.includes(row.id) || isFiled(row)) return row;
         return "by" in state
-          ? { ...row, filingSince: now, filingBy: state.by, filingNote: null }
-          : { ...row, filingSince: null, filingBy: null, filingNote: state.note };
+          ? { ...row, filingSince: now, filingBy: state.by, filingTo: state.to, filingNote: null }
+          : { ...row, filingSince: null, filingBy: null, filingTo: null, filingNote: state.note };
       }),
     );
     bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
@@ -1289,7 +1299,7 @@ export default async function plugin(bb: BbPluginApi) {
     by: "agent" | "user",
   ): Promise<FilingReport[]> {
     const ids = rows.map((row) => row.id);
-    await setFiling(threadId, ids, { by });
+    await setFiling(threadId, ids, { by, to: destination.name });
     try {
       return destination.kind === "command"
         ? await fileByCommand(threadId, rows, destination, by)
@@ -2942,9 +2952,11 @@ export default async function plugin(bb: BbPluginApi) {
       await writeOffer(threadId, null);
       return { ok: true as const };
     },
-    followups_destinations: async ({ projectId }) => ({
+    followups_destinations: async ({ projectId, threadId }) => ({
       destinations: await readDestinations(),
-      defaultId: (await readDefaultDestination(projectId))?.id ?? null,
+      defaultId:
+        (await readDefaultDestination(projectId ?? (threadId === undefined ? null : await projectOf(threadId))))
+          ?.id ?? null,
     }),
     followups_set_destinations: async ({ destinations }) => {
       // Names are what people type after `--to` and pick from a menu, so two
@@ -2966,6 +2978,7 @@ export default async function plugin(bb: BbPluginApi) {
       });
       await bb.storage.kv.set(DESTINATIONS_KEY, saved);
       bb.log.info(`saved ${saved.length} destination(s)`);
+      bb.realtime.publish(DESTINATIONS_CHANGED, {});
       return { outcome: "saved" as const, destinations: parseDestinations(saved) };
     },
     followups_file: async ({ threadId, ids, destinationId }) => {
@@ -2980,22 +2993,25 @@ export default async function plugin(bb: BbPluginApi) {
         const existing = await bb.storage.kv.get<string>(defaultDestinationKey(projectId));
         if (typeof existing !== "string") {
           await bb.storage.kv.set(defaultDestinationKey(projectId), destination.id);
+          bb.realtime.publish(DESTINATIONS_CHANGED, {});
         }
       }
       // Marked before answering, so the rows already say "filing…" when the
       // card refetches on this answer.
-      await setFiling(threadId, rows.map((row) => row.id), { by: "user" });
+      await setFiling(threadId, rows.map((row) => row.id), { by: "user", to: destination.name });
       void fileRows(threadId, rows, destination, "user");
       return { outcome: "started" as const, destinationId: destination.id, count: rows.length };
     },
     followups_set_default_destination: async ({ projectId, id }) => {
       if (id === null) {
         await bb.storage.kv.delete(defaultDestinationKey(projectId));
+        bb.realtime.publish(DESTINATIONS_CHANGED, {});
         return { defaultId: null };
       }
       const known = (await readDestinations()).some((destination) => destination.id === id);
       if (!known) return { defaultId: (await readDefaultDestination(projectId))?.id ?? null };
       await bb.storage.kv.set(defaultDestinationKey(projectId), id);
+      bb.realtime.publish(DESTINATIONS_CHANGED, {});
       return { defaultId: id };
     },
     followups_next_do: async ({ threadId, id }) => {
