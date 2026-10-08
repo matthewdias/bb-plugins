@@ -55,7 +55,15 @@ function chipLabel(entry: CardEntry): string {
 }
 
 const CONTROL =
-  "inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
+  "inline-flex h-7 items-center rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
+/** A chip: glyph and text, padded. */
+const CHIP = `${CONTROL} gap-1 px-1.5`;
+/**
+ * The button: 28px square with no padding, so its glyph has the room to grow
+ * to 20px on a phone as bb's own header icons do. Padding here would shrink
+ * the glyph, a flex item, back to 16px.
+ */
+const BUTTON = `${CONTROL} relative size-7 justify-center p-0`;
 
 export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeaderActionProps) {
   useRunningStyle();
@@ -107,7 +115,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
       {shown.map((entry) => (
         <button
           aria-label={chipLabel(entry)}
-          className={CONTROL}
+          className={CHIP}
           data-thread-summary-chip={entry.provider.id}
           key={entry.provider.id}
           onClick={openFrom}
@@ -124,7 +132,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label="Thread summary"
-        className={`${CONTROL} relative w-7 justify-center px-0`}
+        className={BUTTON}
         data-thread-summary-button=""
         onClick={(event) => (open ? close() : openFrom(event))}
         ref={setButton}
@@ -139,7 +147,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
         */}
         <HugeiconsIcon
           aria-hidden
-          className="size-4 max-md:pointer-coarse:size-5"
+          className="size-4 shrink-0 max-md:pointer-coarse:size-5"
           data-icon="PropertyNew"
           icon={PropertyNewIcon}
           strokeWidth={1.5}

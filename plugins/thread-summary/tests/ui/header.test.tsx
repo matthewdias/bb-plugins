@@ -108,6 +108,12 @@ describe("the header", () => {
     expect(svg.getAttribute("class")?.split(" ")).toEqual(
       expect.arrayContaining(["size-4", "max-md:pointer-coarse:size-5"]),
     );
+    // Room for 20px in the 28px button: padding would shrink the glyph,
+    // a flex item, back to 16px.
+    expect(svg.getAttribute("class")?.split(" ")).toContain("shrink-0");
+    const buttonClasses = button(slot).className.split(" ");
+    expect(buttonClasses).toEqual(expect.arrayContaining(["size-7", "p-0"]));
+    expect(buttonClasses.filter((name) => /^p[xy]?-/.test(name))).toEqual(["p-0"]);
     // In the 24-unit viewBox, so 1px at 16px and 1.25px at 20px, as theirs.
     expect(svg.getAttribute("viewBox")).toBe("0 0 24 24");
     expect(Array.from(svg.querySelectorAll("path")).every((path) => path.getAttribute("stroke-width") === "1.5")).toBe(true);
