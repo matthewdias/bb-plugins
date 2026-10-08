@@ -1,7 +1,6 @@
 // A value's glyph: the provider's icon in its tone, or, for a gauge, the ring
 // Thread Badges draws (badges/ring.tsx), so Follow Up's progress looks the
 // same here as on a sidebar row.
-import { useEffect } from "react";
 import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import type { ComplicationValue } from "../lib/complications";
 import { RUNNING_ATTRIBUTE, toneColor } from "../lib/tone";
@@ -47,33 +46,4 @@ export function Glyph({ value }: { value: ComplicationValue }) {
       )}
     </span>
   );
-}
-
-const STYLE_ID = "thread-summary-running";
-let styleUsers = 0;
-
-/**
- * The `running` tone pulses. A keyframe cannot be an inline style, so one
- * rule goes in the document while any header is mounted, and only where the
- * reader has not asked their system for less motion.
- */
-export function useRunningStyle(): void {
-  useEffect(() => {
-    styleUsers += 1;
-    if (document.getElementById(STYLE_ID) === null) {
-      const style = document.createElement("style");
-      style.id = STYLE_ID;
-      style.textContent = [
-        "@keyframes thread-summary-running { 50% { opacity: 0.4; } }",
-        "@media (prefers-reduced-motion: no-preference) {",
-        `  [${RUNNING_ATTRIBUTE}] { animation: thread-summary-running 1.6s ease-in-out infinite; }`,
-        "}",
-      ].join("\n");
-      document.head.append(style);
-    }
-    return () => {
-      styleUsers -= 1;
-      if (styleUsers === 0) document.getElementById(STYLE_ID)?.remove();
-    };
-  }, []);
 }

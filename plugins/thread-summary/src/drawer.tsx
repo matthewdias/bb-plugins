@@ -135,7 +135,9 @@ export function SummaryDrawer({
             <Icon aria-hidden name="X" style={{ height: 16, width: 16 }} />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: "0 6px calc(6px + env(safe-area-inset-bottom))" }}>
+          {children}
+        </div>
       </div>
     </>,
     document.body,

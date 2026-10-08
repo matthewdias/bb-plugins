@@ -49,6 +49,16 @@ the card takes focus, so Tab reaches its links next; opened with the mouse,
 focus stays where it was. Escape from inside the card hides it and hands focus
 back to the button.
 
+The card is a glass panel: bb's popover colour at 70% over an 18px blur of
+the conversation behind it, a 16px radius, a hairline border and a soft
+shadow. Where the browser cannot blur, or you ask your system for less
+transparency, it is the plain popover. Lines are separated by space, not
+rules; each glyph sits in a square tinted with its tone, and each value is a
+pill in its tone (quiet values in a muted pill). Every tint comes from the
+value's tone and bb's theme colours, so it follows light, dark and bb themes,
+the same for every provider. The phone drawer keeps bb's own sheet behind the
+same lines.
+
 A split layout has a header per pane, and each gets its own card.
 
 ### The header

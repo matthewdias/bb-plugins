@@ -14,7 +14,7 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import type { ComplicationProviderInfo } from "../lib/complications";
 import type { Entry } from "../lib/order";
-import { toneColor } from "../lib/tone";
+import { glyphFill, pillColors, toneColor } from "../lib/tone";
 import { readDetail, readOpen, type DetailRow } from "../lib/validate";
 import { Glyph } from "./glyph";
 
@@ -70,6 +70,13 @@ function Row({ row, environmentId }: { row: DetailRow; environmentId: string | n
   );
 }
 
+/** A line's inner gap and padding, and the glyph square: rows indent by their sum. */
+const LINE_PADDING = 7;
+const LINE_GAP = 9;
+const BADGE = 24;
+/** Detail rows line up with the headline. */
+export const ROW_INDENT = LINE_PADDING + BADGE + LINE_GAP;
+
 function Block({ entry, environmentId }: { entry: CardEntry; environmentId: string | null }) {
   const { provider, value } = entry;
   const detail = readDetail(value);
@@ -77,10 +84,24 @@ function Block({ entry, environmentId }: { entry: CardEntry; environmentId: stri
   const headline = detail?.title ?? value.label;
   const rows = detail?.rows ?? [];
   const more = rows.length - MAX_ROWS;
+  const pill = pillColors(value.tone);
   return (
-    <div className="px-3 py-2" data-thread-summary-block={provider.id}>
-      <div aria-label={provider.name} className="flex min-w-0 items-center gap-2" role="group" title={provider.name}>
-        <Glyph value={value} />
+    <div className="flex flex-col" data-thread-summary-block={provider.id}>
+      <div
+        aria-label={provider.name}
+        className="flex min-w-0 items-center"
+        data-thread-summary-line=""
+        role="group"
+        style={{ gap: LINE_GAP, padding: `6px ${LINE_PADDING}px`, borderRadius: 10 }}
+        title={provider.name}
+      >
+        <span
+          className="inline-grid flex-none place-items-center"
+          data-thread-summary-badge=""
+          style={{ width: BADGE, height: BADGE, borderRadius: 8, background: glyphFill(value.tone) }}
+        >
+          <Glyph value={value} />
+        </span>
         <span className="flex min-w-0 flex-1 font-medium">
           {open !== null ? (
             <UrlLink className="truncate underline-offset-2 hover:underline" href={open.href}>
@@ -91,11 +112,27 @@ function Block({ entry, environmentId }: { entry: CardEntry; environmentId: stri
           )}
         </span>
         {value.text !== undefined ? (
-          <span className="shrink-0 tabular-nums text-muted-foreground">{value.text}</span>
+          <span
+            className="shrink-0 whitespace-nowrap tabular-nums"
+            data-thread-summary-pill=""
+            style={{
+              ...pill,
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: "18px",
+              padding: "0 8px",
+              borderRadius: 999,
+            }}
+          >
+            {value.text}
+          </span>
         ) : null}
       </div>
       {rows.length > 0 ? (
-        <ul className="mt-1.5 flex flex-col gap-1 pl-[22px] text-muted-foreground">
+        <ul
+          className="flex flex-col gap-1 text-muted-foreground"
+          style={{ padding: `2px ${LINE_PADDING}px 6px ${ROW_INDENT}px` }}
+        >
           {rows.slice(0, MAX_ROWS).map((row, index) => (
             <Row environmentId={environmentId} key={`${index}:${row.label}`} row={row} />
           ))}
@@ -106,6 +143,10 @@ function Block({ entry, environmentId }: { entry: CardEntry; environmentId: stri
   );
 }
 
+/**
+ * The lines, separated by space rather than rules: a heads-up display, not a
+ * table. The same in the desktop card and the phone drawer.
+ */
 export function CardBody({
   entries,
   environmentId,
@@ -118,7 +159,7 @@ export function CardBody({
     return <p className="px-3 py-2 text-muted-foreground">Nothing to report for this thread.</p>;
   }
   return (
-    <div className="flex flex-col divide-y divide-border">
+    <div className="flex flex-col" data-thread-summary-lines="" style={{ gap: 2 }}>
       {entries.map((entry) => (
         <Block entry={entry} environmentId={environmentId} key={entry.provider.id} />
       ))}

@@ -103,7 +103,9 @@ export function FloatingCard({
     <section
       {...scope}
       aria-label="Thread summary"
-      className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border bg-popover text-xs text-popover-foreground shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      // The glass panel itself — radius, padding, translucent popover, blur,
+      // hairline border, shadow and their fallbacks — is in ./style.
+      className="fixed z-40 flex flex-col overflow-hidden text-xs text-popover-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
       data-thread-summary-card=""
       ref={cardRef}
       role="dialog"

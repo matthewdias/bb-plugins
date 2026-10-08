@@ -25,7 +25,8 @@ import { useThreadProviders, useThreadValues } from "./complications";
 import { useDeviceState } from "./device-state";
 import { SummaryDrawer } from "./drawer";
 import { FloatingCard } from "./floating-card";
-import { Glyph, useRunningStyle } from "./glyph";
+import { Glyph } from "./glyph";
+import { useSummaryStyle } from "./style";
 import { markOpen } from "./open-cards";
 import { useHiddenProviders } from "./use-hidden-providers";
 
@@ -80,7 +81,7 @@ const CHIP_ROW = "flex h-7 min-w-0 flex-wrap items-center justify-end gap-0.5 ov
 const BUTTON = `${CONTROL} relative size-7 shrink-0 justify-center p-0`;
 
 export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeaderActionProps) {
-  useRunningStyle();
+  useSummaryStyle();
   const settings = useSettings();
   const showChips = settings.values?.[SHOW_CHIPS_KEY] !== false && !isCompactViewport;
   const [device, updateDevice] = useDeviceState();

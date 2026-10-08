@@ -10,6 +10,8 @@ import { resetDeviceState } from "../../src/device-state";
 import { isOpen } from "../../src/open-cards";
 import { resetHiddenProviders } from "../../src/use-hidden-providers";
 import { GIT_ID, PULL_REQUEST_ID } from "../../lib/order";
+import { glyphFill, pillColors } from "../../lib/tone";
+import { ROW_INDENT } from "../../src/card-body";
 import { disposeProviders, freshThread, hiddenBackend, provide, sidebarThread } from "./fixtures";
 
 void pluginApp;
@@ -251,6 +253,46 @@ describe("the card", () => {
     expect(git.textContent).toBe("feature → main↑3 ↓1");
     // A gauge draws as the ring.
     expect(within(card()!).getByRole("group", { name: "Follow-up progress" }).querySelector("svg circle")).not.toBeNull();
+  });
+
+  it("separates lines by space, with no dividers", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    fireEvent.click(button(slot));
+    await waitFor(() => expect(card()!.querySelectorAll("[data-thread-summary-line]")).toHaveLength(3));
+    const lines = card()!.querySelector<HTMLElement>("[data-thread-summary-lines]")!;
+    expect(lines.style.gap).toBe("2px");
+    expect(card()!.innerHTML).not.toMatch(/divide-|border-b|border-t/);
+  });
+
+  it("sets each glyph in its tone's tint, and each value in a pill of it", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    fireEvent.click(button(slot));
+    await waitFor(() => expect(card()!.querySelectorAll("[data-thread-summary-pill]")).toHaveLength(3));
+    const block = (id: string) => card()!.querySelector<HTMLElement>(`[data-thread-summary-block="${id}"]`)!;
+    const badge = (id: string) => block(id).querySelector<HTMLElement>("[data-thread-summary-badge]")!;
+    const pill = (id: string) => block(id).querySelector<HTMLElement>("[data-thread-summary-pill]")!;
+    // jsdom drops color-mix() from style properties, so read what was set.
+    expect(badge(PULL_REQUEST_ID).getAttribute("style")).toContain(`background: ${glyphFill("error")}`);
+    expect(pill(PULL_REQUEST_ID).getAttribute("style")).toContain(`background: ${pillColors("error").background}`);
+    expect(pill(PULL_REQUEST_ID).getAttribute("style")).toContain(`color: ${pillColors("error").color}`);
+    // The gauge has no tone: muted fill, foreground text.
+    expect(pill("follow-up/progress").getAttribute("style")).toContain("color: var(--foreground)");
+    expect(badge("follow-up/progress").getAttribute("style")).toContain(`background: ${glyphFill(undefined)}`);
+    expect(pill(GIT_ID).style.fontSize).toBe("11px");
+    expect(pill(GIT_ID).style.fontWeight).toBe("600");
+    expect(pill(GIT_ID).style.borderRadius).toBe("999px");
+  });
+
+  it("indents detail rows to line up with the headline", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    fireEvent.click(button(slot));
+    await waitFor(() => expect(within(card()!).getByText("Ahead · behind")).toBeTruthy());
+    const list = within(card()!).getByText("Ahead · behind").closest("ul")!;
+    expect(list.style.padding).toBe(`2px 7px 6px ${ROW_INDENT}px`);
+    expect(ROW_INDENT).toBe(40);
   });
 
   it("shows a provider's detail rows with its line, with no mode to switch", async () => {

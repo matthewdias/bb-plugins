@@ -6,11 +6,12 @@ the header, and the most urgent of it beside the button.
 ## What you get
 
 **A card under the header.** One button in the thread header shows a small
-card, top right of the thread, over the chat; press it again to hide it. It
-shows one line per source: an icon in the source's colour, a headline, and a
-few characters beside it, with any details a source adds underneath. Showing
-it is remembered on this device, so it stays through thread switches and
-reloads until you hide it, and a click elsewhere leaves it be.
+frosted card, top right of the thread, over the chat; press it again to hide
+it. It shows one line per source: an icon in a square tinted with the source's
+colour, a headline, and its status as a coloured pill, with any details a
+source adds underneath. Showing it is remembered on this device, so it stays
+through thread switches and reloads until you hide it, and a click elsewhere
+leaves it be.
 
 **Your branch.** One line: the branch against the one it merges into, and how
 many commits it is ahead and behind. It turns amber when the branch is behind
