@@ -17,7 +17,7 @@ export interface Commit {
 export type Changes =
   | {
       kind: "github";
-      /** Commits that touch the plugin, newest first, at most COMMITS_SHOWN. */
+      /** Commits that touch the plugin, newest first: all GitHub listed, which can be fewer than total. */
       commits: Commit[];
       /** How many commits touch the plugin in all. */
       total: number;
@@ -55,6 +55,7 @@ export interface GitHubAccess {
   onBudget?: (budget: Budget) => void;
 }
 
+/** How many commits a closed card lists; its open details list them all. */
 export const COMMITS_SHOWN = 6;
 
 const SHA = /^[0-9a-f]{40}$/i;
@@ -84,7 +85,8 @@ export function refOf(label: VersionLabel): string | null {
 export function changesKey(from: VersionLabel, to: VersionLabel, subdirectory: string | null): string | null {
   const repo = githubRepo(to);
   if (repo === null || !SHA.test(from.version) || !SHA.test(to.version)) return null;
-  return `changes:${repo.owner}/${repo.repo}:${subdirectory ?? ""}:${from.version}...${to.version}`;
+  // v2: the commits are no longer cut to COMMITS_SHOWN, so older answers are short.
+  return `changes:v2:${repo.owner}/${repo.repo}:${subdirectory ?? ""}:${from.version}...${to.version}`;
 }
 
 type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{
@@ -198,7 +200,7 @@ export async function fetchChanges(
     const commits = relevant.map(toCommit).reverse();
     return {
       kind: "github",
-      commits: commits.slice(0, COMMITS_SHOWN),
+      commits,
       total: commits.length,
       repoWide: compare.total_commits,
       subdirectory,

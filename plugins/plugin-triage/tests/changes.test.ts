@@ -60,10 +60,10 @@ describe("what an update changes", () => {
     expect(asked).toHaveLength(1);
   });
 
-  it("caps the list and counts the rest", async () => {
+  it("keeps every commit, for the open card to list", async () => {
     const many = { ...compare, total_commits: 9, commits: Array.from({ length: 9 }, (_, i) => commit(`c${i}`, `Change ${i}`)) };
     const changes = await fetchChanges(github({ "/repos/acme/plugins/compare/": many }).fetch, label(A), label(B), null);
-    expect(changes.kind === "github" && [changes.commits.length, changes.total, changes.commits[0]!.subject]).toEqual([6, 9, "Change 8"]);
+    expect(changes.kind === "github" && [changes.commits.length, changes.total, changes.commits[0]!.subject]).toEqual([9, 9, "Change 8"]);
   });
 
   it("brings the release notes when the new version is a release", async () => {
@@ -104,7 +104,7 @@ describe("labels", () => {
   it("reads the repository and ref out of bb's version labels", () => {
     expect(githubRepo(label(A))).toEqual({ owner: "acme", repo: "plugins" });
     expect(refOf(label(A, "notes/v1.2.0"))).toBe("notes/v1.2.0");
-    expect(changesKey(label(A), label(B), "sub")).toBe(`changes:acme/plugins:sub:${A}...${B}`);
+    expect(changesKey(label(A), label(B), "sub")).toBe(`changes:v2:acme/plugins:sub:${A}...${B}`);
     expect(changesKey({ version: "1.0.0", display: "x@1.0.0" }, label(B), null)).toBeNull();
   });
 });
