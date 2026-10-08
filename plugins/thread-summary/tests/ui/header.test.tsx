@@ -1,0 +1,375 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
+import { renderSlot } from "@get-bb/plugin-sdk/testing/app";
+// Loaded at the top, not inside a test: the first load pulls in every
+// hugeicons icon through the settings checkbox and the vendored overlay, which
+// can outlast a test's timeout on a busy machine (#18).
+import pluginApp from "../../app";
+import { SummaryAction } from "../../src/header";
+import { resetDeviceState } from "../../src/device-state";
+import { isOpen } from "../../src/open-cards";
+import { GIT_ID, PULL_REQUEST_ID } from "../../lib/order";
+import { disposeProviders, freshThread, hiddenBackend, provide, sidebarThread } from "./fixtures";
+
+void pluginApp;
+
+beforeEach(() => {
+  window.localStorage.clear();
+  resetDeviceState();
+});
+afterEach(() => {
+  disposeProviders();
+});
+
+interface Options {
+  threadId?: string;
+  compact?: boolean;
+  showChips?: boolean;
+  hidden?: string[];
+  openFilePreview?: (options: unknown) => boolean;
+}
+
+function render({ threadId = freshThread(), compact = false, showChips = true, hidden = [], openFilePreview }: Options = {}) {
+  const slot = renderSlot(
+    { component: SummaryAction },
+    { threadId, projectId: "proj_1", isCompactViewport: compact },
+    {
+      pluginId: "thread-summary",
+      settings: { showChips },
+      rpc: hiddenBackend(hidden) as never,
+      sidebarThreads: { status: "ready", threads: [sidebarThread(threadId)] },
+      ...(openFilePreview !== undefined ? { openFilePreview: openFilePreview as never } : {}),
+    },
+  );
+  return { slot, threadId };
+}
+
+const button = (slot: ReturnType<typeof render>["slot"]) => slot.getByRole("button", { name: "Thread summary" });
+const card = () => document.querySelector<HTMLElement>("[data-thread-summary-card]");
+const chipIds = () =>
+  Array.from(document.querySelectorAll("[data-thread-summary-chip]")).map((chip) => chip.getAttribute("data-thread-summary-chip"));
+
+/** Three providers about one thread: Git (warning), the PR (error), and a gauge (default). */
+function seed(threadId: string) {
+  provide(
+    { id: "follow-up/progress", name: "Follow-up progress" },
+    { [threadId]: { icon: "TextWrap", label: "1 of 4 follow-ups done", fraction: 0.25, text: "3" } },
+  );
+  provide(
+    { id: PULL_REQUEST_ID, name: "Pull request" },
+    {
+      [threadId]: {
+        icon: "GitPullRequest",
+        label: "#41 Thread Summary",
+        tone: "error",
+        text: "checks failing",
+        detail: { title: "#41 Thread Summary", rows: [{ label: "Checks", value: "failing", tone: "error" }] },
+        open: { href: "https://github.com/matthewdias/bb-plugins/pull/41" },
+      },
+    },
+  );
+  provide(
+    { id: GIT_ID, name: "Git" },
+    {
+      [threadId]: {
+        icon: "GitBranch",
+        label: "feature → main",
+        tone: "warning",
+        text: "↑3 ↓1",
+        detail: {
+          title: "feature → main",
+          rows: [
+            { label: "Ahead · behind", value: "3 · 1", tone: "warning" },
+            { label: "app.tsx", value: "+4 −1", file: "plugins/thread-summary/app.tsx" },
+          ],
+        },
+      },
+    },
+  );
+}
+
+describe("the header", () => {
+  it("shows chips, worst first, and no dot", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toEqual([PULL_REQUEST_ID, GIT_ID, "follow-up/progress"]));
+    expect(slot.getByRole("button", { name: "Pull request: #41 Thread Summary (checks failing)" })).toBeTruthy();
+    expect(document.querySelector("[data-thread-summary-dot]")).toBeNull();
+  });
+
+  it("draws at most three chips", async () => {
+    const { threadId } = render();
+    seed(threadId);
+    provide({ id: "extra/one", name: "Extra" }, { [threadId]: { icon: "Circle", label: "x", tone: "info" } });
+    await waitFor(() => expect(chipIds()).toEqual([PULL_REQUEST_ID, GIT_ID, "extra/one"]));
+  });
+
+  it("with chips off, shows a dot in the worst tone instead", async () => {
+    const { threadId } = render({ showChips: false });
+    seed(threadId);
+    await waitFor(() =>
+      expect(document.querySelector("[data-thread-summary-dot]")?.getAttribute("data-thread-summary-dot")).toBe("error"),
+    );
+    expect(chipIds()).toEqual([]);
+  });
+
+  it("with chips off, shows no dot when everything is quiet", async () => {
+    const { threadId } = render({ showChips: false });
+    provide({ id: GIT_ID, name: "Git" }, { [threadId]: { icon: "GitBranch", label: "main", text: "↑0" } });
+    await waitFor(() => expect(chipIds()).toEqual([]));
+    expect(document.querySelector("[data-thread-summary-dot]")).toBeNull();
+  });
+
+  it("on a compact viewport, shows only the button and its dot, whatever the setting", async () => {
+    const { threadId } = render({ compact: true, showChips: true });
+    seed(threadId);
+    await waitFor(() =>
+      expect(document.querySelector("[data-thread-summary-dot]")?.getAttribute("data-thread-summary-dot")).toBe("error"),
+    );
+    expect(chipIds()).toEqual([]);
+  });
+
+  it("leaves hidden providers off the chips and the card", async () => {
+    const { slot, threadId } = render({ hidden: [PULL_REQUEST_ID] });
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toEqual([GIT_ID, "follow-up/progress"]));
+    fireEvent.click(button(slot));
+    expect(card()!.querySelector(`[data-thread-summary-block="${PULL_REQUEST_ID}"]`)).toBeNull();
+  });
+});
+
+describe("the card", () => {
+  it("opens from a chip, and the button opens and closes it", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toHaveLength(3));
+    fireEvent.click(slot.getByRole("button", { name: /^Git:/ }));
+    expect(card()).not.toBeNull();
+    expect(button(slot).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(button(slot));
+    expect(card()).toBeNull();
+  });
+
+  it("draws one block per provider, Git and the PR first, named by the provider", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    fireEvent.click(button(slot));
+    await waitFor(() =>
+      expect(Array.from(card()!.querySelectorAll("[data-thread-summary-block]")).map((block) => block.getAttribute("data-thread-summary-block"))).toEqual([
+        GIT_ID,
+        PULL_REQUEST_ID,
+        "follow-up/progress",
+      ]),
+    );
+    const git = within(card()!).getByRole("group", { name: "Git" });
+    expect(git.getAttribute("title")).toBe("Git");
+    expect(git.textContent).toBe("feature → main↑3 ↓1");
+    // A gauge draws as the ring.
+    expect(within(card()!).getByRole("group", { name: "Follow-up progress" }).querySelector("svg circle")).not.toBeNull();
+  });
+
+  it("links a headline to its open href", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    fireEvent.click(button(slot));
+    await waitFor(() => expect(within(card()!).getByRole("link", { name: "#41 Thread Summary" })).toBeTruthy());
+    expect(within(card()!).getByRole("link", { name: "#41 Thread Summary" }).getAttribute("href")).toBe(
+      "https://github.com/matthewdias/bb-plugins/pull/41",
+    );
+  });
+
+  it("draws an unsafe href as plain text", async () => {
+    const { slot, threadId } = render();
+    provide(
+      { id: "evil/link", name: "Evil" },
+      {
+        [threadId]: {
+          icon: "Circle",
+          label: "Click me",
+          open: { href: "/\t/evil.example" },
+          detail: { rows: [{ label: "row link", href: "javascript:alert(1)" }, { label: "file", file: "../../etc/passwd" }] },
+        },
+      },
+    );
+    fireEvent.click(button(slot));
+    fireEvent.click(within(card()!).getByRole("button", { name: "Show details" }));
+    await waitFor(() => expect(within(card()!).getByText("row link")).toBeTruthy());
+    const block = card()!.querySelector<HTMLElement>('[data-thread-summary-block="evil/link"]')!;
+    expect(within(block).queryAllByRole("link")).toEqual([]);
+    expect(within(block).getByText("Click me").closest("a")).toBeNull();
+  });
+
+  it("is compact until expanded, and remembers the mode on this device", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    fireEvent.click(button(slot));
+    await waitFor(() => expect(within(card()!).getByText("feature → main")).toBeTruthy());
+    expect(card()!.querySelector("[data-thread-summary-row]")).toBeNull();
+    fireEvent.click(within(card()!).getByRole("button", { name: "Show details" }));
+    expect(within(card()!).getByText("Ahead · behind")).toBeTruthy();
+    expect(window.localStorage.getItem("thread-summary:mode")).toBe("expanded");
+    fireEvent.click(within(card()!).getByRole("button", { name: "Show headlines only" }));
+    expect(card()!.querySelector("[data-thread-summary-row]")).toBeNull();
+    expect(window.localStorage.getItem("thread-summary:mode")).toBe("compact");
+  });
+
+  it("shows the first eight rows, then how many more", async () => {
+    window.localStorage.setItem("thread-summary:mode", "expanded");
+    const { slot, threadId } = render();
+    const rows = Array.from({ length: 11 }, (_, index) => ({ label: `row ${index}` }));
+    provide({ id: "many/rows", name: "Many" }, { [threadId]: { icon: "Circle", label: "Many rows", detail: { rows } } });
+    fireEvent.click(button(slot));
+    await waitFor(() => expect(within(card()!).getByText("row 7")).toBeTruthy());
+    expect(within(card()!).queryByText("row 8")).toBeNull();
+    expect(within(card()!).getByText("3 more")).toBeTruthy();
+  });
+
+  it("does not say more when there are exactly eight", async () => {
+    window.localStorage.setItem("thread-summary:mode", "expanded");
+    const { slot, threadId } = render();
+    const rows = Array.from({ length: 8 }, (_, index) => ({ label: `row ${index}` }));
+    provide({ id: "eight/rows", name: "Eight" }, { [threadId]: { icon: "Circle", label: "Eight rows", detail: { rows } } });
+    fireEvent.click(button(slot));
+    await waitFor(() => expect(within(card()!).getByText("row 7")).toBeTruthy());
+    expect(within(card()!).queryByText(/more$/)).toBeNull();
+  });
+
+  it("opens a file row in the thread's workspace", async () => {
+    window.localStorage.setItem("thread-summary:mode", "expanded");
+    const openFilePreview = vi.fn(() => true);
+    const { slot, threadId } = render({ openFilePreview });
+    seed(threadId);
+    fireEvent.click(button(slot));
+    const link = await waitFor(() => within(card()!).getByRole("link", { name: "app.tsx" }));
+    fireEvent.click(link);
+    expect(openFilePreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { kind: "workspace", environmentId: "env_1", path: "plugins/thread-summary/app.tsx" },
+      }),
+    );
+  });
+
+  it("tells the Git provider while it is open, so Git refreshes and polls", () => {
+    const { slot, threadId } = render();
+    expect(isOpen(threadId)).toBe(false);
+    fireEvent.click(button(slot));
+    expect(isOpen(threadId)).toBe(true);
+    fireEvent.click(button(slot));
+    expect(isOpen(threadId)).toBe(false);
+  });
+
+  it("says so when no provider has anything to say", () => {
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    expect(within(card()!).getByText("Nothing to report for this thread.")).toBeTruthy();
+  });
+});
+
+describe("the strip", () => {
+  it("sits inside the card's top-right corner and shows only on hover or focus", () => {
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    const strip = within(card()!).getByRole("toolbar", { name: "Thread summary controls" });
+    expect(card()!.contains(strip)).toBe(true);
+    expect(card()!.className.split(" ")).toContain("group");
+    const classes = strip.className.split(" ");
+    expect(classes).toEqual(expect.arrayContaining(["absolute", "right-1", "top-1", "opacity-0", "pointer-events-none"]));
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        "group-hover:opacity-100",
+        "group-hover:pointer-events-auto",
+        "group-focus-within:opacity-100",
+        "group-focus-within:pointer-events-auto",
+      ]),
+    );
+  });
+
+  it("holds the mode toggle, pin, settings and close", () => {
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    const strip = within(card()!).getByRole("toolbar");
+    expect(within(strip).getByRole("button", { name: "Show details" })).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Pin open on every thread" })).toBeTruthy();
+    expect(within(strip).getByRole("link", { name: "Thread Summary settings" }).getAttribute("href")).toBe(
+      "/settings/plugins/thread-summary",
+    );
+    fireEvent.click(within(strip).getByRole("button", { name: "Close" }));
+    expect(card()).toBeNull();
+  });
+
+  it("opens the plugin's settings in place", () => {
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    const popstate = vi.fn();
+    window.addEventListener("popstate", popstate);
+    fireEvent.click(within(card()!).getByRole("link", { name: "Thread Summary settings" }));
+    window.removeEventListener("popstate", popstate);
+    expect(window.location.pathname).toBe("/settings/plugins/thread-summary");
+    expect(popstate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("closing and the pin", () => {
+  it("closes on a click outside, or Escape, while unpinned", () => {
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    fireEvent.pointerDown(document.body);
+    expect(card()).toBeNull();
+    fireEvent.click(button(slot));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(card()).toBeNull();
+  });
+
+  it("stays open for a click in the card, or in one of bb's portaled overlays", () => {
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    fireEvent.pointerDown(within(card()!).getByRole("toolbar"));
+    const menu = document.createElement("div");
+    menu.setAttribute("data-bb-portaled-overlay", "");
+    menu.innerHTML = "<button>menu item</button>";
+    document.body.append(menu);
+    fireEvent.pointerDown(menu.querySelector("button")!);
+    menu.remove();
+    expect(card()).not.toBeNull();
+  });
+
+  it("stays open, pinned, through outside clicks and Escape", () => {
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    fireEvent.click(within(card()!).getByRole("button", { name: "Pin open on every thread" }));
+    expect(window.localStorage.getItem("thread-summary:pinned")).toBe("true");
+    fireEvent.pointerDown(document.body);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(card()).not.toBeNull();
+  });
+
+  it("closes on a thread switch while unpinned", () => {
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    act(() => {
+      slot.lifecycle.rerender(<SummaryAction isCompactViewport={false} projectId="proj_1" threadId={freshThread()} />);
+    });
+    expect(card()).toBeNull();
+  });
+
+  it("stays open through a thread switch while pinned", () => {
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    fireEvent.click(within(card()!).getByRole("button", { name: "Pin open on every thread" }));
+    act(() => {
+      slot.lifecycle.rerender(<SummaryAction isCompactViewport={false} projectId="proj_1" threadId={freshThread()} />);
+    });
+    expect(card()).not.toBeNull();
+  });
+
+  it("opens at once in a header mounted while pinned, as a thread switch can remount it", () => {
+    window.localStorage.setItem("thread-summary:pinned", "true");
+    render();
+    expect(card()).not.toBeNull();
+  });
+
+  it("does not open by itself while unpinned", () => {
+    render();
+    expect(card()).toBeNull();
+  });
+});
