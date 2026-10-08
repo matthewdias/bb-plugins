@@ -214,11 +214,14 @@ describe("the + menu row", () => {
     expect(peekFollowUpState(threadId).collapsed).toBe(true);
   });
 
-  it("has the picker in its own thread-only customization", async () => {
+  it("has the picker in its own thread-only customization, with Wrap up beside it", async () => {
     const app = await loadPluginApp(pluginApp);
     const picker = app.composerCustomizations.find((entry) => entry.id === "follow-up-picker");
     expect(picker?.scopes).toEqual(["thread"]);
-    expect(picker?.experimental_popups?.map((popup) => popup.id)).toEqual([PICKER_POPUP_ID]);
+    expect(picker?.experimental_popups?.map((popup) => popup.id)).toEqual([
+      PICKER_POPUP_ID,
+      "followups-wrap-up",
+    ]);
     expect(app.composerCustomizations[0]?.experimental_popups).toBeUndefined();
   });
 });

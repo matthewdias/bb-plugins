@@ -206,6 +206,7 @@ export function NextSteps({
   candidate,
   onInsertRow,
   onHighlightCandidate,
+  onWrapUp,
 }: {
   threadId: string;
   offer: NextOffer | null;
@@ -218,6 +219,11 @@ export function NextSteps({
    * it stands for — the chip shows the row's start, the list shows all of it.
    */
   onHighlightCandidate?: (on: boolean) => void;
+  /**
+   * The agent said the thread's goal is met and rows are still open: offer
+   * Wrap up, which opens its popup rather than sending anything.
+   */
+  onWrapUp?: () => void;
 }) {
   const composer = useComposer();
   const rpc = useRpc<typeof rpcContract>();
@@ -231,7 +237,8 @@ export function NextSteps({
   useEffect(() => setQueued(false), [offeredAt, candidate?.id]);
 
   const steps = offer?.steps ?? [];
-  const showDo = steps.length === 0 && candidate !== null;
+  // A goal met is no moment to start on the next row: Wrap up takes Do's place.
+  const showDo = steps.length === 0 && candidate !== null && onWrapUp === undefined;
 
   const edit = useCallback(
     (text: string) => {
@@ -357,6 +364,25 @@ export function NextSteps({
             onSend={() => void doRow(candidate)}
             onEdit={() => onInsertRow(candidate)}
             onHover={onHighlightCandidate}
+          />
+        )}
+        {onWrapUp !== undefined && (
+          <Chip
+            label={
+              <span className="inline-flex items-center gap-1">
+                <Icon name="Archive" className="size-3 shrink-0" aria-hidden />
+                Wrap up…
+              </span>
+            }
+            hint={isCompact ? null : "Choose where each open follow-up goes, then archive this thread."}
+            ariaLabel="Wrap up this thread"
+            // Primary only when the agent offered nothing of its own: its
+            // first step is still the one it expects.
+            primary={steps.length === 0}
+            disabled={busy}
+            // Nothing to edit first: it opens the popup either way.
+            onSend={onWrapUp}
+            onEdit={onWrapUp}
           />
         )}
         {queued && (

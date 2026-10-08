@@ -94,6 +94,15 @@ import {
   withoutStep,
   type NextOffer,
 } from "./lib/next-steps.ts";
+import {
+  checkWrapUp,
+  dispositionSchema,
+  failedMessage,
+  newWorktreeEnvironment,
+  type Disposition,
+  type EnvironmentShape,
+  type WrapUpRecord,
+} from "./lib/wrap-up.ts";
 
 /** Global, not per-thread: settings have no project or thread scope. */
 const EXECUTION_KEY = "expansion-execution";
@@ -169,6 +178,17 @@ const nextStepRef = z
     threadId: z.string().min(1).max(200),
     offeredAt: z.string().min(1).max(64),
     index: z.number().int().min(0).max(NEXT_STEPS_MAX - 1),
+  })
+  .strict();
+
+/** A wrap-up under way, or held short of the archive, as the app sees it. */
+const wrapUpStateSchema = z
+  .object({
+    status: z.enum(["running", "held"]),
+    archive: z.boolean(),
+    held: z.string().nullable(),
+    waitingOn: z.number().int(),
+    failed: z.array(z.object({ id: z.string(), note: z.string() }).strict()),
   })
   .strict();
 
@@ -378,6 +398,57 @@ export const rpcContract = defineRpcContract({
         count: z.number().int(),
       })
       .strict(),
+  },
+  /**
+   * Whether this thread is wrapping up, or was held short of the archive: the
+   * card's status line. The popup's fuller read is `followups_wrap_up_get`.
+   */
+  followups_wrap_up_state: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z.object({ state: wrapUpStateSchema.nullable() }).strict(),
+  },
+  /**
+   * What the Wrap up popup needs beyond the rows the card already holds:
+   * whether a wrap-up is under way or was held, whether a hand-off can go to a
+   * new worktree, and the child threads an archive would take with it.
+   */
+  followups_wrap_up_get: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z
+      .object({
+        state: wrapUpStateSchema.nullable(),
+        newWorktree: z.boolean(),
+        children: z.object({ open: z.number().int(), running: z.number().int() }).strict(),
+      })
+      .strict(),
+  },
+  /**
+   * Carry out a wrap-up: one disposition per open row, then the archive if
+   * asked for. `plan` has to name every open row not already being filed, and
+   * nothing else — a row that arrived while the person was deciding has not
+   * been decided about, so the whole request is refused rather than half done.
+   */
+  followups_wrap_up: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        plan: z
+          .array(z.object({ id: z.string().min(1).max(64), disposition: dispositionSchema }).strict())
+          .max(CAP_CEILING),
+        archive: z.boolean(),
+      })
+      .strict(),
+    output: z
+      .object({
+        outcome: z.enum(["archived", "finished", "waiting", "held", "changed", "running", "busy", "failed"]),
+        message: z.string().nullable(),
+      })
+      .strict(),
+  },
+  /** Let go of a held wrap-up: the card stops saying the thread was not archived. */
+  followups_wrap_up_forget: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z.object({ forgotten: z.boolean() }).strict(),
   },
   /** Make one destination this project's default, or clear it. */
   followups_set_default_destination: {
@@ -727,6 +798,14 @@ const NEXT_CHANGED = "followups-next-changed";
 
 /** Destinations or a project's default changed: menus that list them refetch. */
 const DESTINATIONS_CHANGED = "followups-destinations-changed";
+
+/** A thread's wrap-up, while it waits on filings or after it was held. */
+const WRAP_UP_PREFIX = "wrap-up:";
+const wrapUpKey = (threadId: string) => `${WRAP_UP_PREFIX}${threadId}`;
+/** A wrap-up started, settled, or was let go of: its card line refetches. */
+const WRAP_UP_CHANGED = "followups-wrap-up-changed";
+/** Thread statuses with a turn under way, or about to be. */
+const BUSY_STATUSES: ReadonlySet<string> = new Set(["active", "pending", "starting", "stopping"]);
 
 const TOOL_INSTRUCTIONS = [
   "When you notice work you are not going to do in this turn — something out of",
@@ -1132,6 +1211,8 @@ export default async function plugin(bb: BbPluginApi) {
       }),
     );
     bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
+    // A filing that did not land may be the one a wrap-up was waiting on.
+    if (!("by" in state)) void settleWrapUp(threadId);
   }
 
   /**
@@ -1322,9 +1403,11 @@ export default async function plugin(bb: BbPluginApi) {
     rows: readonly FollowUp[],
     destination: Destination,
     by: "agent" | "user",
+    /** The caller marked them already, before answering whoever asked. */
+    marked = false,
   ): Promise<FilingReport[]> {
     const ids = rows.map((row) => row.id);
-    await setFiling(threadId, ids, { by, to: destination.name });
+    if (!marked) await setFiling(threadId, ids, { by, to: destination.name });
     try {
       return destination.kind === "command"
         ? await fileByCommand(threadId, rows, destination, by)
@@ -1398,7 +1481,232 @@ export default async function plugin(bb: BbPluginApi) {
     await bb.storage.kv.set(filedKey(threadId), withMarks(marks, result.marks));
     bb.log.info(`filed follow-up on ${threadId} to ${to.name}: ${result.row?.text}`);
     bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
+    void settleWrapUp(threadId);
     return { outcome: "filed", row: result.row };
+  }
+
+  async function wrapUpView(
+    threadId: string,
+    record: WrapUpRecord | null,
+  ): Promise<z.infer<typeof wrapUpStateSchema> | null> {
+    if (record === null) return null;
+    // What is still on its way, not what was sent: the card counts down.
+    const rows = await readItems(threadId);
+    const now = Date.now();
+    const pending = record.waitingOn.filter((id) => {
+      const row = rows.find((entry) => entry.id === id);
+      return row !== undefined && isFiling(row, now);
+    });
+    return {
+      status: record.held === null ? "running" : "held",
+      archive: record.archive,
+      held: record.held,
+      waitingOn: pending.length,
+      failed: record.failures.map(({ id, note }) => ({ id, note })),
+    };
+  }
+
+  async function readWrapUp(threadId: string): Promise<WrapUpRecord | null> {
+    return (await bb.storage.kv.get<WrapUpRecord>(wrapUpKey(threadId))) ?? null;
+  }
+
+  async function writeWrapUp(threadId: string, record: WrapUpRecord | null): Promise<void> {
+    if (record === null) await bb.storage.kv.delete(wrapUpKey(threadId));
+    else await bb.storage.kv.set(wrapUpKey(threadId), record);
+    bb.realtime.publish(WRAP_UP_CHANGED, { threadId });
+  }
+
+  /**
+   * One change to a thread's wrap-up at a time. Two filings can land together
+   * and each asks to settle; side by side, both could read "landed" and
+   * archive twice, or a turn starting could hold a wrap-up a settle had
+   * already read as landed.
+   */
+  const wrapUpQueue = new Map<string, Promise<unknown>>();
+  function onWrapUpQueue<T>(threadId: string, run: () => Promise<T>): Promise<T> {
+    const previous = wrapUpQueue.get(threadId) ?? Promise.resolve();
+    const next = previous.catch(() => {}).then(run);
+    wrapUpQueue.set(threadId, next);
+    void next
+      .finally(() => {
+        if (wrapUpQueue.get(threadId) === next) wrapUpQueue.delete(threadId);
+      })
+      .catch(() => {});
+    return next;
+  }
+
+  type WrapUpSettled = "none" | "waiting" | "archived" | "held";
+  const settleWrapUp = (threadId: string) => onWrapUpQueue(threadId, () => settleWrapUpNow(threadId));
+
+  /**
+   * Archive the thread once everything its wrap-up sent has landed, or hold
+   * it open, saying why, once something has not. Asked whenever a filing
+   * lands or fails, and when the popup reads the state, so a filing that went
+   * quiet still settles the next time anyone looks.
+   */
+  async function settleWrapUpNow(threadId: string): Promise<WrapUpSettled> {
+    const record = await readWrapUp(threadId);
+    if (record === null) return "none";
+    if (record.held !== null) return "held";
+    if (!record.dispatched) return "waiting";
+    const check = checkWrapUp(record, await readItems(threadId));
+    if (check.outcome === "waiting") return "waiting";
+    if (check.outcome === "held") {
+      await writeWrapUp(threadId, { ...record, failures: check.failed, held: failedMessage(check.failed, true) });
+      bb.log.warn(`wrap-up on ${threadId} held: ${check.failed.length} did not land`);
+      return "held";
+    }
+    // Gone before the archive, so a restart between the two cannot leave an
+    // archived thread saying it is still wrapping up.
+    await writeWrapUp(threadId, null);
+    try {
+      await bb.sdk.threads.archive({ threadId });
+    } catch (error) {
+      await writeWrapUp(threadId, {
+        ...record,
+        held: `Everything landed, but the thread could not be archived: ${String(error)}`.slice(0, 300),
+      });
+      return "held";
+    }
+    bb.log.info(`wrapped up and archived ${threadId}`);
+    return "archived";
+  }
+
+  const HANDOFF_FAILED: Record<"not-found" | "no-environment" | "failed", string> = {
+    "not-found": "It was no longer here to hand off.",
+    "no-environment": "This thread has no checkout to hand off from.",
+    failed: "The new thread could not be started.",
+  };
+
+  /**
+   * Carry out a wrap-up. Quick dispositions happen here, in order; filings are
+   * marked before any starts, so a filing that lands at once never finds
+   * another the wrap-up has not marked yet and archives early.
+   */
+  async function startWrapUp(
+    threadId: string,
+    plan: readonly { id: string; disposition: Disposition }[],
+    archive: boolean,
+  ): Promise<{
+    outcome: "archived" | "finished" | "waiting" | "held" | "changed" | "running" | "busy" | "failed";
+    message: string | null;
+  }> {
+    const existing = await readWrapUp(threadId);
+    if (existing !== null && existing.held === null) {
+      return { outcome: "busy", message: "This thread is already wrapping up." };
+    }
+    let thread: Awaited<ReturnType<typeof bb.sdk.threads.get>>;
+    try {
+      thread = await bb.sdk.threads.get({ threadId });
+    } catch {
+      return { outcome: "failed", message: "Could not read this thread." };
+    }
+    if (BUSY_STATUSES.has(thread.status)) {
+      return { outcome: "running", message: "The agent is still working. Wrap up once it stops." };
+    }
+    const open = await listFollowUps(threadId);
+    const deciding = open.filter((row) => !isFiling(row));
+    const planned = new Map(plan.map((entry) => [entry.id, entry.disposition]));
+    const changed = {
+      outcome: "changed" as const,
+      message: "The follow-ups changed while you were deciding. Check them and wrap up again.",
+    };
+    if (planned.size !== plan.length || planned.size !== deciding.length) return changed;
+    if (!deciding.every((row) => planned.has(row.id))) return changed;
+
+    const destinations = await readDestinations();
+    const groups = new Map<string, { destination: Destination; rows: FollowUp[] }>();
+    for (const row of deciding) {
+      const disposition = planned.get(row.id)!;
+      if (disposition.kind !== "file") continue;
+      const destination = destinations.find((entry) => entry.id === disposition.destinationId);
+      if (destination === undefined) {
+        return { outcome: "changed", message: "A destination you picked is no longer set up." };
+      }
+      const group = groups.get(destination.id) ?? { destination, rows: [] };
+      group.rows.push(row);
+      groups.set(destination.id, group);
+    }
+    let worktree: Record<string, unknown> | null = null;
+    if ([...planned.values()].some((entry) => entry.kind === "handoff" && entry.where === "new-worktree")) {
+      try {
+        if (thread.environmentId !== null && thread.environmentId !== undefined) {
+          const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId });
+          worktree = newWorktreeEnvironment(environment as unknown as EnvironmentShape);
+        }
+      } catch {
+        worktree = null;
+      }
+      if (worktree === null) {
+        return { outcome: "failed", message: "This thread's checkout cannot have a new worktree." };
+      }
+    }
+
+    // Kept only when there is an archive to wait for. Leaving the thread
+    // open, there is nothing to settle: each row's filing shows on the row.
+    const record: WrapUpRecord = {
+      startedAt: new Date().toISOString(),
+      archive,
+      // Rows already on their way when the popup opened hold the archive too.
+      waitingOn: open.filter((row) => isFiling(row)).map((row) => row.id),
+      failures: [],
+      dispatched: false,
+      held: null,
+    };
+    if (archive) await writeWrapUp(threadId, record);
+
+    for (const row of deciding) {
+      const disposition = planned.get(row.id)!;
+      if (disposition.kind === "done") await setDone(threadId, row.id, true, "user");
+      else if (disposition.kind === "dismiss") await dismissFollowUp(threadId, row.id);
+      else if (disposition.kind === "handoff") {
+        const handed = await handoffFollowUp(threadId, row.id, "thread", {
+          kind: "prompt",
+          skill: null,
+          ...(disposition.where === "new-worktree" && worktree !== null ? { environment: worktree } : {}),
+        });
+        if (handed.outcome !== "spawned") {
+          record.failures.push({ id: row.id, text: row.text, note: HANDOFF_FAILED[handed.outcome] });
+        }
+      }
+    }
+    for (const { destination, rows } of groups.values()) {
+      await setFiling(threadId, rows.map((row) => row.id), { by: "user", to: destination.name });
+      record.waitingOn.push(...rows.map((row) => row.id));
+    }
+    // The first destination picked in a project becomes its default, here as
+    // in the card's own File to.
+    const firstPicked = groups.values().next().value?.destination;
+    if (firstPicked !== undefined && thread.projectId !== null && thread.projectId !== undefined) {
+      const known = await bb.storage.kv.get<string>(defaultDestinationKey(thread.projectId));
+      if (typeof known !== "string") {
+        await bb.storage.kv.set(defaultDestinationKey(thread.projectId), firstPicked.id);
+        bb.realtime.publish(DESTINATIONS_CHANGED, {});
+      }
+    }
+    if (archive) await writeWrapUp(threadId, { ...record, dispatched: true });
+    for (const { destination, rows } of groups.values()) {
+      void fileRows(threadId, rows, destination, "user", true);
+    }
+    bb.log.info(
+      `wrap-up on ${threadId}: ${plan.length} decided, ${record.waitingOn.length} filing, archive ${archive}`,
+    );
+
+    const settled = await settleWrapUp(threadId);
+    const after = await readWrapUp(threadId);
+    switch (settled) {
+      case "archived":
+        return { outcome: "archived", message: null };
+      case "held":
+        return { outcome: "held", message: after?.held ?? null };
+      case "waiting":
+        return { outcome: "waiting", message: null };
+      default:
+        return {
+          outcome: "finished",
+          message: record.failures.length === 0 ? null : failedMessage(record.failures, false),
+        };
+    }
   }
 
   /** Remember that this thread has tracked something. Never unset. */
@@ -1511,6 +1819,11 @@ export default async function plugin(bb: BbPluginApi) {
         kind: "prompt";
         skill: string | null;
         execution?: Record<string, unknown>;
+        /**
+         * Where the new thread runs. Omitted, this thread's own checkout;
+         * Wrap up passes a new worktree's request here when asked for one.
+         */
+        environment?: Record<string, unknown>;
       };
 
   /**
@@ -1575,8 +1888,9 @@ export default async function plugin(bb: BbPluginApi) {
       prompt = handoffPrompt(spawnWith.skill, row);
       args = {
         projectId: thread.projectId,
-        // Reuse, so the handoff lands in the same checkout the row is about.
-        environment: { type: "reuse", environmentId: thread.environmentId },
+        // Reuse, so the handoff lands in the same checkout the row is about,
+        // unless the caller asked for somewhere else.
+        environment: spawnWith.environment ?? { type: "reuse", environmentId: thread.environmentId },
         prompt,
         // Whatever the caller asked for, already carrying its provenance. Empty
         // when they asked for nothing, which is when project defaults apply —
@@ -2937,7 +3251,20 @@ export default async function plugin(bb: BbPluginApi) {
   // pressed is what makes that true of all of them.
   bb.events.on("thread.active", ({ thread }) => {
     void writeOffer(thread.id, null);
+    void holdWrapUpForTurn(thread.id);
   });
+
+  /**
+   * A turn started while a wrap-up waited on its filings: someone is working
+   * in this thread again, so the archive it was waiting to do is off.
+   */
+  function holdWrapUpForTurn(threadId: string): Promise<void> {
+    return onWrapUpQueue(threadId, async () => {
+      const record = await readWrapUp(threadId);
+      if (record === null || record.held !== null) return;
+      await writeWrapUp(threadId, { ...record, held: "A new turn started, so this thread was not archived." });
+    });
+  }
 
   bb.rpc.register(rpcContract, {
     getFollowUpCountsV1: async ({ threadIds }) => {
@@ -3182,9 +3509,50 @@ export default async function plugin(bb: BbPluginApi) {
       // Marked before answering, so the rows already say "filing…" when the
       // card refetches on this answer.
       await setFiling(threadId, rows.map((row) => row.id), { by: "user", to: destination.name });
-      void fileRows(threadId, rows, destination, "user");
+      void fileRows(threadId, rows, destination, "user", true);
       return { outcome: "started" as const, destinationId: destination.id, count: rows.length };
     },
+    followups_wrap_up_get: async ({ threadId }) => {
+      // Asked here too, so a filing that went quiet settles when anyone looks.
+      await settleWrapUp(threadId);
+      const record = await readWrapUp(threadId);
+      let newWorktree = false;
+      let children = { open: 0, running: 0 };
+      try {
+        const thread = await bb.sdk.threads.get({ threadId });
+        if (thread.environmentId !== null && thread.environmentId !== undefined) {
+          const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId });
+          newWorktree = newWorktreeEnvironment(environment as unknown as EnvironmentShape) !== null;
+        }
+      } catch {
+        // Not offered, rather than offered and failing.
+      }
+      try {
+        // An archive takes this thread's children with it, so the popup says
+        // so before anyone asks for one.
+        const listed = await bb.sdk.threads.list({ parentThreadId: threadId, archived: false });
+        children = {
+          open: listed.length,
+          running: listed.filter((child) => BUSY_STATUSES.has(child.status)).length,
+        };
+      } catch {
+        // Unknown is shown as none: the archive's own confirmation is bb's.
+      }
+      return { state: await wrapUpView(threadId, record), newWorktree, children };
+    },
+    followups_wrap_up_state: async ({ threadId }) => {
+      await settleWrapUp(threadId);
+      return { state: await wrapUpView(threadId, await readWrapUp(threadId)) };
+    },
+    followups_wrap_up: async ({ threadId, plan, archive }) => await startWrapUp(threadId, plan, archive),
+    followups_wrap_up_forget: async ({ threadId }) =>
+      await onWrapUpQueue(threadId, async () => {
+        const record = await readWrapUp(threadId);
+        // Only a held one: one still waiting is not the card's to drop.
+        if (record === null || record.held === null) return { forgotten: false };
+        await writeWrapUp(threadId, null);
+        return { forgotten: true };
+      }),
     followups_set_default_destination: async ({ projectId, id }) => {
       if (id === null) {
         await bb.storage.kv.delete(defaultDestinationKey(projectId));
