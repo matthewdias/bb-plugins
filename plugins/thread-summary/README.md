@@ -55,8 +55,10 @@ A split layout has a header per pane, and each gets its own card.
 
 The button is always there. Beside it sit up to three **chips**, the thread's
 worst values first: error, warning, running, info, success, default, with ties
-in provider order. A chip is the glyph and its text; clicking one opens the
-card. With chips off — or on a phone or a coarse pointer — the button shows a
+in provider order. A chip is the glyph and its text, as wide as its text up to
+112px; clicking one shows the card. bb gives a header control 256px, so when
+three wide chips would overflow it they shrink to share it, cutting their text;
+the button never moves. With chips off — or on a phone or a coarse pointer — the button shows a
 dot in the worst tone instead, and no dot when every value is `default`.
 
 ### Phones and coarse pointers
