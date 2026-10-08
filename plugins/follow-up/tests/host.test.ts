@@ -3,7 +3,7 @@
 // shell, through the SDK's host harness, with the daemon's validation and size
 // boundaries.
 import assert from "node:assert/strict";
-import { mkdtempSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -60,12 +60,31 @@ test("host: a failure comes back with its exit code and what it said", async () 
   });
 });
 
-test("host: a command that hangs is stopped", async () => {
+test("host: a command that hangs is stopped on time, even with the shell between", async () => {
+  // Two commands, so every shell forks `sleep` rather than becoming it. Killing
+  // the shell alone used to leave `sleep` holding the output open: CI's Linux
+  // runner waited out all 20 seconds, while macOS's sh happened to exec.
   const started = Date.now();
-  const result = await run("sleep 20", { timeoutMs: 1000 });
+  const result = await run("sleep 20; echo never", { timeoutMs: 1000 });
   assert.equal(result.timedOut, true);
   assert.equal(result.exitCode, null);
-  assert.ok(Date.now() - started < 8000);
+  assert.equal(result.stdout, "");
+  assert.ok(Date.now() - started < 8000, `took ${Date.now() - started}ms`);
+});
+
+test("host: a stopped command takes what it started with it", async () => {
+  const pidFile = join(cwd, "child.pid");
+  await run(`sh -c 'echo $$ > "${pidFile}"; exec sleep 30' & sleep 30`, { timeoutMs: 1000 });
+  const pid = Number(readFileSync(pidFile, "utf8").trim());
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.throws(() => process.kill(pid, 0), /ESRCH/, `process ${pid} outlived its command`);
+});
+
+test("host: something left running in the background does not hold the answer", async () => {
+  const started = Date.now();
+  const result = await run("sleep 20 & echo started");
+  assert.deepEqual([result.exitCode, result.stdout, result.timedOut], [0, "started\n", false]);
+  assert.ok(Date.now() - started < 5000, `took ${Date.now() - started}ms`);
 });
 
 test("host: output is bounded — the start of stdout, the end of stderr", async () => {

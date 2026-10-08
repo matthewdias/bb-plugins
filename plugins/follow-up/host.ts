@@ -14,6 +14,15 @@ import {
 
 /** How long a command asked to stop has before it is made to. */
 const KILL_GRACE_MS = 2000;
+/**
+ * How long output may keep arriving after the shell itself has exited. Its
+ * output normally closes with it; a process it left running in the background
+ * can hold the pipes open for as long as it lives, and must not hold the
+ * answer with them.
+ */
+const EXIT_GRACE_MS = 500;
+/** Process groups are a POSIX idea; elsewhere the shell alone is what can be stopped. */
+const GROUPS = process.platform !== "win32";
 
 /**
  * Run one command.
@@ -29,10 +38,12 @@ export function runCommand(input: RunCommandInput, signal: AbortSignal): Promise
     let stderr = "";
     let timedOut = false;
     let settled = false;
+    let afterExit: ReturnType<typeof setTimeout> | undefined;
     const finish = (exitCode: number | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(afterExit);
       signal.removeEventListener("abort", stop);
       resolve({ exitCode, stdout: stdout.slice(0, OUTPUT_MAX), stderr: stderr.slice(-OUTPUT_MAX), timedOut });
     };
@@ -44,6 +55,10 @@ export function runCommand(input: RunCommandInput, signal: AbortSignal): Promise
         cwd: input.cwd,
         env: { ...process.env, ...input.env },
         stdio: ["pipe", "pipe", "pipe"],
+        // Its own process group, so stopping it stops everything it started.
+        // Killing the shell alone left its children running — a `sleep`, a
+        // hung `gh` behind a wrapper — holding the output open past the limit.
+        detached: GROUPS,
       });
     } catch (error) {
       stderr = String(error);
@@ -51,9 +66,18 @@ export function runCommand(input: RunCommandInput, signal: AbortSignal): Promise
       return;
     }
 
+    const kill = (which: NodeJS.Signals) => {
+      try {
+        if (GROUPS && child.pid !== undefined) process.kill(-child.pid, which);
+        else child.kill(which);
+      } catch {
+        // The group is already gone, or never formed: the shell is all there is.
+        child.kill(which);
+      }
+    };
     const stop = () => {
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref();
+      kill("SIGTERM");
+      setTimeout(() => kill("SIGKILL"), KILL_GRACE_MS).unref();
     };
     const timer = setTimeout(() => {
       timedOut = true;
@@ -74,6 +98,13 @@ export function runCommand(input: RunCommandInput, signal: AbortSignal): Promise
     child.on("error", (error) => {
       stderr = `${stderr}${String(error)}`.slice(-OUTPUT_MAX);
       finish(null);
+    });
+    child.on("exit", (code) => {
+      afterExit = setTimeout(() => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish(timedOut ? null : code);
+      }, EXIT_GRACE_MS);
     });
     child.on("close", (code) => finish(timedOut ? null : code));
     // A command that never reads stdin closes it early; that is not an error.
