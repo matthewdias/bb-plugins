@@ -30,7 +30,7 @@ and `bb plugin update` follows it.
 
 The `screenshots/` directory holds the frames for a store listing, taken from a
 live bb 0.45 window: desktop compact, expanded, the controls on hover, chips
-off, and the phone drawer at half and full height.
+off, and the phone drawer.
 
 ### The card
 
@@ -70,9 +70,13 @@ dot in the worst tone instead, and no dot when every value is `default`.
 
 ### Phones and coarse pointers
 
-The card becomes a bottom drawer. Half height is compact; dragging its top edge
-up to full height is expanded, and the toggle on that edge does the same. Swipe
-down or tap outside to close. Pin does not apply.
+The card becomes a bottom drawer that always shows the details: there is no
+mode to switch, and the desktop card's remembered mode is left alone. It fits
+its contents, up to 92% of the screen, and scrolls inside past that. Its top
+edge holds the handle, settings and close. Drag it down past a quarter of its
+height, tap outside, press Escape or close it, and focus goes back to the
+header button; let go short of that quarter and it springs back. Pin does not
+apply.
 
 ### Providers it publishes
 

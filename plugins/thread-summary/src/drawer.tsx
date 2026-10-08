@@ -1,43 +1,43 @@
 // The card on a phone or a coarse pointer: a drawer from the bottom of the
 // screen, like bb's own composer popups.
 //
-// The vendored drawer (components/ui/responsive-overlay.tsx) has one height
-// and drags only down, to dismiss. This one has two: half height is compact,
-// full height is expanded. Dragging its top edge settles on the nearer of the
-// two, or closes it when let go low enough; the mode toggle on that edge does
-// the same in one tap. Swipe down or tap outside to dismiss. Focus, Escape and
-// the backdrop are the vendored drawer's, reused rather than rebuilt.
+// It always shows the expanded summary: on a phone there is nothing to
+// toggle, and the desktop card's remembered mode is neither read nor written
+// here. Its height fits its contents, up to 92% of the screen, and it scrolls
+// inside once it reaches that.
+//
+// The top edge holds the handle, then the controls (settings and close). The
+// drawer moves down only: dragged past a quarter of its own height it closes,
+// short of that it springs back. Tapping the backdrop, Escape and the close
+// button close it too, and focus goes back to the header button. Focus and
+// Escape are the vendored drawer's (components/ui/responsive-overlay.tsx),
+// reused rather than rebuilt.
 import { useCallback, useRef, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { usePersistentOverlayFocus } from "@/components/ui/responsive-overlay";
-import type { Mode } from "../lib/card-state";
-import { DRAWER_FULL, DRAWER_HALF, snapDrawer } from "../lib/placement";
+import { DRAWER_FULL, dismissesAt } from "../lib/placement";
 import { usePortalScopeProps } from "../lib/portal-scope";
 
 const EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
-
-function heightFor(mode: Mode): string {
-  return `${Math.round((mode === "expanded" ? DRAWER_FULL : DRAWER_HALF) * 100)}dvh`;
-}
+const TRANSITION = `transform 220ms ${EASING}`;
 
 interface Drag {
   pointerId: number;
   startY: number;
-  startHeight: number;
+  height: number;
 }
 
 export function SummaryDrawer({
   open,
   onClose,
-  mode,
-  onMode,
+  returnFocusTo,
   controls,
   children,
 }: {
   open: boolean;
   onClose: () => void;
-  mode: Mode;
-  onMode: (mode: Mode) => void;
+  /** The header button, which gets focus back however the drawer closes. */
+  returnFocusTo: HTMLElement | null;
   /** Sits on the drawer's top edge, beside the handle. */
   controls: ReactNode;
   children: ReactNode;
@@ -47,9 +47,16 @@ export function SummaryDrawer({
   const dragRef = useRef<Drag | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const returnFocusRef = useRef(returnFocusTo);
+  returnFocusRef.current = returnFocusTo;
   const requestClose = useCallback(() => onCloseRef.current(), []);
+  // After the vendored hook puts focus back where it was on open, which on a
+  // phone may be nowhere: the header button is where the drawer came from.
+  const focusButton = useCallback(() => returnFocusRef.current?.focus({ preventScroll: true }), []);
 
-  usePersistentOverlayFocus({ open, panelRef, requestClose });
+  usePersistentOverlayFocus({ open, panelRef, requestClose, onAfterCloseAutoFocus: focusButton });
+
+  const offsetOf = (drag: Drag, clientY: number) => Math.max(0, clientY - drag.startY);
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || panelRef.current === null) return;
@@ -57,7 +64,7 @@ export function SummaryDrawer({
     dragRef.current = {
       pointerId: event.pointerId,
       startY: event.clientY,
-      startHeight: panelRef.current.getBoundingClientRect().height,
+      height: panelRef.current.getBoundingClientRect().height,
     };
     panelRef.current.style.transition = "none";
     event.preventDefault();
@@ -67,11 +74,8 @@ export function SummaryDrawer({
     const drag = dragRef.current;
     const panel = panelRef.current;
     if (drag === null || panel === null || drag.pointerId !== event.pointerId) return;
-    const height = Math.min(
-      window.innerHeight * DRAWER_FULL,
-      Math.max(0, drag.startHeight - (event.clientY - drag.startY)),
-    );
-    panel.style.height = `${height}px`;
+    // Down only: dragging up holds the drawer where it is.
+    panel.style.transform = `translate3d(0, ${offsetOf(drag, event.clientY)}px, 0)`;
     event.preventDefault();
   };
 
@@ -80,13 +84,13 @@ export function SummaryDrawer({
     const panel = panelRef.current;
     if (drag === null || panel === null || drag.pointerId !== event.pointerId) return;
     dragRef.current = null;
-    const height = panel.getBoundingClientRect().height;
-    panel.style.transition = "";
-    panel.style.height = "";
-    if (cancelled) return;
-    const settled = snapDrawer(height, window.innerHeight);
-    if (settled === "close") onCloseRef.current();
-    else onMode(settled === "full" ? "expanded" : "compact");
+    panel.style.transition = TRANSITION;
+    if (!cancelled && dismissesAt(offsetOf(drag, event.clientY), drag.height)) {
+      onCloseRef.current();
+      return;
+    }
+    // Short of the threshold: back to where it started.
+    panel.style.transform = "";
   };
 
   if (!open) return null;
@@ -104,11 +108,10 @@ export function SummaryDrawer({
         aria-label="Thread summary"
         aria-modal
         className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-xl border border-border bg-background text-sm outline-none"
-        data-detent={mode === "expanded" ? "full" : "half"}
         data-thread-summary-drawer=""
         ref={panelRef}
         role="dialog"
-        style={{ height: heightFor(mode), transition: `height 220ms ${EASING}` }}
+        style={{ maxHeight: `${Math.round(DRAWER_FULL * 100)}dvh`, transition: TRANSITION }}
         tabIndex={-1}
       >
         <div className="relative flex h-10 shrink-0 items-center justify-center">

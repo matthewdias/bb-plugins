@@ -101,7 +101,6 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
     button?.focus();
   };
 
-  const body = <CardBody entries={entries} environmentId={environmentId} mode={device.mode} />;
 
   return (
     <span className="flex items-center gap-0.5" data-thread-summary-header="" ref={setControl}>
@@ -147,21 +146,21 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
         ) : null}
       </button>
       {isCompactViewport ? (
+        // The phone drawer always shows the details, so it neither reads nor
+        // writes the desktop card's mode.
         <SummaryDrawer
           controls={
             <Controls
-              mode={device.mode}
-              onMode={(mode) => updateDevice({ mode })}
+              onClose={close}
               onSettings={(event) => navigateInApp(event, settingsHref)}
               settingsHref={settingsHref}
             />
           }
-          mode={device.mode}
           onClose={close}
-          onMode={(mode) => updateDevice({ mode })}
           open={open}
+          returnFocusTo={button}
         >
-          {body}
+          <CardBody entries={entries} environmentId={environmentId} mode="expanded" />
         </SummaryDrawer>
       ) : open ? (
         <FloatingCard
@@ -182,7 +181,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
           onClose={close}
           pinned={device.pinned}
         >
-          {body}
+          <CardBody entries={entries} environmentId={environmentId} mode={device.mode} />
         </FloatingCard>
       ) : null}
     </span>

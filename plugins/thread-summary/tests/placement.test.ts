@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CARD_WIDTH, GAP, INSET, placeCard, snapDrawer } from "../lib/placement";
+import { CARD_WIDTH, DRAWER_CLOSE, GAP, INSET, dismissesAt, placeCard } from "../lib/placement";
 
 const header = { left: 320, top: 40, width: 1080, height: 48 };
 const pane = { left: 320, top: 40, width: 1080, height: 860 };
@@ -44,19 +44,25 @@ describe("placeCard", () => {
   });
 });
 
-describe("snapDrawer", () => {
-  it("closes when let go below 35 %", () => {
-    expect(snapDrawer(340, 1000)).toBe("close");
+describe("dismissesAt", () => {
+  it("closes once dragged down a quarter of the drawer's own height", () => {
+    expect(DRAWER_CLOSE).toBe(0.25);
+    expect(dismissesAt(100, 400)).toBe(true);
+    expect(dismissesAt(300, 400)).toBe(true);
   });
 
-  it("settles on the nearer of half and full", () => {
-    expect(snapDrawer(350, 1000)).toBe("half");
-    expect(snapDrawer(700, 1000)).toBe("half");
-    expect(snapDrawer(720, 1000)).toBe("full");
-    expect(snapDrawer(1000, 1000)).toBe("full");
+  it("springs back short of it", () => {
+    expect(dismissesAt(99, 400)).toBe(false);
+    expect(dismissesAt(0, 400)).toBe(false);
   });
 
-  it("closes in a viewport with no height", () => {
-    expect(snapDrawer(100, 0)).toBe("close");
+  it("measures a short drawer against itself, not the screen", () => {
+    // 200px of an 874px phone: a share of the screen would close it on any drag.
+    expect(dismissesAt(20, 200)).toBe(false);
+    expect(dismissesAt(50, 200)).toBe(true);
+  });
+
+  it("never closes without a drag", () => {
+    expect(dismissesAt(0, 0)).toBe(false);
   });
 });

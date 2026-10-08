@@ -1,4 +1,4 @@
-// Where the card goes, and where the phone drawer settles. Pure, so it is
+// Where the card goes, and when the phone drawer lets go. Pure, so it is
 // tested without a DOM: the header measures, these decide.
 
 export interface Rect {
@@ -41,21 +41,20 @@ export function placeCard(header: Rect, pane: Rect, preferredWidth: number = CAR
   return { left, top, width, maxHeight };
 }
 
-/** The drawer's two heights, as a share of the viewport. */
-export const DRAWER_HALF = 0.5;
+/** The tallest the drawer gets, as a share of the viewport; past it, it scrolls. */
 export const DRAWER_FULL = 0.92;
-/** Released shorter than this share, the drawer closes. */
-export const DRAWER_CLOSE = 0.35;
-
-export type Detent = "half" | "full";
+/**
+ * How far the drawer must be dragged down to close, as a share of its own
+ * height. Its height fits its contents, so a share of the viewport would
+ * close a short drawer on any drag at all. A quarter is bb's own drawer's
+ * rule (PERSISTENT_DRAWER_CLOSE_RATIO in components/ui/responsive-overlay).
+ */
+export const DRAWER_CLOSE = 0.25;
 
 /**
- * Where a drawer released at `height` settles, in a viewport `viewportHeight`
- * tall: closed below 35 %, otherwise whichever detent is nearer. Question
- * Dock's sheet settles the same way.
+ * Whether a drawer `height` tall, dragged down by `dragged`, closes on
+ * release. Short of that it springs back to where it started.
  */
-export function snapDrawer(height: number, viewportHeight: number): Detent | "close" {
-  const share = viewportHeight > 0 ? height / viewportHeight : 0;
-  if (share < DRAWER_CLOSE) return "close";
-  return Math.abs(share - DRAWER_HALF) <= Math.abs(share - DRAWER_FULL) ? "half" : "full";
+export function dismissesAt(dragged: number, height: number): boolean {
+  return dragged > 0 && dragged >= height * DRAWER_CLOSE;
 }

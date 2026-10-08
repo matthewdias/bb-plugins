@@ -35,9 +35,9 @@ colour instead, and no dot when everything is quiet.
 clicks elsewhere. Unpinned, Escape, a click outside or a thread switch closes
 it. Each pane of a split layout has its own card.
 
-**On a phone.** The card is a drawer from the bottom of the screen. Half
-height shows headlines, and dragging it up to full height shows the details.
-Swipe down or tap outside to close it.
+**On a phone.** The card is a drawer from the bottom of the screen that
+always shows the details, as tall as they need up to most of the screen. Swipe
+it down, tap outside or press its close button to put it away.
 
 ## How it works
 

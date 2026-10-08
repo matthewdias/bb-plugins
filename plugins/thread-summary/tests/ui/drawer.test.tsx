@@ -43,62 +43,84 @@ function render() {
       sidebarThreads: { status: "ready", threads: [sidebarThread(threadId)] },
     },
   );
-  fireEvent.click(slot.getByRole("button", { name: "Thread summary" }));
-  return slot;
+  const button = slot.getByRole("button", { name: "Thread summary" });
+  // A tap on a phone need not focus what it taps, so focus starts elsewhere:
+  // the drawer must hand it to the button itself, not just put back what was.
+  (document.activeElement as HTMLElement | null)?.blur?.();
+  fireEvent.click(button);
+  expect(document.activeElement).not.toBe(button);
+  return { slot, button };
 }
 
 const drawer = () => document.querySelector<HTMLElement>("[data-thread-summary-drawer]");
 const handle = () => document.querySelector<HTMLElement>("[data-thread-summary-handle]")!;
 
-/** Drag the handle by `dy` from a drawer `height` tall, in a 1000px window. */
+/** Drag the handle by `dy` on a drawer `height` tall, and let go. */
 function drag(height: number, dy: number) {
-  Object.defineProperty(window, "innerHeight", { configurable: true, value: 1000 });
-  const panel = drawer()!;
-  let current = height;
-  panel.getBoundingClientRect = () => ({ height: current }) as DOMRect;
+  drawer()!.getBoundingClientRect = () => ({ height }) as DOMRect;
   fireEvent.pointerDown(handle(), { button: 0, pointerId: 1, clientY: 500 });
   fireEvent.pointerMove(handle(), { pointerId: 1, clientY: 500 + dy });
-  current = height - dy;
+  const during = drawer()?.style.transform;
   fireEvent.pointerUp(handle(), { pointerId: 1, clientY: 500 + dy });
+  return during;
 }
 
 describe("the phone drawer", () => {
-  it("opens instead of the floating card, at half height for compact", () => {
+  it("opens instead of the floating card, always showing the details", () => {
+    window.localStorage.setItem("thread-summary:mode", "compact");
     render();
     expect(document.querySelector("[data-thread-summary-card]")).toBeNull();
-    expect(drawer()?.getAttribute("data-detent")).toBe("half");
-    expect(drawer()!.style.height).toBe("50dvh");
     expect(within(drawer()!).getByText("feature → main")).toBeTruthy();
-    expect(within(drawer()!).queryByText("Ahead · behind")).toBeNull();
-  });
-
-  it("goes to full height, expanded, from the toggle on its top edge", () => {
-    render();
-    fireEvent.click(within(drawer()!).getByRole("button", { name: "Show details" }));
-    expect(drawer()?.getAttribute("data-detent")).toBe("full");
-    expect(drawer()!.style.height).toBe("92dvh");
-    expect(within(drawer()!).getByText("Ahead · behind")).toBeTruthy();
-    expect(window.localStorage.getItem("thread-summary:mode")).toBe("expanded");
-  });
-
-  it("goes to full height, expanded, when dragged up", () => {
-    render();
-    drag(500, -300);
-    expect(drawer()?.getAttribute("data-detent")).toBe("full");
     expect(within(drawer()!).getByText("Ahead · behind")).toBeTruthy();
   });
 
-  it("goes back to half height, compact, when dragged down from full", () => {
+  it("fits its contents up to 92% of the screen, with no fixed height", () => {
     render();
-    fireEvent.click(within(drawer()!).getByRole("button", { name: "Show details" }));
-    drag(920, 380);
-    expect(drawer()?.getAttribute("data-detent")).toBe("half");
+    expect(drawer()!.style.maxHeight).toBe("92dvh");
+    expect(drawer()!.style.height).toBe("");
   });
 
-  it("closes when swiped down low enough", () => {
+  it("has no mode control, and never writes the stored mode", () => {
+    window.localStorage.setItem("thread-summary:mode", "compact");
     render();
-    drag(500, 250);
+    expect(within(drawer()!).queryByRole("button", { name: /details|headlines/i })).toBeNull();
+    drag(400, 50);
+    drag(400, 200);
+    expect(window.localStorage.getItem("thread-summary:mode")).toBe("compact");
+  });
+
+  it("leaves no stored mode behind when there was none", () => {
+    render();
+    drag(400, 50);
+    expect(window.localStorage.getItem("thread-summary:mode")).toBeNull();
+  });
+
+  it("closes from its close button and gives focus back to the header button", async () => {
+    const { button } = render();
+    fireEvent.click(within(drawer()!).getByRole("button", { name: "Close" }));
     expect(drawer()).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(button));
+  });
+
+  it("closes when dragged down past the threshold", () => {
+    render();
+    drag(400, 100);
+    expect(drawer()).toBeNull();
+  });
+
+  it("springs back to where it started short of the threshold", () => {
+    render();
+    const during = drag(400, 99);
+    expect(during).toBe("translate3d(0, 99px, 0)");
+    expect(drawer()).not.toBeNull();
+    expect(drawer()!.style.transform).toBe("");
+  });
+
+  it("moves down only", () => {
+    render();
+    const during = drag(400, -200);
+    expect(during).toBe("translate3d(0, 0px, 0)");
+    expect(drawer()).not.toBeNull();
   });
 
   it("closes on a tap outside", () => {
@@ -107,10 +129,11 @@ describe("the phone drawer", () => {
     expect(drawer()).toBeNull();
   });
 
-  it("closes on Escape", async () => {
-    render();
+  it("closes on Escape, and gives focus back to the header button", async () => {
+    const { button } = render();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(drawer()).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(button));
   });
 
   it("has no pin, which does not apply on a phone", () => {

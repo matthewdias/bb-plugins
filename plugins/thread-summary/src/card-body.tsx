@@ -1,5 +1,5 @@
 // What the card draws, in either of its homes: the floating card on a desktop
-// and the drawer on a phone.
+// and the drawer on a phone, which always draws it expanded.
 //
 // One block per provider, with no provider titles: the first line is the
 // value's glyph, its headline and its text, and the provider's name is that
@@ -145,8 +145,9 @@ const BUTTON =
   "inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
 
 /**
- * The card's controls: mode, pin, settings and close. Pin and close are left
- * out where they do not apply — the phone drawer has neither.
+ * The card's controls: mode, pin, settings and close. The mode toggle and pin
+ * are left out where they do not apply — the phone drawer always shows the
+ * details, and is never pinned.
  */
 export function Controls({
   mode,
@@ -157,8 +158,8 @@ export function Controls({
   onSettings,
   onClose,
 }: {
-  mode: Mode;
-  onMode: (mode: Mode) => void;
+  mode?: Mode;
+  onMode?: (mode: Mode) => void;
   pinned?: boolean;
   onPin?: (pinned: boolean) => void;
   settingsHref: string;
@@ -168,16 +169,18 @@ export function Controls({
   const expanded = mode === "expanded";
   return (
     <>
-      <button
-        aria-label={expanded ? "Show headlines only" : "Show details"}
-        aria-pressed={expanded}
-        className={BUTTON}
-        onClick={() => onMode(expanded ? "compact" : "expanded")}
-        title={expanded ? "Show headlines only" : "Show details"}
-        type="button"
-      >
-        <Icon aria-hidden name={expanded ? "ChevronUp" : "ChevronDown"} style={{ height: 14, width: 14 }} />
-      </button>
+      {onMode !== undefined ? (
+        <button
+          aria-label={expanded ? "Show headlines only" : "Show details"}
+          aria-pressed={expanded}
+          className={BUTTON}
+          onClick={() => onMode(expanded ? "compact" : "expanded")}
+          title={expanded ? "Show headlines only" : "Show details"}
+          type="button"
+        >
+          <Icon aria-hidden name={expanded ? "ChevronUp" : "ChevronDown"} style={{ height: 14, width: 14 }} />
+        </button>
+      ) : null}
       {onPin !== undefined ? (
         <button
           aria-label={pinned ? "Unpin" : "Pin open on every thread"}
