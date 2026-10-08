@@ -54,14 +54,19 @@ function chipLabel(entry: CardEntry): string {
 
 const CONTROL =
   "inline-flex h-7 items-center rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
-/** A chip: glyph and text, padded. */
-const CHIP = `${CONTROL} gap-1 px-1.5`;
+/**
+ * A chip: glyph and text, padded. bb wraps a header action in a 256px
+ * `max-w-64` span, which three wide chips can outgrow, so chips shrink to
+ * share it: a chip's text is cut only when the group would overflow.
+ */
+const CHIP = `${CONTROL} min-w-0 shrink gap-1 px-1.5`;
 /**
  * The button: 28px square with no padding, so its glyph has the room to grow
  * to 20px on a phone as bb's own header icons do. Padding here would shrink
- * the glyph, a flex item, back to 16px.
+ * the glyph, a flex item, back to 16px. It never shrinks itself: crowded,
+ * the chips give way.
  */
-const BUTTON = `${CONTROL} relative size-7 justify-center p-0`;
+const BUTTON = `${CONTROL} relative size-7 shrink-0 justify-center p-0`;
 
 export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeaderActionProps) {
   useRunningStyle();
@@ -104,7 +109,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
   const body = <CardBody entries={entries} environmentId={environmentId} />;
 
   return (
-    <span className="flex items-center gap-0.5" data-thread-summary-header="" ref={setControl}>
+    <span className="flex min-w-0 max-w-full items-center gap-0.5" data-thread-summary-header="" ref={setControl}>
       {shownChips.map((entry) => (
         <button
           aria-label={chipLabel(entry)}
@@ -117,7 +122,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
         >
           <Glyph value={entry.value} />
           {entry.value.text !== undefined ? (
-            <span className="max-w-28 truncate tabular-nums">{entry.value.text}</span>
+            <span className="min-w-0 max-w-28 truncate tabular-nums">{entry.value.text}</span>
           ) : null}
         </button>
       ))}

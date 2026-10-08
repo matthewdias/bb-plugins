@@ -137,8 +137,26 @@ describe("the header", () => {
       const classes = text.className.split(" ");
       expect(classes).toContain("max-w-28");
       expect(classes.filter((name) => /^(max-)?w-/.test(name))).toEqual(["max-w-28"]);
+      expect(classes).toContain("min-w-0");
     }
     void slot;
+  });
+
+  it("lets the chips shrink to share bb's 256px, while the button never does", async () => {
+    // bb wraps a header action in `flex max-w-64 shrink-0`; jsdom cannot lay
+    // that out, so this guards the classes and the live check the layout.
+    const { slot, threadId } = render();
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toHaveLength(3));
+    const group = document.querySelector<HTMLElement>("[data-thread-summary-header]")!;
+    expect(group.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "max-w-full"]));
+    for (const chip of Array.from(document.querySelectorAll("[data-thread-summary-chip]"))) {
+      expect(chip.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "shrink"]));
+      expect(chip.querySelector("span.truncate")?.className.split(" ")).toContain("min-w-0");
+    }
+    const classes = button(slot).className.split(" ");
+    expect(classes).toContain("shrink-0");
+    expect(classes).not.toContain("shrink");
   });
 
   it("draws at most three chips", async () => {
