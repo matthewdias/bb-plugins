@@ -58,12 +58,13 @@ const CONTROL =
  * A chip: glyph and text, padded. bb wraps a header action in a 256px
  * `max-w-64` span, which three wide chips can outgrow. A chip with short text
  * (`isShortText`) keeps its width: a count shows whole or not at all. A chip
- * with long text starts at its glyph and grows into whatever room is left, up
- * to its whole text, so crowded, it is the phrases that are cut.
+ * with long text starts at its glyph — `min-w-7`, since a flex item's default
+ * minimum is its whole text — and grows into whatever room is left, up to its
+ * whole text, so crowded, it is the phrases that are cut.
  */
 const CHIP = `${CONTROL} gap-1 px-1.5`;
 const SHORT_CHIP = `${CHIP} shrink-0`;
-const LONG_CHIP = `${CHIP} grow basis-0 max-w-max`;
+const LONG_CHIP = `${CHIP} min-w-7 grow basis-0 max-w-max`;
 /**
  * The chips' row: one line high, wrapping, overflow hidden. If even the short
  * chips cannot all fit, the last — the least urgent — wraps onto a line no

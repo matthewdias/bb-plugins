@@ -160,7 +160,9 @@ describe("the header", () => {
     seed(threadId);
     await waitFor(() => expect(chipIds()).toHaveLength(3));
     const chip = document.querySelector(`[data-thread-summary-chip="${PULL_REQUEST_ID}"]`)!;
-    expect(chip.className.split(" ")).toEqual(expect.arrayContaining(["grow", "basis-0", "max-w-max"]));
+    // An explicit minimum: a flex item's default minimum is its whole text,
+    // which would keep it from giving way at all.
+    expect(chip.className.split(" ")).toEqual(expect.arrayContaining(["grow", "basis-0", "max-w-max", "min-w-7"]));
     expect(chip.className.split(" ")).not.toContain("shrink-0");
     expect(chip.querySelector("span.truncate")?.className.split(" ")).toContain("min-w-0");
   });
