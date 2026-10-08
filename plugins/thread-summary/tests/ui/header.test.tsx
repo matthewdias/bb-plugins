@@ -278,8 +278,8 @@ describe("the strip", () => {
       expect.arrayContaining([
         "group-hover:opacity-100",
         "group-hover:pointer-events-auto",
-        "group-focus-within:opacity-100",
-        "group-focus-within:pointer-events-auto",
+        "group-has-[:focus-visible]:opacity-100",
+        "group-has-[:focus-visible]:pointer-events-auto",
       ]),
     );
   });

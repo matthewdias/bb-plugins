@@ -107,12 +107,15 @@ export function FloatingCard({
     >
       {/*
         The strip overlays the card's top-right corner, inside its edges, and
-        shows only on hover or keyboard focus. It may cover the first line's
-        trailing text while it shows; the card takes no room beyond itself.
+        shows only on hover or keyboard focus. Keyboard focus means
+        :focus-visible, not :focus-within: a mouse click leaves its button
+        focused, and the strip would stay up after the pointer left. It may
+        cover the first line's trailing text while it shows; the card takes no
+        room beyond itself.
       */}
       <div
         aria-label="Thread summary controls"
-        className="pointer-events-none absolute right-1 top-1 z-10 flex items-center gap-0.5 rounded-md border border-border bg-popover p-0.5 opacity-0 shadow-sm transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+        className="pointer-events-none absolute right-1 top-1 z-10 flex items-center gap-0.5 rounded-md border border-border bg-popover p-0.5 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
         data-thread-summary-strip=""
         role="toolbar"
       >

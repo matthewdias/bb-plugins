@@ -24,6 +24,14 @@ and `bb plugin update` follows it.
 
 ## What it does
 
+![The card, compact: Git behind main, the merged pull request and Follow Up's ring](screenshots/desktop-compact.jpg)
+
+![The card, expanded, with its controls showing on hover](screenshots/desktop-expanded.jpg)
+
+The `screenshots/` directory holds the frames for a store listing, taken from a
+live bb 0.45 window: desktop compact, expanded, the controls on hover, chips
+off, and the phone drawer at half and full height.
+
 ### The card
 
 The header button opens a card, top right of the thread pane and under the
