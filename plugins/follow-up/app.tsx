@@ -27,6 +27,7 @@ import { FOLLOWUPS_PANEL_ACTION } from "./src/panel-ids.ts";
 import { getRpc } from "./src/rpc.ts";
 import { toast } from "sonner";
 import { ComplicationPublisher } from "./src/complication-publisher.tsx";
+import { registerWrapUpCommand, WRAP_UP_POPUP_ID, WrapUpPopup } from "./src/wrap-up.tsx";
 
 export default definePluginApp((app) => {
   // Publishes each thread's follow-up progress for any surface drawing it —
@@ -81,6 +82,8 @@ export default definePluginApp((app) => {
     scopes: ["thread"],
     experimental_popups: [
       { id: PICKER_POPUP_ID, label: "Follow-ups", component: FollowUpPicker },
+      // Taking the thread to done: see src/wrap-up.tsx.
+      { id: WRAP_UP_POPUP_ID, label: "Wrap up", component: WrapUpPopup },
     ],
   });
 
@@ -131,6 +134,7 @@ export default definePluginApp((app) => {
   // composer holds the caret.
   registerRecordCommand(app.composer);
   registerInsertCommand(app.composer);
+  registerWrapUpCommand(app.composer);
 
   // The one setting that cannot be declarative: a live provider and model
   // catalog. Everything else this plugin exposes is a `settings.define` field

@@ -49,6 +49,7 @@ import { HandoffAction, useHandoff } from "./handoff.tsx";
 import { EmptyState } from "./empty-state.tsx";
 import { NextSteps } from "./next-steps.tsx";
 import { useNextStepsFetch, useOffer } from "./use-next-steps.ts";
+import { openWrapUp, useWrapUpState, WrapUpStatus } from "./wrap-up.tsx";
 import { doCandidate } from "../lib/next-steps.ts";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeftRightIcon } from "@hugeicons/core-free-icons";
@@ -865,13 +866,17 @@ export function FollowUpBanner() {
   // The "Do" chip shows only the start of the top row; while it is pointed at,
   // the row it stands for is marked in the list, where all of it is.
   const [candidateLit, setCandidateLit] = useState(false);
-  const nextShown = !running && (offered || candidate !== null);
+  // The agent says this thread has done what it set out to: Wrap up is the
+  // next thing, as long as there is anything left open to wrap.
+  const wrapUpOffered = offer?.goalMet === true && rows.length > 0;
+  const nextShown = !running && (offered || candidate !== null || wrapUpOffered);
+  const wrapUp = useWrapUpState(threadId);
   // What the card's own entrance keys off. `hasContent` alone stopped being the
   // answer the moment the card could also be showing nothing: a fully cleared
   // thread has neither list, and the card would have sat at opacity zero. And
   // an offer is worth the card on its own, on a thread that never recorded a
   // follow-up at all.
-  const visible = hasContent || cleared || nextShown;
+  const visible = hasContent || cleared || nextShown || wrapUp.state !== null;
 
   // Which rows became in progress since the last render, so the glyph can
   // announce itself once. Seeded on the first pass rather than compared against
@@ -1131,7 +1136,7 @@ export function FollowUpBanner() {
         // Collapsed the card holds one line, so it should not carry the
         // padding a list needs. Cleared it is not collapsed — there is no list
         // behind it to open — so it takes the roomier pair.
-        collapsed && !cleared && !nextShown ? "gap-0 py-1" : "gap-1.5 py-2",
+        collapsed && !cleared && !nextShown && wrapUp.state === null ? "gap-0 py-1" : "gap-1.5 py-2",
         // The card is the one surface here that materialises beside the
         // cursor: an agent records something mid-turn, realtime fires, and a
         // block of UI arrives above the composer you are typing in. 150ms is
@@ -1142,6 +1147,13 @@ export function FollowUpBanner() {
         "motion-reduce:translate-y-0",
       )}
     >
+      {wrapUp.state !== null && (
+        <WrapUpStatus
+          state={wrapUp.state}
+          onOpen={() => openWrapUp(composer)}
+          onForget={wrapUp.forget}
+        />
+      )}
       {nextShown && (
         <NextSteps
           threadId={threadId}
@@ -1149,6 +1161,7 @@ export function FollowUpBanner() {
           candidate={candidate}
           onInsertRow={insert}
           onHighlightCandidate={setCandidateLit}
+          {...(wrapUpOffered ? { onWrapUp: () => openWrapUp(composer) } : {})}
         />
       )}
       {cleared ? (

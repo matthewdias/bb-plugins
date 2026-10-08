@@ -122,6 +122,39 @@ File one row from its ⋯ menu (*File to GitHub*), or every open row from the
 where is the second tap. The first destination you pick in a project becomes
 its default, listed first. While a row is on its way it says *Filing to …*.
 
+**Wrap up.** Takes a thread to done in one pass. Open it from the *Wrap up…*
+chip, which the Next row shows when the agent says the thread's goal is met
+and follow-ups are still open, or from the palette at any time. A popup over
+the composer lists every open follow-up with a choice beside it:
+
+- **File to** any destination. Each row starts at the project's default, or
+  at *Keep open* if there is nowhere to file yet.
+- **Hand off**, in this checkout or in a new worktree. Either way it's a new
+  thread of its own, not a child, since archiving a thread archives its
+  children. A new worktree is made the way this thread's was: the same
+  environment provider with the same inputs, or bb's own worktree from the
+  default branch.
+- **Mark done**, **Dismiss**, or **Keep open**.
+
+Below the list, *Archive this thread* is ticked. It's asked every time, and
+if the thread has child threads the popup says so, since the archive takes
+them too. One line says what the button will do ("Files 2 to Jira ENG and
+dismisses 1, then archives this thread."), and nothing happens until you
+press it.
+
+The archive waits. A command destination runs in the thread's checkout, and so
+does an agent recipe's helper, and some environments are torn down when their
+thread is archived. So the server archives the thread only once every filing
+has landed. If one doesn't, or a hand-off can't start, the thread stays open:
+the card says how many didn't go where you sent them, and each row says why.
+Wrap up again, or dismiss the notice. A turn starting in the meantime calls
+the archive off too.
+
+If a follow-up is recorded while you're deciding, or a destination you picked
+is removed, the whole wrap-up is refused and you're asked to look again. A
+row nobody decided about is never carried out. Wrap up waits while the agent
+is working.
+
 **The empty state.** When the list empties, the banner offers three things:
 *suggest what's next*, start a new thread in the same checkout, or archive this
 one. The first is a real agent turn rather than anything the plugin computes —
@@ -149,7 +182,7 @@ thread's open follow-ups. Type to narrow it, use the arrow keys to choose, and
 press Enter (or click) to put that row's pill in the composer; the row moves to
 the top of the list, as inserting from the banner does.
 
-**Palette commands.** Eight commands in bb's command palette, none bound to a
+**Palette commands.** Nine commands in bb's command palette, none bound to a
 key by default. Bind any of them under Settings → Keyboard.
 
 | Command | What it does |
@@ -160,6 +193,7 @@ key by default. Bind any of them under Settings → Keyboard.
 | Follow-ups: take the first next step | Press the first of the agent's offered steps (also second, third) |
 | Follow-ups: record the draft | Record the composer's draft as a follow-up and clear it |
 | Follow-ups: insert one… | Open the follow-up picker in the composer |
+| Follow-ups: wrap up this thread… | Open Wrap up in the composer |
 
 **The `@` menu.** Follow-ups appear as mentions, so a row can be pulled into a
 prompt by name. Mentioning one can claim it, marking it in progress as you send,

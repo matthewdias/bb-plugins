@@ -34,6 +34,7 @@ describe("app.tsx", () => {
       "take-next-step-3",
       "record-draft",
       "insert-followup",
+      "wrap-up",
     ]);
   });
 

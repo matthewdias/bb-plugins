@@ -22,10 +22,10 @@ Record a follow-up yourself: *Record as follow-up* in the menu beside the send
 button, or the *Follow-ups: record the draft* command, files what you typed
 and clears the draft. It works on phones too, from a long-press on Send.
 
-Six agent tools — `record_follow_up`, `list_follow_ups`, `complete_follow_up`,
-`prioritize_follow_up`, `amend_follow_up`, and `offer_next_steps`. Agents record
-as they work, close the rows they finish, including rows you wrote yourself,
-and offer what they would do next.
+Seven agent tools — `record_follow_up`, `list_follow_ups`, `complete_follow_up`,
+`prioritize_follow_up`, `amend_follow_up`, `file_follow_ups`, and
+`offer_next_steps`. Agents record as they work, close the rows they finish,
+including rows you wrote yourself, and offer what they would do next.
 
 A `bb follow-up` command covering the same ground from a terminal: `add`,
 `show`, `move`, `amend`, `done`, `reopen`, `clear-done`, `describe`, `dismiss`,
@@ -36,8 +36,8 @@ The `+` menu's Follow-ups row opens a picker of this thread's open follow-ups:
 search, choose one, and its pill goes into the composer.
 
 Palette commands to show or hide the list, open the panel, start a handoff,
-take one of the offered next steps, record the draft, or open the picker, each
-of which you can bind to a key.
+take one of the offered next steps, record the draft, open the picker, or wrap
+up the thread, each of which you can bind to a key.
 
 Follow-ups in the `@` menu, so a row can be pulled into a prompt by name.
 Mentioning one can claim it, marking it in progress as you send.
@@ -47,6 +47,13 @@ runs a command on the thread's own host (`gh issue create …`) or has a
 hidden helper follow your recipe (an MCP, a CLI). Filed rows move to Done with
 a link back and are not recorded on that thread again. File one from its menu,
 or all at once from the header; an agent can file too, after you confirm.
+
+Wrap up takes a thread to done in one pass. A popup over the composer gives
+every open follow-up somewhere to go: filed, handed off to a thread of its
+own (here or in a new worktree), done, dismissed, or kept. Then the thread is
+archived, once everything sent somewhere has landed. If anything didn't, the
+thread stays open, saying why. The Next row offers it when the agent says the
+goal is met.
 
 ## How it works
 
