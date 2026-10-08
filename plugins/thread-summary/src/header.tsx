@@ -133,9 +133,17 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
       >
         {/*
           Bundled rather than named: bb 0.45 has no built-in "PropertyNew", and
-          experimental_Icon would draw its fallback in its place.
+          experimental_Icon would draw its fallback in its place. Sized by bb's
+          own header-icon classes, 16px and 20px on a phone, with the stroke in
+          viewBox units so it scales with them, as bb's own icons' strokes do.
         */}
-        <HugeiconsIcon aria-hidden data-icon="PropertyNew" icon={PropertyNewIcon} size={16} strokeWidth={1.5} />
+        <HugeiconsIcon
+          aria-hidden
+          className="size-4 max-md:pointer-coarse:size-5"
+          data-icon="PropertyNew"
+          icon={PropertyNewIcon}
+          strokeWidth={1.5}
+        />
         {dot !== null ? (
           <span
             aria-hidden

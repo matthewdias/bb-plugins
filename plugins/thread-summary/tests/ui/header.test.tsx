@@ -101,6 +101,18 @@ describe("the header", () => {
     expect(paths).toContain("M3.50008 7.99991H20.5001");
   });
 
+  it("sizes the button's glyph as bb sizes its own header icons, stroke scaling with it", () => {
+    const { slot } = render();
+    const svg = button(slot).querySelector("svg")!;
+    // bb's header icons: 16px, and 20px on a phone with a coarse pointer.
+    expect(svg.getAttribute("class")?.split(" ")).toEqual(
+      expect.arrayContaining(["size-4", "max-md:pointer-coarse:size-5"]),
+    );
+    // In the 24-unit viewBox, so 1px at 16px and 1.25px at 20px, as theirs.
+    expect(svg.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(Array.from(svg.querySelectorAll("path")).every((path) => path.getAttribute("stroke-width") === "1.5")).toBe(true);
+  });
+
   it("shows chips, worst first, and no dot", async () => {
     const { slot, threadId } = render();
     seed(threadId);
