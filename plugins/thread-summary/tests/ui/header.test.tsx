@@ -142,21 +142,44 @@ describe("the header", () => {
     void slot;
   });
 
-  it("lets the chips shrink to share bb's 256px, while the button never does", async () => {
+  it("never shrinks a chip with short text, so a count shows whole or not at all", async () => {
     // bb wraps a header action in `flex max-w-64 shrink-0`; jsdom cannot lay
     // that out, so this guards the classes and the live check the layout.
+    const { threadId } = render();
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toHaveLength(3));
+    for (const id of [GIT_ID, "follow-up/progress"]) {
+      const classes = document.querySelector(`[data-thread-summary-chip="${id}"]`)!.className.split(" ");
+      expect(classes).toContain("shrink-0");
+      expect(classes).not.toContain("grow");
+    }
+  });
+
+  it("lets a chip with long text give way, from its glyph up to its whole text", async () => {
+    const { threadId } = render();
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toHaveLength(3));
+    const chip = document.querySelector(`[data-thread-summary-chip="${PULL_REQUEST_ID}"]`)!;
+    expect(chip.className.split(" ")).toEqual(expect.arrayContaining(["grow", "basis-0", "max-w-max"]));
+    expect(chip.className.split(" ")).not.toContain("shrink-0");
+    expect(chip.querySelector("span.truncate")?.className.split(" ")).toContain("min-w-0");
+  });
+
+  it("keeps the chips in one clipped row beside a button that never shrinks", async () => {
     const { slot, threadId } = render();
     seed(threadId);
     await waitFor(() => expect(chipIds()).toHaveLength(3));
     const group = document.querySelector<HTMLElement>("[data-thread-summary-header]")!;
     expect(group.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "max-w-full"]));
-    for (const chip of Array.from(document.querySelectorAll("[data-thread-summary-chip]"))) {
-      expect(chip.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "shrink"]));
-      expect(chip.querySelector("span.truncate")?.className.split(" ")).toContain("min-w-0");
-    }
+    const row = document.querySelector<HTMLElement>("[data-thread-summary-chips]")!;
+    // One line high, overflow hidden: a chip with no room wraps out of sight whole.
+    expect(row.className.split(" ")).toEqual(
+      expect.arrayContaining(["min-w-0", "flex-wrap", "h-7", "overflow-hidden"]),
+    );
+    expect(row.contains(button(slot))).toBe(false);
     const classes = button(slot).className.split(" ");
     expect(classes).toContain("shrink-0");
-    expect(classes).not.toContain("shrink");
+    expect(classes).not.toContain("grow");
   });
 
   it("draws at most three chips", async () => {

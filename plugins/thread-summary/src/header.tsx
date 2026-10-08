@@ -18,7 +18,7 @@ import { PropertyNewIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ComplicationProviderInfo } from "../lib/complications";
 import { SHOW_CHIPS_KEY } from "../lib/hidden";
-import { chips, orderedIds, present, worstTone } from "../lib/order";
+import { chips, isShortText, orderedIds, present, worstTone } from "../lib/order";
 import { toneColor } from "../lib/tone";
 import { CardBody, type CardEntry } from "./card-body";
 import { useThreadProviders, useThreadValues } from "./complications";
@@ -56,10 +56,20 @@ const CONTROL =
   "inline-flex h-7 items-center rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
 /**
  * A chip: glyph and text, padded. bb wraps a header action in a 256px
- * `max-w-64` span, which three wide chips can outgrow, so chips shrink to
- * share it: a chip's text is cut only when the group would overflow.
+ * `max-w-64` span, which three wide chips can outgrow. A chip with short text
+ * (`isShortText`) keeps its width: a count shows whole or not at all. A chip
+ * with long text starts at its glyph and grows into whatever room is left, up
+ * to its whole text, so crowded, it is the phrases that are cut.
  */
-const CHIP = `${CONTROL} min-w-0 shrink gap-1 px-1.5`;
+const CHIP = `${CONTROL} gap-1 px-1.5`;
+const SHORT_CHIP = `${CHIP} shrink-0`;
+const LONG_CHIP = `${CHIP} grow basis-0 max-w-max`;
+/**
+ * The chips' row: one line high, wrapping, overflow hidden. If even the short
+ * chips cannot all fit, the last — the least urgent — wraps onto a line no
+ * one sees, whole, rather than pushing past bb's span.
+ */
+const CHIP_ROW = "flex h-7 min-w-0 flex-wrap items-center justify-end gap-0.5 overflow-hidden";
 /**
  * The button: 28px square with no padding, so its glyph has the room to grow
  * to 20px on a phone as bb's own header icons do. Padding here would shrink
@@ -110,22 +120,24 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
 
   return (
     <span className="flex min-w-0 max-w-full items-center gap-0.5" data-thread-summary-header="" ref={setControl}>
-      {shownChips.map((entry) => (
-        <button
-          aria-label={chipLabel(entry)}
-          className={CHIP}
-          data-thread-summary-chip={entry.provider.id}
-          key={entry.provider.id}
-          onClick={show}
-          title={chipLabel(entry)}
-          type="button"
-        >
-          <Glyph value={entry.value} />
-          {entry.value.text !== undefined ? (
-            <span className="min-w-0 max-w-28 truncate tabular-nums">{entry.value.text}</span>
-          ) : null}
-        </button>
-      ))}
+      <span className={CHIP_ROW} data-thread-summary-chips="">
+        {shownChips.map((entry) => (
+          <button
+            aria-label={chipLabel(entry)}
+            className={isShortText(entry.value.text) ? SHORT_CHIP : LONG_CHIP}
+            data-thread-summary-chip={entry.provider.id}
+            key={entry.provider.id}
+            onClick={show}
+            title={chipLabel(entry)}
+            type="button"
+          >
+            <Glyph value={entry.value} />
+            {entry.value.text !== undefined ? (
+              <span className="min-w-0 max-w-28 truncate tabular-nums">{entry.value.text}</span>
+            ) : null}
+          </button>
+        ))}
+      </span>
       <button
         aria-expanded={open}
         aria-label="Thread summary"

@@ -58,3 +58,16 @@ export function worstTone<P>(entries: readonly Entry<P>[]): string | null {
   if (worst === undefined || severityOf(worst.value.tone) === severityOf("default")) return null;
   return worst.value.tone ?? null;
 }
+
+/**
+ * Text this short is a count, a number or a short state — `↑141 ↓26`,
+ * `merged`, `:5173` — and cutting it would change what it says: "↑1…" reads
+ * as "ahead by 1". Its chip never shrinks, so it shows whole or not at all.
+ * Longer text is a phrase, whose chip may give way when the row is crowded.
+ */
+export const SHORT_TEXT = 8;
+
+/** Decided from the text alone, in characters, the same for every provider. */
+export function isShortText(text: string | undefined): boolean {
+  return text === undefined || [...text].length <= SHORT_TEXT;
+}
