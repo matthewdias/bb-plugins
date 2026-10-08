@@ -113,38 +113,41 @@ test("failedMessage: one or several, held or not", () => {
   assert.equal(failedMessage([{ note: "x" }, { note: "y" }], false), "2 follow-ups didn't go where you sent them.");
 });
 
-test("newWorktreeEnvironment: the same provider and inputs on the same machine", () => {
+const gitWorktree = (inputs: unknown) => ({
+  hostId: "host_1",
+  isGitRepo: true,
+  environmentProviderId: "git-worktree",
+  environmentProviderSelection: { inputs },
+});
+const fresh = (branch: unknown) => ({
+  environmentProviderId: "git-worktree",
+  inputs: { branch },
+  machine: { type: "existing", hostId: "host_1" },
+});
+
+test("newWorktreeEnvironment: a git-worktree thread's hand-off branches from where it did", () => {
+  assert.deepEqual(newWorktreeEnvironment(gitWorktree({ branch: { kind: "default" } })), fresh({ kind: "default" }));
   assert.deepEqual(
-    newWorktreeEnvironment({
-      hostId: "host_1",
-      isGitRepo: true,
-      environmentProviderId: "git-worktree",
-      environmentProviderSelection: {
-        inputs: { branch: { kind: "default" } },
-        // A thread whose machine was provisioned for it: the hand-off still
-        // goes to the machine it is on now, not a new one.
-        machine: { type: "new", machineProviderId: "cloud" },
-      },
-    }),
-    {
-      environmentProviderId: "git-worktree",
-      inputs: { branch: { kind: "default" } },
-      machine: { type: "existing", hostId: "host_1" },
-    },
+    newWorktreeEnvironment(gitWorktree({ branch: { kind: "named", name: "origin/epic/6" } })),
+    fresh({ kind: "named", name: "origin/epic/6" }),
   );
 });
 
-test("newWorktreeEnvironment: bb's own managed worktree for any other git checkout; none outside git", () => {
-  const plain = {
-    hostId: "host_1",
-    isGitRepo: true,
-    environmentProviderId: null,
-    environmentProviderSelection: null,
-  };
-  assert.deepEqual(newWorktreeEnvironment(plain), {
-    type: "host",
-    hostId: "host_1",
-    workspace: { type: "managed-worktree", baseBranch: { kind: "default" } },
-  });
-  assert.equal(newWorktreeEnvironment({ ...plain, isGitRepo: false }), null);
+test("newWorktreeEnvironment: never back into a checkout that already exists", () => {
+  // git-worktree's "reuse an existing worktree", a project checkout, and a
+  // branch it cannot read all start a new worktree from the default branch.
+  for (const environment of [
+    gitWorktree({ kind: "existing", path: "/w/thr_a" }),
+    gitWorktree({ branch: { kind: "named", name: "" } }),
+    gitWorktree(null),
+    { ...gitWorktree({ path: "/Users/me/app" }), environmentProviderId: "project-checkout" },
+    { ...gitWorktree({ branch: { kind: "named", name: "x" } }), environmentProviderId: "someone-else" },
+    { ...gitWorktree(null), environmentProviderId: null, environmentProviderSelection: null },
+  ]) {
+    assert.deepEqual(newWorktreeEnvironment(environment), fresh({ kind: "default" }), JSON.stringify(environment));
+  }
+});
+
+test("newWorktreeEnvironment: none outside git", () => {
+  assert.equal(newWorktreeEnvironment({ ...gitWorktree({ branch: { kind: "default" } }), isGitRepo: false }), null);
 });

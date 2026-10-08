@@ -98,6 +98,7 @@ import {
   checkWrapUp,
   dispositionSchema,
   failedMessage,
+  GIT_WORKTREE,
   newWorktreeEnvironment,
   type Disposition,
   type EnvironmentShape,
@@ -605,6 +606,7 @@ export const rpcContract = defineRpcContract({
           "not-found",
           "duplicate",
           "dismissed",
+          "filed",
           "forbidden",
           "too-long",
         ]),
@@ -1572,6 +1574,32 @@ export default async function plugin(bb: BbPluginApi) {
     return "archived";
   }
 
+  /**
+   * How to ask for a new worktree for a hand-off from this thread, or null
+   * where there cannot be one: no checkout, not a git repository, or no
+   * git-worktree provider available for its project on its machine.
+   */
+  async function worktreeFor(thread: {
+    projectId?: string | null;
+    environmentId?: string | null;
+  }): Promise<Record<string, unknown> | null> {
+    if (thread.environmentId === null || thread.environmentId === undefined) return null;
+    try {
+      const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId });
+      const request = newWorktreeEnvironment(environment as unknown as EnvironmentShape);
+      if (request === null) return null;
+      const providers = await bb.sdk.environments.listProviders({
+        ...(thread.projectId ? { projectId: thread.projectId } : {}),
+        hostId: environment.hostId,
+      });
+      const provider = providers.find((entry) => entry.id === GIT_WORKTREE);
+      const available = provider !== undefined && (provider.availability?.status ?? "available") === "available";
+      return available ? request : null;
+    } catch {
+      return null;
+    }
+  }
+
   const HANDOFF_FAILED: Record<"not-found" | "no-environment" | "failed", string> = {
     "not-found": "It was no longer here to hand off.",
     "no-environment": "This thread has no checkout to hand off from.",
@@ -1629,14 +1657,7 @@ export default async function plugin(bb: BbPluginApi) {
     }
     let worktree: Record<string, unknown> | null = null;
     if ([...planned.values()].some((entry) => entry.kind === "handoff" && entry.where === "new-worktree")) {
-      try {
-        if (thread.environmentId !== null && thread.environmentId !== undefined) {
-          const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId });
-          worktree = newWorktreeEnvironment(environment as unknown as EnvironmentShape);
-        }
-      } catch {
-        worktree = null;
-      }
+      worktree = await worktreeFor(thread);
       if (worktree === null) {
         return { outcome: "failed", message: "This thread's checkout cannot have a new worktree." };
       }
@@ -2041,11 +2062,12 @@ export default async function plugin(bb: BbPluginApi) {
     patch: Parameters<typeof amendFollowUp>[2],
     by: "user" | "agent",
   ) {
-    const [items, tombstones] = await Promise.all([
+    const [items, tombstones, filed] = await Promise.all([
       readItems(threadId),
       readTombstones(threadId),
+      readFiledMarks(threadId),
     ]);
-    const result = amendFollowUp(items, id, patch, by, tombstones);
+    const result = amendFollowUp(items, id, patch, by, tombstones, filed);
     if (result.outcome === "amended") {
       // Whatever a helper was going to say, someone has now said something.
       // Clearing here rather than only when the helper settles means the
@@ -2942,6 +2964,11 @@ export default async function plugin(bb: BbPluginApi) {
           return `That wording already belongs to another follow-up on this thread. Nothing was changed.`;
         case "dismissed":
           return `The user dismissed that wording earlier. Nothing was changed.`;
+        case "filed": {
+          const to = result.filedAs;
+          const where = to === undefined ? "elsewhere" : `to ${to.to}${to.ref === null ? "" : ` (${to.ref})`}`;
+          return `That wording was filed ${where} from this thread, so it is tracked there. Nothing was changed.`;
+        }
         case "unchanged":
           return `Follow-up ${match.row.id} already says that. Nothing was changed.`;
         case "not-found":
@@ -3249,6 +3276,13 @@ export default async function plugin(bb: BbPluginApi) {
   // turn starts — whoever starts it: a pressed button, a typed message, a
   // queued one, or another plugin. Clearing here rather than when a button is
   // pressed is what makes that true of all of them.
+  //
+  // It does not fire mid-turn. bb emits it only when a run starts, moving a
+  // thread from idle, starting or error into active, and a thread waiting
+  // on a question or an approval stays active throughout: there is no
+  // waiting status, and a second run.started from active is an illegal
+  // transition that bb drops. Read from bb 0.45's thread lifecycle table
+  // (packages/domain/src/thread-lifecycle.ts), 2026-10-08.
   bb.events.on("thread.active", ({ thread }) => {
     void writeOffer(thread.id, null);
     void holdWrapUpForTurn(thread.id);
@@ -3519,11 +3553,7 @@ export default async function plugin(bb: BbPluginApi) {
       let newWorktree = false;
       let children = { open: 0, running: 0 };
       try {
-        const thread = await bb.sdk.threads.get({ threadId });
-        if (thread.environmentId !== null && thread.environmentId !== undefined) {
-          const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId });
-          newWorktree = newWorktreeEnvironment(environment as unknown as EnvironmentShape) !== null;
-        }
+        newWorktree = (await worktreeFor(await bb.sdk.threads.get({ threadId }))) !== null;
       } catch {
         // Not offered, rather than offered and failing.
       }
@@ -3796,7 +3826,8 @@ export default async function plugin(bb: BbPluginApi) {
               case "filed":
                 throw new PluginCliError(
                   "That follow-up was filed elsewhere from this thread, so it is " +
-                    "tracked there and will not be added again.",
+                    "tracked there and will not be added again. " +
+                    "`bb follow-up forget --filed` releases filed texts.",
                 );
               default:
                 throw new PluginCliError("This thread is holding as many follow-ups as it may.");
@@ -3853,6 +3884,12 @@ export default async function plugin(bb: BbPluginApi) {
               throw new PluginCliError(
                 `Not amended: the text is a title of at most ${TITLE_MAX} characters. ` +
                   "Put the rest in --detail.",
+              );
+            }
+            if (result.outcome === "filed") {
+              throw new PluginCliError(
+                `Not amended: that wording was filed to ${result.filedAs?.to ?? "a destination"} ` +
+                  "from this thread, so it is tracked there.",
               );
             }
             if (result.outcome !== "amended") {
@@ -4195,9 +4232,27 @@ export default async function plugin(bb: BbPluginApi) {
 
         forget: cliCommand({
           summary: "Drop the dismissal record, so dismissed follow-ups can be recorded again",
-          options: { thread: threadOption, json: jsonFailure },
+          options: {
+            thread: threadOption,
+            json: jsonFailure,
+            // Its own flag, not part of the plain command: a filed text is
+            // kept out because the work is tracked somewhere else, and letting
+            // it back is a separate decision from un-dismissing.
+            filed: {
+              type: "boolean",
+              description: "Release texts filed elsewhere from this thread instead, so they can be recorded here again",
+            },
+          },
           async run({ options }, ctx) {
             const threadId = threadFor(options.thread, ctx);
+            if (options.filed === true) {
+              const filed = (await readFiledMarks(threadId)).length;
+              await bb.storage.kv.delete(filedKey(threadId));
+              return {
+                exitCode: 0,
+                stdout: `Forgot ${filed} filed text${filed === 1 ? "" : "s"} on ${threadId}.\n`,
+              };
+            }
             const count = (await readTombstones(threadId)).length;
             await bb.storage.kv.delete(tombsKey(threadId));
             return {

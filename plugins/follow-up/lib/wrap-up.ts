@@ -156,42 +156,56 @@ export function failedMessage(failed: readonly { note: string }[], held: boolean
   return held ? `${what} ${where}, so this thread was not archived.` : `${what} ${where}.`;
 }
 
+/** bb's own worktree provider: what its composer's "New worktree" asks for. */
+export const GIT_WORKTREE = "git-worktree";
+
 /** The parts of an environment record a new worktree is modelled on. */
 export type EnvironmentShape = {
   hostId: string;
   isGitRepo: boolean;
   environmentProviderId: string | null;
-  environmentProviderSelection: {
-    inputs: unknown;
-    machine: { type: "existing"; hostId: string } | { type: "new"; [key: string]: unknown };
-  } | null;
+  environmentProviderSelection: { inputs: unknown } | null;
 };
 
+type BranchFrom = { kind: "default" } | { kind: "named"; name: string };
+
 /**
- * How to ask for a new worktree like this thread's own, or null where there
- * cannot be one (not a git repository).
+ * git-worktree's "branch from" input, or null for anything else. Its other
+ * form, `{ kind: "existing", path }`, reuses a worktree that already exists,
+ * and so does every other provider's `path`: re-sending one of those would put
+ * the hand-off in a checkout that is not new at all.
+ */
+function branchFrom(inputs: unknown): BranchFrom | null {
+  if (typeof inputs !== "object" || inputs === null) return null;
+  const branch = (inputs as { branch?: unknown }).branch;
+  if (typeof branch !== "object" || branch === null) return null;
+  const { kind, name } = branch as { kind?: unknown; name?: unknown };
+  if (kind === "default") return { kind: "default" };
+  if (kind === "named" && typeof name === "string" && name !== "") return { kind: "named", name };
+  return null;
+}
+
+/**
+ * How to ask git-worktree for a new worktree for a hand-off, or null where
+ * there cannot be one (not a git repository). Whether the provider is there
+ * to ask is the server's question; see `followups_wrap_up_get`.
  *
- * A thread started through an environment provider gets that provider again,
- * with the inputs it was started with and on the same machine — a provider's
- * inputs are its own, and re-sending them is the one way to ask for "another
- * of these" without knowing what they mean. Any other git checkout gets bb's
- * own managed worktree on the same host, from the default branch.
+ * A thread in a git-worktree worktree branches from where it did: a new
+ * branch, never the same one, so one started from an epic branch hands off
+ * onto that epic. Anything else, such as a project checkout, a reused
+ * worktree or another provider's environment, branches from the default
+ * branch. Always on the same machine: a hand-off is work on this code, not a
+ * reason to provision hardware.
  */
 export function newWorktreeEnvironment(environment: EnvironmentShape): Record<string, unknown> | null {
   if (!environment.isGitRepo) return null;
-  const selection = environment.environmentProviderSelection;
-  if (environment.environmentProviderId !== null && selection !== null) {
-    return {
-      environmentProviderId: environment.environmentProviderId,
-      inputs: selection.inputs ?? null,
-      // The same machine, never a new one: a hand-off is work on this code,
-      // not a reason to provision hardware.
-      machine: { type: "existing", hostId: environment.hostId },
-    };
-  }
+  const from =
+    environment.environmentProviderId === GIT_WORKTREE
+      ? branchFrom(environment.environmentProviderSelection?.inputs)
+      : null;
   return {
-    type: "host",
-    hostId: environment.hostId,
-    workspace: { type: "managed-worktree", baseBranch: { kind: "default" } },
+    environmentProviderId: GIT_WORKTREE,
+    inputs: { branch: from ?? { kind: "default" } },
+    machine: { type: "existing", hostId: environment.hostId },
   };
 }

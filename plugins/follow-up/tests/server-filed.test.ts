@@ -7,6 +7,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server.ts";
 import {
   addFollowUp,
+  amendFollowUp,
   fileFollowUp,
   unfiled,
   withMarks,
@@ -109,7 +110,77 @@ test("a filed text is not recorded again, by an agent or a person, even after Cl
   assert.equal((await call("followups_add", { threadId: THREAD, text: "Fix the restore" })).outcome, "filed");
   const cliAdd = await cli(["add", "Fix", "the", "restore"]);
   assert.equal(cliAdd.exitCode, 1);
-  assert.match(cliAdd.stderr, /filed elsewhere/);
+  assert.match(cliAdd.stderr, /filed elsewhere.*`bb follow-up forget --filed` releases filed texts/);
+});
+
+test("amendFollowUp: a row cannot be reworded to a text filed elsewhere", () => {
+  const marks = [{ key: "fix the restore", to: "Jira ENG", ref: "ENG-1482" }];
+  const result = amendFollowUp([row("a", "Tidy the loader")], "a", { text: "Fix the restore!" }, "user", [], marks);
+  assert.deepEqual([result.outcome, result.filedAs, result.list[0]!.text], ["filed", marks[0], "Tidy the loader"]);
+  // Dismissal still answers first, as it does for recording.
+  assert.equal(
+    amendFollowUp([row("a", "Tidy the loader")], "a", { text: "Fix the restore" }, "user", ["fix the restore"], marks)
+      .outcome,
+    "dismissed",
+  );
+  // Detail and anchors are not wording: nothing to refuse.
+  assert.equal(
+    amendFollowUp([row("a", "Tidy the loader")], "a", { detail: "More." }, "user", [], marks).outcome,
+    "amended",
+  );
+});
+
+test("rewording to a filed text is refused by the card, the agent and the CLI alike", async () => {
+  const { cli, call, add, harness } = await host();
+  const filed = await add("Fix the restore");
+  await cli(["filed", filed, "--to", "Jira ENG", "--ref", "ENG-1482"]);
+  await call("followups_clear_done", { threadId: THREAD });
+  const id = await add("Tidy the loader");
+  const card = await call("followups_amend", { threadId: THREAD, id, text: "Fix the restore" });
+  assert.equal(card.outcome, "filed");
+  assert.equal(card.followUps[0].text, "Tidy the loader");
+  // An agent's row, so the agent may reword it, and is refused for the filing.
+  await harness.callAgentTool("record_follow_up", { text: "Split the worker", reason: "deferred" }, { threadId: THREAD });
+  assert.equal(
+    String(
+      await harness.callAgentTool(
+        "amend_follow_up",
+        { follow_up: "Split the worker", text: "fix the restore" },
+        { threadId: THREAD },
+      ),
+    ),
+    "That wording was filed to Jira ENG (ENG-1482) from this thread, so it is tracked there. Nothing was changed.",
+  );
+  const viaCli = await cli(["amend", id, "--text", "Fix the restore"]);
+  assert.equal(viaCli.exitCode, 1);
+  assert.equal(
+    viaCli.stderr,
+    "Not amended: that wording was filed to Jira ENG from this thread, so it is tracked there.\n",
+  );
+});
+
+test("bb follow-up forget --filed releases filed texts; plain forget leaves them", async () => {
+  const { cli, call, add } = await host();
+  const id = await add("Fix the restore");
+  await add("Rename the flag");
+  await cli(["filed", id, "--to", "Jira ENG", "--ref", "ENG-1482"]);
+  await call("followups_dismiss", { threadId: THREAD, id: (await call("followups_list", { threadId: THREAD })).followUps[0].id });
+  await call("followups_clear_done", { threadId: THREAD });
+  // Plain forget is about dismissals only.
+  assert.deepEqual(await cli(["forget"]), { exitCode: 0, stdout: `Forgot 1 dismissal on ${THREAD}.\n`, stderr: "" });
+  assert.equal((await call("followups_add", { threadId: THREAD, text: "Fix the restore" })).outcome, "filed");
+  // And --filed is about filed texts only.
+  await call("followups_dismiss", {
+    threadId: THREAD,
+    id: (await call("followups_add", { threadId: THREAD, text: "Rename the flag" })).id,
+  });
+  assert.deepEqual(await cli(["forget", "--filed"]), {
+    exitCode: 0,
+    stdout: `Forgot 1 filed text on ${THREAD}.\n`,
+    stderr: "",
+  });
+  assert.equal((await call("followups_add", { threadId: THREAD, text: "Fix the restore" })).outcome, "added");
+  assert.equal((await call("followups_add", { threadId: THREAD, text: "Rename the flag" })).outcome, "dismissed");
 });
 
 test("reopening a filed row makes it this thread's again", async () => {
