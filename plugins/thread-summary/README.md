@@ -29,8 +29,9 @@ and `bb plugin update` follows it.
 ![The card, expanded, with its controls showing on hover](screenshots/desktop-expanded.jpg)
 
 The `screenshots/` directory holds the frames for a store listing, taken from a
-live bb 0.45 window: desktop compact, expanded, the controls on hover, chips
-off, and the phone drawer.
+live bb 0.45 window: desktop compact, expanded, the controls on hover, the
+phone header with its dot in place of chips, and the phone drawer, short and at
+its full height.
 
 ### The card
 
