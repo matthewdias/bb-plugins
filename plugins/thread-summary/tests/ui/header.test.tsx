@@ -127,6 +127,20 @@ describe("the header", () => {
     expect(document.querySelector("[data-thread-summary-dot]")).toBeNull();
   });
 
+  it("caps a chip's text at 112px, the same for every provider, and no wider than its text", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toHaveLength(3));
+    const texts = Array.from(document.querySelectorAll("[data-thread-summary-chip] span.truncate"));
+    expect(texts.length).toBeGreaterThan(0);
+    for (const text of texts) {
+      const classes = text.className.split(" ");
+      expect(classes).toContain("max-w-28");
+      expect(classes.filter((name) => /^(max-)?w-/.test(name))).toEqual(["max-w-28"]);
+    }
+    void slot;
+  });
+
   it("draws at most three chips", async () => {
     const { threadId } = render();
     seed(threadId);

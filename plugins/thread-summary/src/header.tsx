@@ -117,7 +117,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
         >
           <Glyph value={entry.value} />
           {entry.value.text !== undefined ? (
-            <span className="max-w-16 truncate tabular-nums">{entry.value.text}</span>
+            <span className="max-w-28 truncate tabular-nums">{entry.value.text}</span>
           ) : null}
         </button>
       ))}
