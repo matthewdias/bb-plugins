@@ -93,6 +93,8 @@ describe("the ⋯ menu", () => {
       "Edit",
       "Describe in more detail",
       "Open in the panel",
+      // No destinations set up in this render: the way to set one up.
+      "Set up where to file…",
       "Mark done",
       "Dismiss",
     ]);

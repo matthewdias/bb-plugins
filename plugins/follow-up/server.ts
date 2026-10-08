@@ -47,6 +47,15 @@ import {
   TEXT_MAX,
   TITLE_MAX,
   titleAndDetail,
+  fileFollowUp,
+  isFiled,
+  isFiling,
+  keysOf,
+  unfiled,
+  withMarks,
+  withoutMarks,
+  type FiledMark,
+  type FiledTo,
   MENTION_PROVIDER,
   followUpMentionId,
   type FollowUp,
@@ -56,6 +65,23 @@ import {
   SERVICE_TIER_MAX,
   type ExpansionExecution,
 } from "./lib/expansion-execution.ts";
+import { COMMAND_TIMEOUT_MS, hostContract } from "./lib/host-contract.ts";
+import {
+  commandEnv,
+  commandStdin,
+  approvalStillHolds,
+  CONFIRM_FILING_RENDERER,
+  type ConfirmFilingPayload,
+  destinationSchema,
+  DESTINATIONS_MAX,
+  filedToOf,
+  filingPrompt,
+  refFromOutput,
+  findDestination,
+  parseDestinations,
+  slugFor,
+  type Destination,
+} from "./lib/destinations.ts";
 import {
   doAsk,
   isShowable,
@@ -71,6 +97,15 @@ import {
 
 /** Global, not per-thread: settings have no project or thread scope. */
 const EXECUTION_KEY = "expansion-execution";
+/** Where follow-ups can be filed: defined once, for every project. */
+const DESTINATIONS_KEY = "destinations";
+/**
+ * Each project's default destination, the one File all uses. Per project
+ * because the tracker and the backlog differ from repo to repo; set the first
+ * time someone picks a destination there, and changed from the same menu.
+ */
+const DEFAULT_DESTINATION_PREFIX = "default-destination:";
+const defaultDestinationKey = (projectId: string) => `${DEFAULT_DESTINATION_PREFIX}${projectId}`;
 
 /**
  * The version stamped into `getFollowUpCountsV1`'s payload.
@@ -111,6 +146,13 @@ const followUpSchema = z.object({
   doneBy: z.enum(["agent", "user"]).nullable().optional(),
   doneNote: z.string().nullable().optional(),
   createdBy: z.enum(["agent", "user"]).nullable().optional(),
+  filedAt: z.string().nullable().optional(),
+  filedTo: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
+  filedRef: z.string().nullable().optional(),
+  filingSince: z.string().nullable().optional(),
+  filingBy: z.enum(["agent", "user"]).nullable().optional(),
+  filingTo: z.string().nullable().optional(),
+  filingNote: z.string().nullable().optional(),
 });
 
 const nextOfferSchema = z
@@ -272,7 +314,7 @@ export const rpcContract = defineRpcContract({
     input: nextStepRef,
     output: z
       .object({
-        outcome: z.enum(["added", "duplicate", "dismissed", "full", "stale"]),
+        outcome: z.enum(["added", "duplicate", "dismissed", "filed", "full", "stale"]),
         offer: nextOfferSchema.nullable(),
         followUps: z.array(followUpSchema),
         done: z.array(followUpSchema),
@@ -288,6 +330,65 @@ export const rpcContract = defineRpcContract({
    * "Do" on the top follow-up: hand it to this thread's agent now, the way a
    * mention pill would on send, without going through the composer.
    */
+  /** The destinations set up in Settings, and this project's default among them. */
+  followups_destinations: {
+    input: z
+      .object({
+        projectId: z.string().min(1).max(200).nullable(),
+        /** Or the thread whose project to ask about, for a surface that knows only that. */
+        threadId: z.string().min(1).max(200).optional(),
+      })
+      .strict(),
+    output: z
+      .object({
+        destinations: z.array(destinationSchema),
+        defaultId: z.string().nullable(),
+      })
+      .strict(),
+  },
+  /** Replace the whole list, from the Settings section that edits it. */
+  followups_set_destinations: {
+    input: z
+      .object({ destinations: z.array(destinationSchema).max(DESTINATIONS_MAX) })
+      .strict(),
+    output: z
+      .object({
+        outcome: z.enum(["saved", "duplicate-name"]),
+        destinations: z.array(destinationSchema),
+      })
+      .strict(),
+  },
+  /**
+   * File rows to a destination: the named one, or this project's default.
+   * Returns at once — a command per row, or a helper thread, can take a while,
+   * and the rows say "filing…" until each lands. Null ids means every open row.
+   */
+  followups_file: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        ids: z.array(z.string().min(1).max(64)).min(1).max(CAP_CEILING).nullable(),
+        destinationId: z.string().min(1).max(60).nullable(),
+      })
+      .strict(),
+    output: z
+      .object({
+        outcome: z.enum(["started", "no-destination", "unknown-destination", "nothing-to-file"]),
+        destinationId: z.string().nullable(),
+        count: z.number().int(),
+      })
+      .strict(),
+  },
+  /** Make one destination this project's default, or clear it. */
+  followups_set_default_destination: {
+    input: z
+      .object({
+        projectId: z.string().min(1).max(200),
+        id: z.string().min(1).max(60).nullable(),
+      })
+      .strict(),
+    output: z.object({ defaultId: z.string().nullable() }).strict(),
+  },
   followups_next_do: {
     input: z
       .object({
@@ -364,7 +465,7 @@ export const rpcContract = defineRpcContract({
       .strict(),
     output: z
       .object({
-        outcome: z.enum(["added", "duplicate", "dismissed", "full"]),
+        outcome: z.enum(["added", "duplicate", "dismissed", "filed", "full"]),
         // Null unless something was added. The caller needs it to expand the
         // row it has just created without matching on text.
         id: z.string().nullable(),
@@ -604,12 +705,18 @@ const SEEN_PREFIX = "seen:";
  * see lib/next-steps.ts for why an offer never outlives its turn.
  */
 const NEXT_PREFIX = "next:";
+/** Texts this thread filed somewhere, which may not be recorded here again. */
+const FILED_PREFIX = "filed:";
 
 const itemsKey = (threadId: string) => `${ITEMS_PREFIX}${threadId}`;
 const tombsKey = (threadId: string) => `${TOMBS_PREFIX}${threadId}`;
 const expandingKey = (helperThreadId: string) => `${EXPANDING_PREFIX}${helperThreadId}`;
 const seenKey = (threadId: string) => `${SEEN_PREFIX}${threadId}`;
 const nextKey = (threadId: string) => `${NEXT_PREFIX}${threadId}`;
+/** Which rows a filing helper thread was given, so its settling can be noticed. */
+const FILING_HELPER_PREFIX = "filing-helper:";
+const filingHelperKey = (helperThreadId: string) => `${FILING_HELPER_PREFIX}${helperThreadId}`;
+const filedKey = (threadId: string) => `${FILED_PREFIX}${threadId}`;
 
 /**
  * Frontend refetch signal for offers, separate from FOLLOWUPS_CHANGED because
@@ -617,6 +724,9 @@ const nextKey = (threadId: string) => `${NEXT_PREFIX}${threadId}`;
  * signal would refetch every row twice a turn to learn nothing.
  */
 const NEXT_CHANGED = "followups-next-changed";
+
+/** Destinations or a project's default changed: menus that list them refetch. */
+const DESTINATIONS_CHANGED = "followups-destinations-changed";
 
 const TOOL_INSTRUCTIONS = [
   "When you notice work you are not going to do in this turn — something out of",
@@ -731,6 +841,18 @@ const CAPTURE_RULE = [
   "the handoff picker\".",
 ].join("\n");
 
+const FILE_TOOL_INSTRUCTIONS = [
+  "When the user asks to move follow-ups to wherever they track work — \"add these",
+  "to the backlog\", \"file the out-of-scope ones in Jira\" — call file_follow_ups.",
+  "It files them to a destination the user set up, by name, or to the project's",
+  "default when you leave the destination out; filed rows leave this thread's list",
+  "and are not recorded here again.",
+  "",
+  "Do not file on your own initiative. Unless the user turned it off, they are",
+  "asked to confirm each time, and a request they did not expect is one they will",
+  "decline.",
+].join("\n");
+
 const OFFER_TOOL_INSTRUCTIONS = [
   "When your reply would end by offering to do something in this thread — \"Want",
   "me to open a PR?\", \"Shall I add the test?\" — call offer_next_steps with it,",
@@ -797,6 +919,16 @@ export default async function plugin(bb: BbPluginApi) {
         "message; nothing is sent until you do. Turn it off and agents are not " +
         "told about the buttons, and any offer they make anyway is refused.",
       default: true,
+    },
+    agentFileWithoutAsking: {
+      type: "boolean",
+      label: "Let agents file follow-ups without asking",
+      description:
+        "When an agent files follow-ups to one of your destinations, you are asked " +
+        "first with one tap: filing writes to your tracker or backlog, and an agent " +
+        "steered by something it read could otherwise open issues there. Turn this " +
+        "on to let it file straight away.",
+      default: false,
     },
     mentionInAtMenu: {
       type: "boolean",
@@ -956,6 +1088,317 @@ export default async function plugin(bb: BbPluginApi) {
 
   async function readTombstones(threadId: string): Promise<string[]> {
     return (await bb.storage.kv.get<string[]>(tombsKey(threadId))) ?? [];
+  }
+
+  async function readDestinations(): Promise<Destination[]> {
+    return parseDestinations(await bb.storage.kv.get<unknown>(DESTINATIONS_KEY));
+  }
+
+  /** This project's default, as long as it is still set up. */
+  async function readDefaultDestination(projectId: string | null): Promise<Destination | null> {
+    if (projectId === null) return null;
+    const id = await bb.storage.kv.get<string>(defaultDestinationKey(projectId));
+    if (typeof id !== "string") return null;
+    return (await readDestinations()).find((destination) => destination.id === id) ?? null;
+  }
+
+  /** The project a thread belongs to, or null when it has none or is gone. */
+  async function projectOf(threadId: string): Promise<string | null> {
+    try {
+      return (await bb.sdk.threads.get({ threadId })).projectId ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Mark rows as being filed, or stop marking them — with a note saying why,
+   * when the filing did not land. One write and one signal for the batch.
+   */
+  async function setFiling(
+    threadId: string,
+    ids: readonly string[],
+    state: { by: "agent" | "user"; to: string } | { note: string | null },
+  ): Promise<void> {
+    const items = await readItems(threadId);
+    const now = new Date().toISOString();
+    await bb.storage.kv.set(
+      itemsKey(threadId),
+      items.map((row) => {
+        if (!ids.includes(row.id) || isFiled(row)) return row;
+        return "by" in state
+          ? { ...row, filingSince: now, filingBy: state.by, filingTo: state.to, filingNote: null }
+          : { ...row, filingSince: null, filingBy: null, filingTo: null, filingNote: state.note };
+      }),
+    );
+    bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
+  }
+
+  /**
+   * What became of one row a filing was asked for. "pending": handed to a
+   * helper thread, which will report it, or not, when it is done.
+   */
+  type FilingReport = {
+    id: string;
+    text: string;
+    outcome: "filed" | "failed" | "pending";
+    ref: string | null;
+    note: string | null;
+  };
+
+  type FilingHelperRecord = { threadId: string; ids: string[]; destination: string };
+
+  /**
+   * An agent-recipe destination: one hidden helper for the whole batch, in the
+   * thread's own checkout, so its `bb follow-up filed` lands on these rows. It
+   * runs on the destination's model, or the describing helper's, or the
+   * project's defaults — the same fallback Describe uses.
+   */
+  async function fileByAgent(
+    threadId: string,
+    rows: readonly FollowUp[],
+    destination: Destination,
+  ): Promise<FilingReport[]> {
+    const ids = rows.map((row) => row.id);
+    const fail = async (note: string) => {
+      await setFiling(threadId, ids, { note });
+      return rows.map((row) => ({ id: row.id, text: row.text, outcome: "failed" as const, ref: null, note }));
+    };
+    const thread = await bb.sdk.threads.get({ threadId });
+    if (thread.environmentId === null || thread.environmentId === undefined) {
+      return fail("This thread has no checkout for a helper to work in.");
+    }
+    const execution = destination.execution ?? (await readExpansionExecution());
+    let helperId: string;
+    try {
+      const helper = await bb.sdk.threads.spawn({
+        projectId: thread.projectId,
+        environment: { type: "reuse", environmentId: thread.environmentId },
+        prompt: filingPrompt(rows, destination, threadId),
+        // Housekeeping the user asked for, not work to watch; it archives
+        // itself, and is archived for it when it settles either way.
+        visibility: "hidden",
+        origin: "plugin",
+        originPluginId: "follow-up",
+        ...(execution === null
+          ? {}
+          : {
+              providerId: execution.providerId,
+              model: execution.model,
+              reasoningLevel: execution.reasoningLevel,
+              ...(execution.serviceTier === undefined ? {} : { serviceTier: execution.serviceTier }),
+              executionInputSources: {
+                providerId: "explicit" as const,
+                model: "explicit" as const,
+                reasoningLevel: "explicit" as const,
+                ...(execution.serviceTier === undefined ? {} : { serviceTier: "explicit" as const }),
+              },
+            }),
+      });
+      helperId = helper.id;
+    } catch (error) {
+      return fail(`Could not start the ${destination.name} helper: ${String(error)}`.slice(0, 300));
+    }
+    const record: FilingHelperRecord = { threadId, ids, destination: destination.name };
+    await bb.storage.kv.set(filingHelperKey(helperId), record);
+    bb.log.info(`handed ${ids.length} follow-up(s) on ${threadId} to ${destination.name} helper ${helperId}`);
+    return rows.map((row) => ({ id: row.id, text: row.text, outcome: "pending" as const, ref: null, note: null }));
+  }
+
+  /**
+   * A filing helper stopped. Whatever it reported is filed already; whatever
+   * it did not is open again, saying so. Archived either way, since a hidden
+   * thread nobody archives is still a thread holding an environment.
+   */
+  async function onFilingSettled(helperThreadId: string, failure: string | null): Promise<void> {
+    const key = filingHelperKey(helperThreadId);
+    const record = await bb.storage.kv.get<FilingHelperRecord>(key);
+    if (record === undefined || record === null) return;
+    await bb.storage.kv.delete(key);
+    try {
+      await bb.sdk.threads.archive({ threadId: helperThreadId });
+    } catch (error) {
+      bb.log.error(`could not archive filing helper ${helperThreadId}: ${String(error)}`);
+    }
+    const items = await readItems(record.threadId);
+    const unfiled = items
+      .filter((row) => record.ids.includes(row.id) && !isFiled(row) && row.filingSince)
+      .map((row) => row.id);
+    if (unfiled.length === 0) return;
+    const note =
+      failure === null
+        ? `The ${record.destination} helper finished without filing this.`
+        : `The ${record.destination} helper stopped: ${failure}`.slice(0, 300);
+    await setFiling(record.threadId, unfiled, { note });
+  }
+
+  const hostClient = bb.hosts.experimental_client({ contract: hostContract });
+
+  /** The last line of output worth showing, for a note on a row that did not file. */
+  const lastLine = (text: string) =>
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== "")
+      .at(-1) ?? "";
+
+  /**
+   * A command destination: run once per row, on the host the thread lives on,
+   * in its checkout. Exit 0 files the row with whatever ref its output gives;
+   * anything else leaves the row open with the reason on it.
+   */
+  async function fileByCommand(
+    threadId: string,
+    rows: readonly FollowUp[],
+    destination: Destination,
+    by: "agent" | "user",
+  ): Promise<FilingReport[]> {
+    let where: { hostId: string; path: string } | { problem: string };
+    try {
+      const thread = await bb.sdk.threads.get({ threadId });
+      if (thread.environmentId === null || thread.environmentId === undefined) {
+        where = { problem: "This thread has no checkout to run the command in." };
+      } else {
+        const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId });
+        where =
+          environment.path === null || environment.path === ""
+            ? { problem: "This thread's checkout has no path on its host." }
+            : { hostId: environment.hostId, path: environment.path };
+      }
+    } catch (error) {
+      where = { problem: `Could not find this thread's checkout: ${String(error)}` };
+    }
+
+    const reports: FilingReport[] = [];
+    for (const row of rows) {
+      if ("problem" in where) {
+        await setFiling(threadId, [row.id], { note: where.problem });
+        reports.push({ id: row.id, text: row.text, outcome: "failed", ref: null, note: where.problem });
+        continue;
+      }
+      let note: string;
+      try {
+        const result = await hostClient.call(
+          "run_command",
+          {
+            command: destination.command ?? "",
+            cwd: where.path,
+            env: commandEnv(row, threadId),
+            stdin: commandStdin(row, threadId),
+            timeoutMs: COMMAND_TIMEOUT_MS,
+          },
+          // A little longer than the command's own limit, so the host reports
+          // the timeout rather than the call giving up first.
+          { hostId: where.hostId, timeoutMs: COMMAND_TIMEOUT_MS + 15_000 },
+        );
+        if (result.exitCode === 0) {
+          const ref = refFromOutput(result.stdout);
+          await markFiled(threadId, row.id, filedToOf(destination), ref, by);
+          reports.push({ id: row.id, text: row.text, outcome: "filed", ref, note: null });
+          continue;
+        }
+        const said = lastLine(result.stderr) || lastLine(result.stdout);
+        note = result.timedOut
+          ? `${destination.name} timed out after ${COMMAND_TIMEOUT_MS / 1000}s.`
+          : `${destination.name} exited ${result.exitCode ?? "abnormally"}${said === "" ? "." : `: ${said}`}`;
+      } catch (error) {
+        note = `Could not run ${destination.name} on this thread's host: ${String(error)}`;
+      }
+      note = note.slice(0, 300);
+      await setFiling(threadId, [row.id], { note });
+      bb.log.warn(`filing to ${destination.name} failed on ${threadId}: ${note}`);
+      reports.push({ id: row.id, text: row.text, outcome: "failed", ref: null, note });
+    }
+    return reports;
+  }
+
+  /**
+   * File rows to a destination, whatever its kind. The rows are marked as
+   * being filed first, so every surface shows it while this runs; anything
+   * that escapes leaves them open with the reason rather than spinning.
+   */
+  async function fileRows(
+    threadId: string,
+    rows: readonly FollowUp[],
+    destination: Destination,
+    by: "agent" | "user",
+  ): Promise<FilingReport[]> {
+    const ids = rows.map((row) => row.id);
+    await setFiling(threadId, ids, { by, to: destination.name });
+    try {
+      return destination.kind === "command"
+        ? await fileByCommand(threadId, rows, destination, by)
+        : await fileByAgent(threadId, rows, destination);
+    } catch (error) {
+      const note = `Filing to ${destination.name} failed: ${String(error)}`.slice(0, 300);
+      await setFiling(threadId, ids, { note });
+      return rows.map((row) => ({ id: row.id, text: row.text, outcome: "failed" as const, ref: null, note }));
+    }
+  }
+
+  /**
+   * Which rows and which destination a filing request means, or why it means
+   * nothing. Shared by the card, the CLI and the agent tool.
+   */
+  async function resolveFiling(
+    threadId: string,
+    ids: readonly string[] | null,
+    destinationName: string | null,
+  ): Promise<
+    | { outcome: "ok"; rows: FollowUp[]; destination: Destination; projectId: string | null }
+    | { outcome: "no-destination" | "unknown-destination" | "nothing-to-file" }
+  > {
+    // Rows first: nobody should be asked to pick a destination for nothing.
+    // Open rows not already on their way somewhere, since filing one twice
+    // would file it twice.
+    const open = (await listFollowUps(threadId)).filter((row) => !isFiling(row));
+    const rows = ids === null ? open : open.filter((row) => ids.includes(row.id));
+    if (rows.length === 0) return { outcome: "nothing-to-file" };
+    const projectId = await projectOf(threadId);
+    let destination: Destination | null;
+    if (destinationName === null) {
+      destination = await readDefaultDestination(projectId);
+      if (destination === null) return { outcome: "no-destination" };
+    } else {
+      destination = findDestination(await readDestinations(), destinationName);
+      if (destination === null) return { outcome: "unknown-destination" };
+    }
+    return { outcome: "ok", rows, destination, projectId };
+  }
+
+  async function readFiledMarks(threadId: string): Promise<FiledMark[]> {
+    return (await bb.storage.kv.get<FiledMark[]>(filedKey(threadId))) ?? [];
+  }
+
+  /**
+   * File one row: done, with where it went, and its text kept from coming
+   * back. The one writer of the filed state — the CLI a helper reports through,
+   * a command destination's result and a person's own `bb follow-up filed` all
+   * land here.
+   */
+  async function markFiled(
+    threadId: string,
+    id: string,
+    to: FiledTo,
+    ref: string | null,
+    fallbackBy: "agent" | "user",
+  ): Promise<{ outcome: "filed" | "not-found" | "already-filed"; row: FollowUp | null }> {
+    const [items, marks] = await Promise.all([readItems(threadId), readFiledMarks(threadId)]);
+    const target = items.find((row) => row.id === id);
+    const result = fileFollowUp(items, id, {
+      to,
+      ref,
+      at: new Date().toISOString(),
+      // Whoever asked for the filing, when one was in flight: the helper that
+      // reports it is only the messenger.
+      by: target?.filingBy ?? fallbackBy,
+    });
+    if (result.outcome !== "filed") return { outcome: result.outcome, row: result.row };
+    await bb.storage.kv.set(itemsKey(threadId), result.list);
+    await bb.storage.kv.set(filedKey(threadId), withMarks(marks, result.marks));
+    bb.log.info(`filed follow-up on ${threadId} to ${to.name}: ${result.row?.text}`);
+    bb.realtime.publish(FOLLOWUPS_CHANGED, { threadId });
+    return { outcome: "filed", row: result.row };
   }
 
   /** Remember that this thread has tracked something. Never unset. */
@@ -1206,12 +1649,18 @@ export default async function plugin(bb: BbPluginApi) {
     const items = await readItems(threadId);
     const target = items.find((row) => row.id === id);
     if (target === undefined) return null;
+    // Reopening a filed row makes it this thread's again: no longer filed,
+    // and its text free to stand on its own here.
+    if (!done && isFiled(target)) {
+      const marks = await readFiledMarks(threadId);
+      await bb.storage.kv.set(filedKey(threadId), withoutMarks(marks, keysOf(target)));
+    }
     await bb.storage.kv.set(
       itemsKey(threadId),
       items.map((row) =>
         row.id === id
           ? {
-              ...row,
+              ...(done ? row : unfiled(row)),
               doneAt: done ? new Date().toISOString() : null,
               // Reopening clears the attribution with the completion: the
               // claim it recorded is no longer true of the row.
@@ -1399,6 +1848,7 @@ export default async function plugin(bb: BbPluginApi) {
       readTombstones(parent),
     ]);
     const cap = await threadCap();
+    const marks = await readFiledMarks(parent);
     let list = items;
     let added = 0;
     for (const row of carried) {
@@ -1407,6 +1857,7 @@ export default async function plugin(bb: BbPluginApi) {
         carriedFromChild(row, child, randomUUID().slice(0, 8), new Date().toISOString()),
         tombstones,
         cap,
+        marks,
       );
       list = result.list;
       if (result.outcome === "added") added += 1;
@@ -1626,6 +2077,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.events.on("thread.idle", ({ thread }) => {
     void onChildSettled(thread, "finished");
     void onExpansionSettled(thread.id, null);
+    void onFilingSettled(thread.id, null);
   });
   bb.events.on("thread.failed", ({ thread, error }) => {
     void onChildSettled(thread, "failed");
@@ -1633,6 +2085,7 @@ export default async function plugin(bb: BbPluginApi) {
     // naming a provider that no longer exists ends up. The message is passed
     // through so the log names the real cause rather than "it stopped".
     void onExpansionSettled(thread.id, error ?? "no error message");
+    void onFilingSettled(thread.id, error ?? "no error message");
   });
 
   /**
@@ -1680,7 +2133,13 @@ export default async function plugin(bb: BbPluginApi) {
     };
     // Same gate as the agent tool: a dismissed text stays dismissed, and a
     // duplicate is refused, whoever is asking.
-    const { list, outcome } = addFollowUp(items, row, tombstones, await threadCap());
+    const { list, outcome } = addFollowUp(
+      items,
+      row,
+      tombstones,
+      await threadCap(),
+      await readFiledMarks(threadId),
+    );
     if (outcome === "added") {
       await bb.storage.kv.set(itemsKey(threadId), list);
       await markEverRecorded(threadId);
@@ -1871,7 +2330,13 @@ export default async function plugin(bb: BbPluginApi) {
         createdBy: "agent",
       };
       const cap = await threadCap();
-      const { list, outcome } = addFollowUp(items, row, tombstones, cap);
+      const { list, outcome, filedAs } = addFollowUp(
+        items,
+        row,
+        tombstones,
+        cap,
+        await readFiledMarks(threadId),
+      );
 
       switch (outcome) {
         case "added": {
@@ -1911,6 +2376,11 @@ export default async function plugin(bb: BbPluginApi) {
           return "Already recorded on this thread — not added again.";
         case "dismissed":
           return "The user dismissed this follow-up earlier; not re-adding it.";
+        case "filed":
+          return (
+            `This was filed to ${filedAs?.to ?? "a destination"} from this thread earlier` +
+            `${filedAs?.ref ? ` (${filedAs.ref})` : ""}, so it is tracked there; not re-adding it.`
+          );
         case "full":
           return `This thread already holds the maximum of ${cap} follow-ups. Nothing was added.`;
       }
@@ -2228,6 +2698,164 @@ export default async function plugin(bb: BbPluginApi) {
     done: await listDone(threadId),
   });
 
+  /**
+   * The gate on filing an agent asked for, whichever way it asked — the
+   * file_follow_ups tool, or `bb follow-up file` run from inside a thread.
+   *
+   * Unless the user switched the question off, they are asked with one tap on
+   * the thread the request came from, shown all of what each row sends. Then
+   * the rows and the destination are resolved again and held to what was
+   * shown: a row filed or closed meanwhile is not filed, and one reworded or a
+   * destination edited voids the answer.
+   */
+  async function confirmedFiling(
+    askOn: string,
+    threadId: string,
+    resolved: { rows: FollowUp[]; destination: Destination },
+    signal: AbortSignal | undefined,
+  ): Promise<
+    | { outcome: "ok"; rows: FollowUp[]; destination: Destination }
+    | { outcome: "declined" | "gone" | "changed" }
+  > {
+    let approved: ConfirmFilingPayload | null = null;
+    if (!(await settings.get()).agentFileWithoutAsking) {
+      const payload: ConfirmFilingPayload = {
+        destination: resolved.destination.name,
+        kind: resolved.destination.kind,
+        rows: resolved.rows.map((row) => ({
+          id: row.id,
+          text: row.text,
+          detail: row.detail ?? null,
+          file: row.file ?? null,
+        })),
+      };
+      const count = resolved.rows.length;
+      const answer = await bb.ui.requestInput(
+        {
+          threadId: askOn,
+          rendererId: CONFIRM_FILING_RENDERER,
+          title: `File ${count} follow-up${count === 1 ? "" : "s"} to ${resolved.destination.name}?`,
+          payload,
+        },
+        signal === undefined ? undefined : { signal },
+      );
+      const confirmed =
+        answer.outcome === "submitted" &&
+        typeof answer.value === "object" &&
+        answer.value !== null &&
+        (answer.value as { file?: unknown }).file === true;
+      if (!confirmed) return { outcome: "declined" };
+      approved = payload;
+    }
+    const fresh = await resolveFiling(
+      threadId,
+      resolved.rows.map((row) => row.id),
+      resolved.destination.id,
+    );
+    if (fresh.outcome !== "ok") return { outcome: "gone" };
+    if (approved !== null && !approvalStillHolds(approved, fresh.rows, fresh.destination, resolved.destination)) {
+      return { outcome: "changed" };
+    }
+    return { outcome: "ok", rows: fresh.rows, destination: fresh.destination };
+  }
+
+  const CONFIRM_REFUSED = {
+    declined: "The user did not confirm filing these. Nothing was filed; they stay on this thread's list.",
+    gone: "Nothing to file any more: those follow-ups were filed or closed while waiting.",
+    changed:
+      "Those follow-ups, or the destination, changed while the user was deciding. " +
+      "Nothing was filed; ask again if they still want it.",
+  } as const;
+
+  /** The destinations, listed for an agent that named none or the wrong one. */
+  async function destinationsForAgent(): Promise<string> {
+    const destinations = await readDestinations();
+    return destinations.length === 0
+      ? "The user has not set up anywhere to file follow-ups yet (Settings → Plugins → Follow Up, or the Follow-ups panel)."
+      : `Destinations set up: ${destinations.map((destination) => `"${destination.name}"`).join(", ")}.`;
+  }
+
+  bb.agents.registerTool({
+    name: "file_follow_ups",
+    description:
+      "File follow-ups on this thread to a destination the user set up — their tracker " +
+      "or backlog — so they are tracked there and leave this thread's list.",
+    instructions: FILE_TOOL_INSTRUCTIONS,
+    presentation: {
+      label: { pending: "Filing follow-ups", completed: "Filed follow-ups" },
+      icon: { glyph: "TextWrap" },
+    },
+    parameters: z.object({
+      follow_ups: z
+        .array(z.string().trim().min(1).max(TEXT_MAX))
+        .min(1)
+        .max(CAP_CEILING)
+        .optional()
+        .describe("Ids, or enough of each one's text to identify it. Leave out with all: true."),
+      all: z.boolean().optional().describe("File every open follow-up on this thread."),
+      destination: z
+        .string()
+        .trim()
+        .min(1)
+        .max(60)
+        .optional()
+        .describe("A destination's name or id. Leave out for this project's default."),
+    }),
+    async execute({ follow_ups, all, destination }, { threadId, signal }) {
+      if (all !== true && (follow_ups === undefined || follow_ups.length === 0)) {
+        return "Name the follow-ups to file, or pass all: true. Nothing was filed.";
+      }
+      let ids: string[] | null = null;
+      if (all !== true) {
+        const candidates = await listFollowUps(threadId);
+        ids = [];
+        for (const wanted of follow_ups ?? []) {
+          const match = matchFollowUp(candidates, wanted);
+          if (match.kind === "none") {
+            return [
+              `No open follow-up matches "${wanted}". Nothing was filed.`,
+              candidates.length === 0
+                ? "This thread has no open follow-ups."
+                : `Open follow-ups:\n${formatListForAgent(candidates)}`,
+            ].join("\n");
+          }
+          if (match.kind === "ambiguous") {
+            // Never guessed through, as complete_follow_up does not: filing the
+            // wrong row opens an issue nobody asked for.
+            return [
+              `"${wanted}" matches ${match.rows.length} follow-ups. Nothing was filed — call again with one of these ids:`,
+              formatListForAgent(match.rows),
+            ].join("\n");
+          }
+          ids.push(match.row.id);
+        }
+      }
+
+      const resolved = await resolveFiling(threadId, ids, destination ?? null);
+      if (resolved.outcome === "nothing-to-file") {
+        return "Nothing to file: those follow-ups are already filed, or on their way.";
+      }
+      if (resolved.outcome === "no-destination") {
+        return `This project has no default destination, and you named none. Nothing was filed. ${await destinationsForAgent()}`;
+      }
+      if (resolved.outcome !== "ok") {
+        return `No destination called "${destination}". Nothing was filed. ${await destinationsForAgent()}`;
+      }
+
+      const fresh = await confirmedFiling(threadId, threadId, resolved, signal);
+      if (fresh.outcome !== "ok") return CONFIRM_REFUSED[fresh.outcome];
+      const reports = await fileRows(threadId, fresh.rows, fresh.destination, "agent");
+      const lines = reports.map((report) =>
+        report.outcome === "filed"
+          ? `Filed${report.ref ? ` (${report.ref})` : ""}: ${report.text}`
+          : report.outcome === "pending"
+            ? `Handed to the ${fresh.destination.name} helper, which reports it when done: ${report.text}`
+            : `Not filed: ${report.text} — ${report.note}`,
+      );
+      return lines.join("\n");
+    },
+  });
+
   bb.agents.registerTool({
     name: "offer_next_steps",
     description:
@@ -2507,6 +3135,68 @@ export default async function plugin(bb: BbPluginApi) {
       await writeOffer(threadId, null);
       return { ok: true as const };
     },
+    followups_destinations: async ({ projectId, threadId }) => ({
+      destinations: await readDestinations(),
+      defaultId:
+        (await readDefaultDestination(projectId ?? (threadId === undefined ? null : await projectOf(threadId))))
+          ?.id ?? null,
+    }),
+    followups_set_destinations: async ({ destinations }) => {
+      // Names are what people type after `--to` and pick from a menu, so two
+      // destinations may not share one; ids follow the names, made unique.
+      const names = new Set<string>();
+      for (const destination of destinations) {
+        const key = destination.name.trim().toLowerCase();
+        if (names.has(key)) {
+          return { outcome: "duplicate-name" as const, destinations: await readDestinations() };
+        }
+        names.add(key);
+      }
+      const ids = new Set<string>();
+      const saved = destinations.map((destination) => {
+        let id = destination.id;
+        for (let n = 2; ids.has(id); n += 1) id = `${destination.id}-${n}`;
+        ids.add(id);
+        return { ...destination, id };
+      });
+      await bb.storage.kv.set(DESTINATIONS_KEY, saved);
+      bb.log.info(`saved ${saved.length} destination(s)`);
+      bb.realtime.publish(DESTINATIONS_CHANGED, {});
+      return { outcome: "saved" as const, destinations: parseDestinations(saved) };
+    },
+    followups_file: async ({ threadId, ids, destinationId }) => {
+      const resolved = await resolveFiling(threadId, ids, destinationId);
+      if (resolved.outcome !== "ok") {
+        return { outcome: resolved.outcome, destinationId: null, count: 0 };
+      }
+      const { rows, destination, projectId } = resolved;
+      // The first destination someone picks in a project becomes its default:
+      // that is what File all then reaches for.
+      if (destinationId !== null && projectId !== null) {
+        const existing = await bb.storage.kv.get<string>(defaultDestinationKey(projectId));
+        if (typeof existing !== "string") {
+          await bb.storage.kv.set(defaultDestinationKey(projectId), destination.id);
+          bb.realtime.publish(DESTINATIONS_CHANGED, {});
+        }
+      }
+      // Marked before answering, so the rows already say "filing…" when the
+      // card refetches on this answer.
+      await setFiling(threadId, rows.map((row) => row.id), { by: "user", to: destination.name });
+      void fileRows(threadId, rows, destination, "user");
+      return { outcome: "started" as const, destinationId: destination.id, count: rows.length };
+    },
+    followups_set_default_destination: async ({ projectId, id }) => {
+      if (id === null) {
+        await bb.storage.kv.delete(defaultDestinationKey(projectId));
+        bb.realtime.publish(DESTINATIONS_CHANGED, {});
+        return { defaultId: null };
+      }
+      const known = (await readDestinations()).some((destination) => destination.id === id);
+      if (!known) return { defaultId: (await readDefaultDestination(projectId))?.id ?? null };
+      await bb.storage.kv.set(defaultDestinationKey(projectId), id);
+      bb.realtime.publish(DESTINATIONS_CHANGED, {});
+      return { defaultId: id };
+    },
     followups_next_do: async ({ threadId, id }) => {
       const current = await settings.get();
       const row = (await listFollowUps(threadId)).find((entry) => entry.id === id);
@@ -2647,6 +3337,18 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   // Done and reopen are one operation run in two directions.
+  /**
+   * The destination a name stands for: a configured one by id or name, or
+   * else the name as given — someone recording a row they filed by hand, in a
+   * place nobody set up as a destination, is still telling the truth.
+   */
+  async function destinationFor(name: string): Promise<FiledTo> {
+    const configured = findDestination(await readDestinations(), name);
+    if (configured !== null) return filedToOf(configured);
+    const trimmed = name.trim();
+    return { id: slugFor(trimmed), name: trimmed };
+  }
+
   const setDoneCommand = (done: boolean) =>
     cliCommand({
       summary: done
@@ -2723,6 +3425,11 @@ export default async function plugin(bb: BbPluginApi) {
                   "That follow-up was dismissed on this thread and will not come " +
                     "back. `bb follow-up forget` releases dismissed texts.",
                 );
+              case "filed":
+                throw new PluginCliError(
+                  "That follow-up was filed elsewhere from this thread, so it is " +
+                    "tracked there and will not be added again.",
+                );
               default:
                 throw new PluginCliError("This thread is holding as many follow-ups as it may.");
             }
@@ -2789,9 +3496,165 @@ export default async function plugin(bb: BbPluginApi) {
 
         done: setDoneCommand(true),
         reopen: setDoneCommand(false),
+        file: cliCommand({
+          summary:
+            "File follow-ups to a destination (this project's default unless --to), and wait for the result",
+          positionals: [
+            {
+              name: "id",
+              required: false,
+              variadic: true,
+              description: "Follow-ups to file; omit with --all",
+            },
+          ],
+          options: {
+            thread: threadOption,
+            json: jsonResult,
+            all: { type: "boolean", description: "File every open follow-up" },
+            to: {
+              type: "string",
+              placeholder: "destination",
+              description: "A destination's name or id; see `bb follow-up destinations`",
+            },
+          },
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const ids = positionals.id ?? [];
+            if (options.all !== true && ids.length === 0) {
+              throw new PluginCliError("Name the follow-ups to file, or pass --all.");
+            }
+            const resolved = await resolveFiling(
+              threadId,
+              options.all === true ? null : ids,
+              options.to ?? null,
+            );
+            if (resolved.outcome === "no-destination") {
+              throw new PluginCliError(
+                "This project has no default destination. Pass --to, or pick one in the card once.",
+              );
+            }
+            if (resolved.outcome === "unknown-destination") {
+              throw new PluginCliError(
+                `No destination called ${options.to}. \`bb follow-up destinations\` lists them.`,
+              );
+            }
+            if (resolved.outcome !== "ok") {
+              throw new PluginCliError("Nothing to file: no open follow-up matches.");
+            }
+            // Run from inside a thread, this is how an agent files from its
+            // shell, so it meets the same gate as the tool, asked where it
+            // runs. From a terminal outside any thread, it is the person.
+            let rows = resolved.rows;
+            let destination = resolved.destination;
+            let by: "agent" | "user" = "user";
+            if (ctx.threadId !== undefined && ctx.threadId !== null && ctx.threadId !== "") {
+              const fresh = await confirmedFiling(ctx.threadId, threadId, resolved, ctx.signal);
+              if (fresh.outcome !== "ok") throw new PluginCliError(CONFIRM_REFUSED[fresh.outcome]);
+              rows = fresh.rows;
+              destination = fresh.destination;
+              by = "agent";
+            }
+            const reports = await fileRows(threadId, rows, destination, by);
+            if (options.json) {
+              return { exitCode: 0, stdout: `${JSON.stringify({ reports })}\n` };
+            }
+            const lines = reports.map((report) =>
+              report.outcome === "filed"
+                ? `Filed${report.ref ? ` (${report.ref})` : ""}: ${report.text}`
+                : report.outcome === "pending"
+                  ? `Handed to the ${destination.name} helper: ${report.text}`
+                  : `Not filed: ${report.text} — ${report.note}`,
+            );
+            const failed = reports.some((report) => report.outcome === "failed");
+            return failed
+              ? { exitCode: 1, stdout: `${lines.join("\n")}\n`, stderr: "" }
+              : { exitCode: 0, stdout: `${lines.join("\n")}\n` };
+          },
+        }),
+        destinations: cliCommand({
+          summary: "List where follow-ups can be filed, as set up in the plugin's settings",
+          options: { thread: threadOption, json: jsonResult },
+          async run({ options }, ctx) {
+            const destinations = await readDestinations();
+            // The default belongs to the thread's project; outside a thread
+            // there is no project to ask about, and the list is still useful.
+            let projectId: string | null = null;
+            const threadId = options.thread ?? ctx.threadId ?? null;
+            if (threadId !== null) {
+              try {
+                projectId = (await bb.sdk.threads.get({ threadId })).projectId ?? null;
+              } catch {
+                projectId = null;
+              }
+            }
+            const fallback = await readDefaultDestination(projectId);
+            if (options.json) {
+              return {
+                exitCode: 0,
+                stdout: `${JSON.stringify({ destinations, defaultId: fallback?.id ?? null })}\n`,
+              };
+            }
+            if (destinations.length === 0) {
+              return {
+                exitCode: 0,
+                stdout: "No destinations yet. Set them up under Settings → Plugins → Follow Up.\n",
+              };
+            }
+            const width = Math.max(...destinations.map((destination) => destination.name.length));
+            const lines = destinations.map((destination) => {
+              const kind = destination.kind === "command" ? "command" : "agent";
+              const mark = destination.id === fallback?.id ? "  (default for this project)" : "";
+              return `${destination.name.padEnd(width)}  ${kind}${mark}`;
+            });
+            return { exitCode: 0, stdout: `${lines.join("\n")}\n` };
+          },
+        }),
+        filed: cliCommand({
+          summary:
+            "Record that a follow-up was filed somewhere else; it moves to Done and is not recorded here again",
+          positionals: [idArgument],
+          options: {
+            thread: threadOption,
+            json: jsonFailure,
+            to: {
+              type: "string",
+              required: true,
+              placeholder: "destination",
+              description: "Where it was filed",
+            },
+            ref: {
+              type: "string",
+              placeholder: "ref",
+              description: "What the destination gave back: a URL or a key like ENG-1482",
+            },
+          },
+          async run({ options, positionals }, ctx) {
+            const threadId = threadFor(options.thread, ctx);
+            const to = await destinationFor(options.to);
+            const { outcome, row } = await markFiled(
+              threadId,
+              positionals.id,
+              to,
+              options.ref ?? null,
+              "user",
+            );
+            if (outcome === "not-found") {
+              throw new PluginCliError(`No follow-up with id ${positionals.id} on ${threadId}.`);
+            }
+            if (outcome === "already-filed") {
+              throw new PluginCliError(
+                `Already filed to ${row?.filedTo?.name ?? "a destination"}${row?.filedRef ? ` (${row.filedRef})` : ""}.`,
+              );
+            }
+            return {
+              exitCode: 0,
+              stdout: `Filed to ${to.name}${options.ref ? ` (${options.ref})` : ""}: ${row?.text}\n`,
+            };
+          },
+        }),
 
         "clear-done": cliCommand({
-          summary: "Empty Done, so those follow-ups can be recorded again if they recur",
+          summary: "Empty Done, so finished follow-ups can be recorded again if they recur (filed ones cannot)",
           options: { thread: threadOption, json: jsonFailure },
           async run({ options }, ctx) {
             const cleared = await clearDone(threadFor(options.thread, ctx));

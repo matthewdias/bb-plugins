@@ -93,6 +93,35 @@ marked in the list while you do. That cut is made from the row's own words
 rather than written separately, so it can never say something the row does
 not.
 
+**File to….** Some follow-ups belong in your tracker or backlog, not in this
+thread. Filing one moves it to Done saying where it went — "→ Jira ENG ·
+ENG-1482", a URL opening through bb — and, like dismissal, its text is not
+recorded on this thread again, even after Done is cleared. Reopening a filed
+row makes it this thread's again.
+
+Where things can be filed is up to you. Set up destinations under Settings →
+Plugins → Follow Up, or in the Follow-ups panel's *Where follow-ups can be
+filed* section. Each is one of two kinds:
+
+- **Run a command.** It runs in your login shell in the thread's checkout, on
+  the thread's own host: a remote thread files from its own machine with its
+  own tools. The row arrives as `$FOLLOWUP_TITLE`, `$FOLLOWUP_DETAIL`,
+  `$FOLLOWUP_FILE`, `$FOLLOWUP_REASON`, `$FOLLOWUP_ID` and `$FOLLOWUP_THREAD`,
+  and as JSON on stdin, and is never part of the command's text, so quote the
+  variables and an agent-written title stays text. The first URL it prints, or
+  else its last line, becomes the link. Exiting non-zero, or running past two
+  minutes, leaves the row open with the reason on it.
+- **Ask an agent.** A recipe in your words — "create an issue in ENG with the
+  Atlassian MCP" — carried out by a hidden helper in the thread's checkout, on
+  the model you pick (Describe's by default), for every row filed at once. It
+  reports each row back with its link; anything it does not report is open
+  again, saying why.
+
+File one row from its ⋯ menu (*File to GitHub*), or every open row from the
+*File all* menu in the card's header: opening the menu files nothing, choosing
+where is the second tap. The first destination you pick in a project becomes
+its default, listed first. While a row is on its way it says *Filing to …*.
+
 **The empty state.** When the list empties, the banner offers three things:
 *suggest what's next*, start a new thread in the same checkout, or archive this
 one. The first is a real agent turn rather than anything the plugin computes —
@@ -142,6 +171,7 @@ and can ask the agent to fill in a missing file anchor or detail.
 | --- | --- |
 | Remind agents to record follow-ups | on |
 | Let agents offer next steps | on |
+| Let agents file follow-ups without asking | off |
 | List follow-ups in the `@` menu | on |
 | Mentioning a follow-up claims it | on |
 | Ask for a mentioned row's missing file and detail | on |
@@ -168,7 +198,7 @@ the plugin adds nothing to it.
 
 ## For agents
 
-Six tools:
+Seven tools:
 
 | | |
 | --- | --- |
@@ -178,6 +208,14 @@ Six tools:
 | `prioritize_follow_up` | move a row to the front |
 | `amend_follow_up` | add detail to a row without rewording it |
 | `offer_next_steps` | offer what it would do next here, as buttons under its reply |
+| `file_follow_ups` | file rows to a destination you set up, when you ask it to |
+
+An agent filing — through `file_follow_ups`, or by running `bb follow-up file`
+inside a thread — asks you first, with one tap showing where the rows are
+going and all of what each one sends, unless you turn on *Let agents file
+follow-ups without asking*. Run from a terminal outside any thread, the
+command is you, and does not ask: filing writes outside bb, and an agent steered by something it read
+could otherwise open issues nobody asked for.
 
 `record_follow_up` takes `text` (a title naming the specific thing, ≤50 chars), `reason`
 (`out-of-scope`, `blocked`, `deferred`, `risk`, or `cleanup`), an optional
@@ -193,6 +231,9 @@ bb follow-up move <id> top           # reprioritise
 bb follow-up amend <id> --detail "…" # change in place, keeping id, age, position
 bb follow-up done <id>               # finish it
 bb follow-up reopen <id>             # put it back
+bb follow-up destinations            # where follow-ups can be filed
+bb follow-up file <id…|--all> [--to …] # file them, and wait for the result
+bb follow-up filed <id> --to … [--ref …] # record one you filed by hand
 bb follow-up clear-done              # empty Done
 bb follow-up describe <id>           # have a helper write its detail
 bb follow-up handoff <id> [skill]    # send it to a new thread

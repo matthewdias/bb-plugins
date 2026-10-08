@@ -17,6 +17,9 @@ import {
   registerRecordCommand,
 } from "./src/record-draft.ts";
 import { ExpansionModelSettings } from "./src/settings-section.tsx";
+import { DestinationsSettings } from "./src/destinations-settings.tsx";
+import { ConfirmFiling } from "./src/confirm-filing.tsx";
+import { CONFIRM_FILING_RENDERER } from "./lib/destinations.ts";
 import { threadIdFromScope } from "./src/scope.ts";
 import { hasFollowUps, setCollapsed } from "./src/store.ts";
 import { commands } from "./src/commands.ts";
@@ -139,6 +142,20 @@ export default definePluginApp((app) => {
       "The hidden helper that fills in a thin note's detail, and what it runs on.",
     component: ExpansionModelSettings,
   });
+
+  // Where follow-ups can be filed: a list, not a field, so it is a section of
+  // its own, like the model picker above. See src/destinations-settings.tsx.
+  app.slots.settingsSection({
+    id: "destinations",
+    title: "Where follow-ups can be filed",
+    description:
+      "Commands or agent recipes that move a follow-up to your tracker or backlog.",
+    component: DestinationsSettings,
+  });
+
+  // The one tap an agent's file_follow_ups waits on before writing to the
+  // user's tracker. See src/confirm-filing.tsx.
+  app.slots.pendingInteraction({ id: CONFIRM_FILING_RENDERER, component: ConfirmFiling });
 
   // Where a row becomes a thread. Its own tab rather than a mode inside the
   // follow-ups panel: it is a composer with its own draft, and burying it in the

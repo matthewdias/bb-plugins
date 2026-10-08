@@ -22,6 +22,7 @@
 // the user's authority, on a phone where nothing would show the difference.
 import {
   headlineCut,
+  isFiling,
   isInProgress,
   mainActionFor,
   normalizeKey,
@@ -177,7 +178,8 @@ export function withoutStep(offer: NextOffer, index: number): NextOffer | null {
  * row leads with handing off, so it is not "next" in this thread, and a row
  * already in progress has been sent once. Only the top row is considered. The
  * list's order is the user's priority, and skipping past the top row to find
- * an eligible one would put the plugin's judgement above theirs.
+ * an eligible one would put the plugin's judgement above theirs. Nor is a row
+ * being filed: it is on its way out of this thread.
  */
 export function doCandidate(rows: readonly FollowUp[]): FollowUp | null {
   const top = rows[0];
@@ -185,6 +187,8 @@ export function doCandidate(rows: readonly FollowUp[]): FollowUp | null {
   if (mainActionFor(top.reason) !== "insert") return null;
   if (isInProgress(top)) return null;
   if (top.handoffState === "running") return null;
+  // On its way to a destination: it is leaving the list, not next here.
+  if (isFiling(top)) return null;
   return top;
 }
 

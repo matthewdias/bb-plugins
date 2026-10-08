@@ -132,6 +132,47 @@ export interface FollowUp {
    * the old wording to be recorded again as a second row for the same work.
    */
   aliases?: readonly string[];
+  /**
+   * Set when the row was filed to a destination — tracked somewhere else now.
+   * A filed row is also done (`doneAt` is set at the same moment), so every
+   * surface that settles done rows settles it; these fields say where it went.
+   */
+  filedAt?: string | null;
+  filedTo?: FiledTo | null;
+  /** What the destination gave back: a URL, a key like ENG-1482, or nothing. */
+  filedRef?: string | null;
+  /**
+   * Set while a destination is working on the row, cleared when it is filed
+   * or gives up. Stored for the reason `expandingSince` is: filing can run out
+   * of band (an agent recipe in a helper thread), and without it a press
+   * would look like nothing happened.
+   */
+  filingSince?: string | null;
+  /** Who asked for the filing in flight, which becomes `doneBy` once it lands. */
+  filingBy?: RankBy | null;
+  /** Where the filing in flight is going, so the row can say. */
+  filingTo?: string | null;
+  /** Why the last filing attempt did not land, shown until the next one. */
+  filingNote?: string | null;
+}
+
+/** A destination as a filed row remembers it: its id, and its name then. */
+export interface FiledTo {
+  id: string;
+  name: string;
+}
+
+/**
+ * The permanent half of filing: a text this thread filed somewhere, which may
+ * not be recorded here again. Kept apart from the rows because Clear Done
+ * drops filed rows with the rest, and filing — like dismissal — has to outlive
+ * the row: the work is tracked elsewhere, and an agent that notices it again
+ * must not add it back.
+ */
+export interface FiledMark {
+  key: string;
+  to: string;
+  ref: string | null;
 }
 
 export type RankBy = "user" | "agent";
@@ -222,11 +263,13 @@ export function titleAndDetail(
   return { text: headlineCut(collapsed, TITLE_MAX), detail: rest.slice(0, DETAIL_MAX) };
 }
 
-export type AddOutcome = "added" | "duplicate" | "dismissed" | "full";
+export type AddOutcome = "added" | "duplicate" | "dismissed" | "filed" | "full";
 
 export interface AddResult {
   list: FollowUp[];
   outcome: AddOutcome;
+  /** For "filed": where it went, so the refusal can say so. */
+  filedAs?: FiledMark;
 }
 
 /**
@@ -266,10 +309,14 @@ export function addFollowUp(
   // the cap that has always applied, and the setting is a narrowing of it
   // rather than a new obligation on the caller.
   cap: number = MAX_PER_THREAD,
+  filed: readonly FiledMark[] = [],
 ): AddResult {
   const key = normalizeKey(incoming.text);
   if (key === "") return { list: [...existing], outcome: "duplicate" };
   if (tombstones.includes(key)) return { list: [...existing], outcome: "dismissed" };
+  // Filed beats recording, as dismissal does: it is tracked somewhere else.
+  const filedAs = filed.find((mark) => mark.key === key);
+  if (filedAs !== undefined) return { list: [...existing], outcome: "filed", filedAs };
   // Matches done rows too: while something sits in Done, an agent noticing it
   // again must not re-add it. Clearing Done is what releases the text.
   // Aliases included: a row whose wording was sharpened still answers to what
@@ -509,6 +556,84 @@ export function doneFollowUps(
 }
 
 export { isDone, isInProgress };
+
+/** Filed: done, and tracked somewhere else. */
+export const isFiled = (row: FollowUp): boolean =>
+  row.filedAt !== undefined && row.filedAt !== null;
+
+/**
+ * How long a filing may go unanswered before the row stops saying "filing…".
+ * A command answers within its own two-minute limit; a helper thread reports
+ * when it settles — but a settle missed (the plugin restarted while the helper
+ * worked) would otherwise leave the row spinning, and unfileable, for good.
+ */
+export const FILING_STALE_MS = 30 * 60 * 1000;
+
+/** Being filed right now, by a destination that has not answered yet. */
+export function isFiling(row: FollowUp, now: number = Date.now()): boolean {
+  if (isFiled(row) || row.filingSince === undefined || row.filingSince === null) return false;
+  const since = Date.parse(row.filingSince);
+  return Number.isNaN(since) || now - since < FILING_STALE_MS;
+}
+
+/** What a filed row's done note says, for every surface that shows done notes. */
+export function filedNote(to: FiledTo, ref: string | null): string {
+  return ref === null || ref === "" ? `Filed to ${to.name}` : `Filed to ${to.name}: ${ref}`;
+}
+
+export type FileOutcome = "filed" | "not-found" | "already-filed";
+
+/**
+ * File one row: done, with where it went. Returns the marks to keep, one per
+ * text the row answers to — its aliases too, so a reworded row cannot come
+ * back under its old wording either.
+ */
+export function fileFollowUp(
+  list: readonly FollowUp[],
+  id: string,
+  filing: { to: FiledTo; ref: string | null; at: string; by: RankBy },
+): { list: FollowUp[]; outcome: FileOutcome; row: FollowUp | null; marks: FiledMark[] } {
+  const target = list.find((row) => row.id === id);
+  if (target === undefined) return { list: [...list], outcome: "not-found", row: null, marks: [] };
+  if (isFiled(target)) return { list: [...list], outcome: "already-filed", row: target, marks: [] };
+  const ref = filing.ref === null || filing.ref.trim() === "" ? null : filing.ref.trim();
+  const filed: FollowUp = {
+    ...target,
+    doneAt: filing.at,
+    doneBy: filing.by,
+    doneNote: filedNote(filing.to, ref),
+    filedAt: filing.at,
+    filedTo: filing.to,
+    filedRef: ref,
+    filingSince: null,
+    filingBy: null,
+    filingTo: null,
+    filingNote: null,
+  };
+  return {
+    list: list.map((row) => (row.id === id ? filed : row)),
+    outcome: "filed",
+    row: filed,
+    marks: keysOf(target).map((key) => ({ key, to: filing.to.name, ref })),
+  };
+}
+
+/** A row reopened after filing is no longer filed: it is this thread's again. */
+export function unfiled(row: FollowUp): FollowUp {
+  if (!isFiled(row)) return row;
+  return { ...row, filedAt: null, filedTo: null, filedRef: null };
+}
+
+/** Marks with these added, one per key, the newest winning. */
+export function withMarks(existing: readonly FiledMark[], added: readonly FiledMark[]): FiledMark[] {
+  const keys = new Set(added.map((mark) => mark.key));
+  return [...existing.filter((mark) => !keys.has(mark.key)), ...added];
+}
+
+/** Marks without these keys: a reopened row's, so it is the row's alone again. */
+export function withoutMarks(existing: readonly FiledMark[], keys: readonly string[]): FiledMark[] {
+  return existing.filter((mark) => !keys.includes(mark.key));
+}
 
 /** Drop rows whose text was dismissed while they sat in the list. */
 export function applyTombstones(

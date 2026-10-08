@@ -19,7 +19,19 @@ import {
   TITLE_MAX,
   type FollowUp,
   type Reason,
+  isFiled,
+  isFiling,
 } from "../lib/followups.ts";
+import { FiledBadge } from "./filed-badge.tsx";
+import {
+  FileAllMenu,
+  FileToMenuItems,
+  FilingStatus,
+  useDestinations,
+  useFile,
+  useOpenDestinationSetup,
+  type DestinationsState,
+} from "./filing.tsx";
 import {
   setAutoCollapseAt,
   setCollapsed,
@@ -213,9 +225,16 @@ function FollowUpRow({
   onAmend,
   onCancelExpand,
   onExpand,
+  destinations,
+  onFile,
+  onSetUpDestinations,
 }: {
   row: FollowUp;
   threadId: string;
+  /** Where this row can be filed, for its ⋯ menu. */
+  destinations: DestinationsState;
+  onFile: (destinationId: string) => void;
+  onSetUpDestinations: () => void;
   onCancelExpand: () => void;
   onExpand: () => void;
   onInsert: () => void;
@@ -432,20 +451,23 @@ function FollowUpRow({
           }}
         />
       ) : (
-        <span
-          className={cn(
-            "min-w-0 flex-1 break-words text-sm leading-[1.4]",
-            inserted && "text-muted-foreground",
-            hasDetail && "cursor-help",
-          )}
-          tabIndex={hasDetail ? 0 : undefined}
-        >
-          {row.text}
-          {row.file !== null && (
-            <span className="ml-1.5 break-words text-xs text-muted-foreground">
-              {row.file}
-            </span>
-          )}
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span
+            className={cn(
+              "min-w-0 break-words text-sm leading-[1.4]",
+              inserted && "text-muted-foreground",
+              hasDetail && "cursor-help",
+            )}
+            tabIndex={hasDetail ? 0 : undefined}
+          >
+            {row.text}
+            {row.file !== null && (
+              <span className="ml-1.5 break-words text-xs text-muted-foreground">
+                {row.file}
+              </span>
+            )}
+          </span>
+          <FilingStatus row={row} />
         </span>
       )}
       {/* Driven by a single hovered-row state rather than CSS `group-hover`.
@@ -589,7 +611,16 @@ function FollowUpRow({
                 <Icon name="ArrowUpRight" className="size-3.5" aria-hidden />
                 Open in the panel
               </DropdownMenuItem>
+              {/* Filing is a way out of the list, beside the other two —
+                  done and dismissed — rather than among the things to do
+                  with a row while it stays. */}
               <DropdownMenuSeparator />
+              <FileToMenuItems
+                row={row}
+                state={destinations}
+                onFile={onFile}
+                onSetUp={onSetUpDestinations}
+              />
               <DropdownMenuItem
                 disabled={busy}
                 onSelect={onDone}
@@ -685,9 +716,17 @@ function DoneSection({
           {done.map((row) => (
             <li key={row.id} className="flex items-start gap-2 py-1 pl-4">
               <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-1">
-                <span className="min-w-0 break-words text-xs text-muted-foreground line-through">
+                {/* Not struck through when filed: the work is not done, it is
+                    tracked somewhere else, and the badge says where. */}
+                <span
+                  className={cn(
+                    "min-w-0 break-words text-xs text-muted-foreground",
+                    !isFiled(row) && "line-through",
+                  )}
+                >
                   {row.text}
                 </span>
+                <FiledBadge row={row} />
                 {/* Who closed it, because an agent's "done" is a claim and
                     the user's is a decision. The note it gave is the thing
                     to check, so it is the tooltip. */}
@@ -818,6 +857,9 @@ export function FollowUpBanner() {
   // while a turn runs there is no settled reply to answer. See next-steps.tsx.
   useNextStepsFetch(threadId);
   const offer = useOffer(threadId);
+  const destinations = useDestinations(threadId);
+  const file = useFile(threadId);
+  const openDestinationSetup = useOpenDestinationSetup();
   const candidate = doCandidate(rows);
   const offered = (offer?.steps.length ?? 0) > 0;
   // The "Do" chip shows only the start of the top row; while it is pointed at,
@@ -1223,6 +1265,12 @@ export function FollowUpBanner() {
               <span className="text-xs tabular-nums">{done.length}</span>
             </span>
           )}
+          <FileAllMenu
+            count={rows.filter((entry) => !isFiling(entry)).length}
+            state={destinations}
+            onFile={(destinationId) => void file(null, destinationId)}
+            onSetUp={openDestinationSetup}
+          />
           {/* The panel is otherwise only reachable through the panel's own
               new-tab launcher, so you had to know it existed. On mobile it is
               also the only path to detail, since hover cannot work on touch. */}
@@ -1327,6 +1375,9 @@ export function FollowUpBanner() {
               onDone={() => void markDone(row, true)}
               active={hoveredId === row.id}
               highlighted={candidateLit && candidate?.id === row.id}
+              destinations={destinations}
+              onFile={(destinationId) => void file([row.id], destinationId)}
+              onSetUpDestinations={openDestinationSetup}
               onEnter={setHoveredId}
               onPeek={schedulePeek}
               onCancelExpand={() => void cancelExpand(row)}

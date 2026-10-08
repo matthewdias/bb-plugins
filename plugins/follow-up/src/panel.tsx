@@ -14,7 +14,24 @@ import {
   isExpanding,
   TITLE_MAX,
   type FollowUp,
+  isFiled,
+  isFiling,
 } from "../lib/followups.ts";
+import { FiledBadge } from "./filed-badge.tsx";
+import {
+  FileAllMenu,
+  FileToMenuItems,
+  FilingStatus,
+  useDestinations,
+  useFile,
+  type DestinationsState,
+} from "./filing.tsx";
+import { DestinationsSettings } from "./destinations-settings.tsx";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { FollowUpSortable, useSortableRow } from "./sortable.tsx";
 import {
   ComposerInsert,
@@ -40,6 +57,33 @@ import { cn } from "@/lib/utils";
  * fetching — is not mounted at all.
  */
 /** The banner opens the panel with `{ edit: id }` to start editing that row. */
+/** Opened to set up destinations — from a "Set up where to file…" in the card. */
+function destinationsFrom(params: unknown): boolean {
+  return typeof params === "object" && params !== null && (params as { destinations?: unknown }).destinations === true;
+}
+
+/**
+ * Where follow-ups can be filed, set up here as well as in Settings: bb gives
+ * a plugin no way to open its own settings page from a thread, and a phone
+ * reaches this panel more easily than Settings anyway.
+ */
+function DestinationsSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <section className="flex flex-col gap-2 border-t border-border/50 pt-3">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+      >
+        <Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3" aria-hidden />
+        Where follow-ups can be filed
+      </button>
+      {open && <DestinationsSettings />}
+    </section>
+  );
+}
+
 function editIdFrom(params: unknown): string | null {
   if (typeof params !== "object" || params === null) return null;
   const value = (params as { edit?: unknown }).edit;
@@ -89,8 +133,13 @@ function DonePanelSection({
         {done.map((row) => (
           <li key={row.id} className="flex flex-col gap-0.5">
             <span className="flex items-start gap-1">
-              <span className="min-w-0 flex-1 break-words text-muted-foreground line-through">
-                {row.text}
+              <span
+                className={cn(
+                  "flex min-w-0 flex-1 flex-wrap items-baseline gap-1 break-words text-muted-foreground",
+                )}
+              >
+                <span className={cn(!isFiled(row) && "line-through")}>{row.text}</span>
+                <FiledBadge row={row} />
               </span>
               {/* The panel had no actions on done rows at all, so reopening
                   something closed by mistake meant going back to the
@@ -152,6 +201,20 @@ export function FollowUpPanel({
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(editIdFrom(params));
   const [problem, setProblem] = useState<string | null>(null);
+  const destinations = useDestinations(threadId);
+  const file = useFile(threadId);
+  const [showDestinations, setShowDestinations] = useState(destinationsFrom(params));
+  // Opened again from the card while already open: the params change, and the
+  // section should open for them rather than stay as it was left.
+  useEffect(() => {
+    if (destinationsFrom(params)) setShowDestinations(true);
+  }, [params]);
+  const destinationsSection = (
+    <DestinationsSection
+      open={showDestinations}
+      onToggle={() => setShowDestinations((open) => !open)}
+    />
+  );
   const rowsRef = useRef<FollowUp[] | null>(rows);
   rowsRef.current = rows;
   // Set by `ComposerPillRemover` when this panel has a composer; see there.
@@ -386,6 +449,7 @@ export function FollowUpPanel({
             onDismiss={(row) => void dismiss(row)}
           />
         )}
+        {destinationsSection}
       </div>
     );
   }
@@ -399,6 +463,7 @@ export function FollowUpPanel({
   return (
     <div className="flex flex-col gap-3 p-3">
       {pillRemover}
+      <div className="flex items-start justify-between gap-2">
       <p className="text-xs text-muted-foreground">
         {rows.length} follow-up{rows.length === 1 ? "" : "s"}
         {rollup === "" ? "" : ` · ${rollup}`}
@@ -417,6 +482,13 @@ export function FollowUpPanel({
           </span>
         )}
       </p>
+      <FileAllMenu
+        count={rows.filter((entry) => !isFiling(entry)).length}
+        state={destinations}
+        onFile={(destinationId) => void file(null, destinationId)}
+        onSetUp={() => setShowDestinations(true)}
+      />
+      </div>
       <FollowUpSortable
         ids={rows.map((entry) => entry.id)}
         onCommit={commitOrder}
@@ -444,6 +516,9 @@ export function FollowUpPanel({
               onInserted={() => moveToTop(row)}
               onCancelExpand={() => void cancelExpand(row)}
               onExpand={() => void expandRow(row)}
+              destinations={destinations}
+              onFile={(destinationId) => void file([row.id], destinationId)}
+              onSetUpDestinations={() => setShowDestinations(true)}
             />
           ))}
         </ul>
@@ -457,6 +532,7 @@ export function FollowUpPanel({
           onDismiss={(row) => void dismiss(row)}
         />
       )}
+      {destinationsSection}
     </div>
   );
 }
@@ -479,11 +555,17 @@ function PanelRow({
   onInserted,
   onCancelExpand,
   onExpand,
+  destinations,
+  onFile,
+  onSetUpDestinations,
 }: {
   row: FollowUp;
   threadId: string;
   onCancelExpand: () => void;
   onExpand: () => void;
+  destinations: DestinationsState;
+  onFile: (destinationId: string) => void;
+  onSetUpDestinations: () => void;
   busy: boolean;
   editing: boolean;
   problem: string | null;
@@ -638,7 +720,10 @@ function PanelRow({
           </span>
         )}
         <ComposerInsertedMark row={row} threadId={threadId} />
-        <span className="min-w-0 flex-1 text-sm leading-snug">{row.text}</span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-sm leading-snug">{row.text}</span>
+          <FilingStatus row={row} />
+        </span>
         {/* One slot, two states: describe this, or stop describing it. Offered
             only on a row with no detail, which is what an expansion is for. */}
         {offerDescribe && !isExpanding(row) && (row.detail === null || row.detail === "") && (
@@ -670,6 +755,29 @@ function PanelRow({
         )}
         <ComposerInsert row={row} threadId={threadId} onInserted={onInserted} />
         <HandoffAction row={row} />
+        <DropdownMenu modal={false}>
+          <span title="File to…" className="inline-flex">
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6 shrink-0 text-muted-foreground"
+                disabled={busy}
+                aria-label={`File "${row.text}" to…`}
+              >
+                <Icon name="FolderExport" className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+          </span>
+          <DropdownMenuContent align="end">
+            <FileToMenuItems
+              row={row}
+              state={destinations}
+              onFile={onFile}
+              onSetUp={onSetUpDestinations}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
         <span title="Edit" className="inline-flex">
           <Button
             variant="ghost"
