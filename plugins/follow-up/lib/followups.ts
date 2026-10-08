@@ -431,6 +431,7 @@ export type AmendOutcome =
   | "not-found"
   | "duplicate"
   | "dismissed"
+  | "filed"
   | "forbidden"
   | "too-long";
 
@@ -438,6 +439,8 @@ export interface AmendResult {
   list: FollowUp[];
   outcome: AmendOutcome;
   row: FollowUp | null;
+  /** Where that wording went, when the outcome is "filed". */
+  filedAs?: FiledMark;
 }
 
 /**
@@ -454,6 +457,12 @@ export function amendFollowUp(
   patch: Amendment,
   by: RankBy,
   tombstones: readonly string[] = [],
+  /**
+   * Texts this thread filed elsewhere. Rewording a row to one of them would
+   * put work tracked somewhere else back on the list, which recording it
+   * afresh is already refused for.
+   */
+  filed: readonly FiledMark[] = [],
 ): AmendResult {
   const target = list.find((row) => row.id === id);
   if (target === undefined) return { list: [...list], outcome: "not-found", row: null };
@@ -478,6 +487,10 @@ export function amendFollowUp(
     if (key !== previous) {
       if (tombstones.includes(key)) {
         return { list: [...list], outcome: "dismissed", row: target };
+      }
+      const filedAs = filed.find((mark) => mark.key === key);
+      if (filedAs !== undefined) {
+        return { list: [...list], outcome: "filed", row: target, filedAs };
       }
       if (list.some((row) => row.id !== id && keysOf(row).includes(key))) {
         return { list: [...list], outcome: "duplicate", row: target };

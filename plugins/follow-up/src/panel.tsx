@@ -319,9 +319,11 @@ export function FollowUpPanel({
             ? "Another follow-up on this thread already says that."
             : result.outcome === "dismissed"
               ? "You dismissed that wording earlier, so it cannot come back."
-              : result.outcome === "too-long"
-                ? `Titles are ${TITLE_MAX} characters or fewer. Put the rest in the detail.`
-                : "That follow-up is no longer here.",
+              : result.outcome === "filed"
+                ? "That wording was filed elsewhere from this thread, so it is tracked there."
+                : result.outcome === "too-long"
+                  ? `Titles are ${TITLE_MAX} characters or fewer. Put the rest in the detail.`
+                  : "That follow-up is no longer here.",
         );
       } catch {
         setProblem("Could not save. Try again.");

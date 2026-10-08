@@ -51,6 +51,7 @@ async function host(
     environment?: Record<string, unknown>;
     spawnFails?: boolean;
     children?: { status: string }[];
+    providers?: { id: string; availability: { status: string; message?: string } | null }[];
   } = {},
 ) {
   const hostEntry = experimental_createHostEntryHarness(entry);
@@ -76,6 +77,10 @@ async function host(
     return { id: `thr_new${++spawned}` };
   });
   harness.sdk.stub("threads.list", () => options.children ?? []);
+  harness.sdk.stub(
+    "environments.listProviders",
+    () => options.providers ?? [{ id: "git-worktree", availability: null }, { id: "project-checkout", availability: null }],
+  );
   await plugin(bb);
   const call = (method: string, input: unknown) => harness.callRpc(method, input) as Promise<any>;
   await call("followups_set_destinations", { destinations: [gh, broken, jira] });
@@ -320,6 +325,36 @@ test("wrap up: a hand-off that cannot start holds the archive, and the row stays
   const { state } = await call("followups_wrap_up_get", { threadId: THREAD });
   assert.deepEqual(state.failed, [{ id: a, note: "The new thread could not be started." }]);
 });
+
+test("wrap up: a hand-off from a project checkout gets a new worktree, not the same checkout", async () => {
+  const { add, wrapUp, spawns } = await host({
+    environment: {
+      ...GIT_WORKTREE,
+      environmentProviderId: "project-checkout",
+      environmentProviderSelection: { machine: { type: "existing", hostId: "host_1" }, inputs: { path: checkout } },
+    },
+  });
+  const a = await add("Port the exporter");
+  assert.equal((await wrapUp([[a, { kind: "handoff", where: "new-worktree" }]])).outcome, "archived");
+  assert.deepEqual(spawns()[0]!.environment, {
+    environmentProviderId: "git-worktree",
+    inputs: { branch: { kind: "default" } },
+    machine: { type: "existing", hostId: "host_1" },
+  });
+});
+
+for (const [what, providers] of [
+  ["not registered", [{ id: "project-checkout", availability: null }]],
+  ["not set up", [{ id: "git-worktree", availability: { status: "setup-required", message: "Install git" } }]],
+] as const) {
+  test(`wrap up: with git-worktree ${what}, no new worktree is offered or made`, async () => {
+    const { add, wrapUp, spawns, call } = await host({ providers: [...providers] });
+    assert.equal((await call("followups_wrap_up_get", { threadId: THREAD })).newWorktree, false);
+    const a = await add("Port the exporter");
+    assert.equal((await wrapUp([[a, { kind: "handoff", where: "new-worktree" }]])).outcome, "failed");
+    assert.deepEqual(spawns(), []);
+  });
+}
 
 test("wrap up: with no worktree possible, a new-worktree hand-off refuses before anything happens", async () => {
   const { add, wrapUp, spawns, lists } = await host({

@@ -84,6 +84,7 @@ const REASON_ICON: Record<Reason, IconName> = {
 const AMEND_REFUSAL: Partial<Record<string, string>> = {
   duplicate: "Another follow-up on this thread already says that.",
   dismissed: "You dismissed that wording earlier, so it cannot come back.",
+  filed: "That wording was filed elsewhere from this thread, so it is tracked there.",
   "not-found": "That follow-up no longer exists.",
   forbidden: "That follow-up cannot be edited.",
   // Only reachable editing a row recorded before titles were capped: the field

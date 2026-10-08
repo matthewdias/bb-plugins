@@ -131,9 +131,10 @@ the composer lists every open follow-up with a choice beside it:
   at *Keep open* if there is nowhere to file yet.
 - **Hand off**, in this checkout or in a new worktree. Either way it's a new
   thread of its own, not a child, since archiving a thread archives its
-  children. A new worktree is made the way this thread's was: the same
-  environment provider with the same inputs, or bb's own worktree from the
-  default branch.
+  children. A new worktree comes from bb's git-worktree provider on the same
+  machine. If this thread is in one of its worktrees, it branches from the
+  same place (an epic branch hands off onto that epic). Otherwise it branches
+  from the default branch. It's offered only where the provider is set up.
 - **Mark done**, **Dismiss**, or **Keep open**.
 
 Below the list, *Archive this thread* is ticked. It's asked every time, and
@@ -274,6 +275,7 @@ bb follow-up handoff <id> [skill]    # send it to a new thread
 bb follow-up dismiss <id>            # drop it, and never record it again
 bb follow-up clear                   # drop this thread's follow-ups
 bb follow-up forget                  # let dismissed follow-ups be recorded again
+bb follow-up forget --filed          # let filed follow-ups be recorded here again
 ```
 
 `handoff` takes the execution flags `bb thread spawn` does: `--provider`,
@@ -289,7 +291,10 @@ keeps the readable message.
 `dismiss` is the same action as the banner's Dismiss, exposed so the tombstone path is
 testable without a browser. `clear` empties the list without dismissing
 anything. `forget` drops the *dismissal* record — use it when you deleted
-something and want agents to be able to raise it again.
+something and want agents to be able to raise it again. `forget --filed` drops
+the *filed* record instead, for work you filed elsewhere that belongs on this
+thread again. Reopening a filed row does the same for that one row, while it
+is still in Done.
 
 ## For other plugins
 
