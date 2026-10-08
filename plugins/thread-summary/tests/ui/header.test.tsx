@@ -91,6 +91,16 @@ function seed(threadId: string) {
 }
 
 describe("the header", () => {
+  it("draws the button as the PropertyNew glyph, bundled, since bb 0.45 has no icon by that name", () => {
+    const { slot } = render();
+    const svg = button(slot).querySelector("svg");
+    expect(svg?.getAttribute("data-icon")).toBe("PropertyNew");
+    // The glyph itself, not a name the host would fall back from: its
+    // horizontal rule under the title bar is unique to PropertyNew.
+    const paths = Array.from(svg?.querySelectorAll("path") ?? []).map((path) => path.getAttribute("d"));
+    expect(paths).toContain("M3.50008 7.99991H20.5001");
+  });
+
   it("shows chips, worst first, and no dot", async () => {
     const { slot, threadId } = render();
     seed(threadId);

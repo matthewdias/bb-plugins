@@ -12,10 +12,11 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   experimental_useSidebarThreads,
   experimental_usePluginId,
-  experimental_Icon as Icon,
   useSettings,
   type PluginThreadHeaderActionProps,
 } from "@get-bb/plugin-sdk/app";
+import { PropertyNewIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { ComplicationProviderInfo } from "../lib/complications";
 import { SHOW_CHIPS_KEY } from "../lib/hidden";
 import { chips, orderedIds, present, worstTone } from "../lib/order";
@@ -131,7 +132,11 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
         title="Thread summary"
         type="button"
       >
-        <Icon aria-hidden name="ListView" style={{ height: 16, width: 16 }} />
+        {/*
+          Bundled rather than named: bb 0.45 has no built-in "PropertyNew", and
+          experimental_Icon would draw its fallback in its place.
+        */}
+        <HugeiconsIcon aria-hidden data-icon="PropertyNew" icon={PropertyNewIcon} size={16} strokeWidth={1.5} />
         {dot !== null ? (
           <span
             aria-hidden
