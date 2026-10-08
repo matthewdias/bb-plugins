@@ -24,11 +24,13 @@ and `bb plugin update` follows it.
 
 ## What it does
 
-![The card: Git behind main, the merged pull request and Follow Up's ring](screenshots/desktop-card.jpg)
+![The card, light: Git, the pull request's running checks and Follow Up's ring](screenshots/desktop-card.jpg)
+
+![The same card in bb's dark theme](screenshots/desktop-card-dark.jpg)
 
 The `screenshots/` directory holds the frames for a store listing, taken from a
-live bb 0.45 window: the desktop card, the phone header with its dot in place
-of chips, and the phone drawer.
+live bb 0.45 window: the desktop card in light and dark, the phone header with
+its dot in place of chips, and the phone drawer.
 
 ### The card
 
