@@ -6,7 +6,7 @@ import { useEffect, useRef } from "react";
 import { Markdown, experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { Changes } from "../lib/changes";
+import { COMMITS_SHOWN, type Changes } from "../lib/changes";
 import type { UpdateCard as Card } from "../lib/updates-deck";
 import { PluginIcon } from "./EntryCard";
 import { haptic } from "./haptics";
@@ -152,8 +152,8 @@ export function UpdateCard({
 
 /**
  * The commits the update brings, or the release notes. Clamped until the
- * details open, so the closed card stays one surface to drag; GitHub has
- * whatever the server didn't fetch.
+ * details open, so the closed card stays one surface to drag: the commits it
+ * hides are a tap away, and GitHub has whatever the server didn't fetch.
  */
 function ChangeList({
   changes,
@@ -194,7 +194,10 @@ function ChangeList({
     );
   }
 
-  const more = changes.total - changes.commits.length;
+  const shown = expanded ? changes.commits : changes.commits.slice(0, COMMITS_SHOWN);
+  const more = changes.total - shown.length;
+  // Only the ones the server never had are worth leaving for.
+  const onGitHub = shown.length === changes.commits.length;
   return (
     <section className="space-y-2" aria-label="Changes">
       <h3 className="text-xs font-medium text-muted-foreground">
@@ -207,18 +210,22 @@ function ChangeList({
         </div>
       )}
       <ul className="space-y-1">
-        {changes.commits.map((commit) => (
+        {shown.map((commit) => (
           <li key={commit.sha} className="flex gap-2 text-xs">
             <span className="shrink-0 font-mono text-muted-foreground">{commit.sha.slice(0, 7)}</span>
             <span className={cn("min-w-0", !expanded && "truncate")}>{commit.subject}</span>
           </li>
         ))}
       </ul>
-      {more > 0 && (
-        <button type="button" onClick={onMore} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
-          and {more} more on GitHub
-        </button>
-      )}
+      {more > 0 &&
+        (onGitHub ? (
+          <button type="button" onClick={onMore} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+            and {more} more on GitHub
+          </button>
+        ) : (
+          // Not a control: a tap falls through to the card and opens its details.
+          <p className="text-xs text-muted-foreground">and {more} more</p>
+        ))}
     </section>
   );
 }

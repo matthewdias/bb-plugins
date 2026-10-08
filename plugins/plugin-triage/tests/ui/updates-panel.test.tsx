@@ -174,6 +174,27 @@ describe("an update card's details", () => {
     expect(screen.getByText("alpha does things.").className).not.toMatch(/line-clamp/);
   });
 
+  it("list every commit once open, where the closed card stops at six", async () => {
+    changesAnswer = {
+      kind: "github",
+      commits: Array.from({ length: 9 }, (_, i) => ({ sha: `c${i}`.padEnd(40, "0"), subject: `Change ${i}`, date: null, author: null })),
+      total: 9,
+      repoWide: 9,
+      subdirectory: null,
+      releaseNotes: null,
+      url: "https://github.com/acme/x/compare/a...b",
+    };
+    const { rpc } = rpcFake();
+    render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
+    await screen.findByText("Change 5");
+    expect(screen.queryByText("Change 6")).toBeNull();
+    // The rest are in the card, not only on GitHub, so a tap there opens it.
+    fireEvent.click(screen.getByText("and 3 more"));
+    expect(open()).toBe("true");
+    expect(screen.getByText("Change 8")).toBeTruthy();
+    expect(screen.queryByText(/more/)).toBeNull();
+  });
+
   it("leave a tap on a control in the card to that control", async () => {
     changesAnswer = { kind: "deferred", remaining: 3, resetAt: null };
     const { rpc } = rpcFake();
