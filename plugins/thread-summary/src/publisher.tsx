@@ -10,6 +10,8 @@
 // opens for the thread, every 20 seconds while it stays open, and whenever the
 // thread's agent goes from busy to idle: bb sends a plugin no turn or diff
 // events of its own, and an agent finishing a turn is when a branch changes.
+// A few threads at a time, so a surface that wants Git for every sidebar row
+// does not start a `git status` per row at once.
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   experimental_useSidebarThreadPullRequest,
@@ -19,10 +21,12 @@ import {
 import {
   getComplications,
   type ComplicationProviderHandle,
+  type ComplicationProviderRegistration,
 } from "../lib/complications";
-import { readGitStatus, type GitSdk } from "../lib/git-source";
+import { environmentOf, readGitStatus, type GitSdk } from "../lib/git-source";
 import { gitValue } from "../lib/git-value";
 import { finishedSince } from "../lib/idle";
+import { createLimiter } from "../lib/limit";
 import { prValue } from "../lib/pr-value";
 import { gitRegistration, pullRequestRegistration } from "../lib/registrations";
 import { thread } from "./complications";
@@ -30,46 +34,68 @@ import { isOpen, onOpenChange } from "./open-cards";
 
 /** How often Git is asked again while a card is open for the thread. */
 export const GIT_POLL_MS = 20_000;
-/** How often a thread no surface wants any more stops being probed. */
-const PRUNE_MS = 10_000;
+/** How often threads no surface wants any more stop being probed. */
+export const PRUNE_MS = 10_000;
+/** Git refreshes in flight at once, across every thread in the window. */
+export const MAX_CONCURRENT_GIT = 4;
 
-/** Threads a provider was asked about and is still wanted for. */
-function useWanted(handle: ComplicationProviderHandle | null, asked: readonly string[]): string[] {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (handle === null) return;
-    // The registry tells a provider when a subject becomes wanted, never when
-    // it stops: a row scrolling away just releases it. So look again now and
-    // then, and drop the probes nobody needs.
-    const timer = window.setInterval(() => setTick((tick) => tick + 1), PRUNE_MS);
-    return () => window.clearInterval(timer);
-  }, [handle]);
-  return handle === null ? [] : asked.filter((id) => handle.isWanted(thread(id)));
+/** A wanted thread, and how many times it has been asked for. */
+interface Asked {
+  threadId: string;
+  /** Moves each time a surface wants the thread afresh, which asks again. */
+  revision: number;
 }
 
+/**
+ * Register a provider, and track the threads it is asked about.
+ *
+ * The registry tells a provider when a subject becomes wanted, never when it
+ * stops: a row scrolling away just releases it. So every so often the threads
+ * no longer wanted are dropped, which unmounts their probes; wanting one again
+ * asks again, which mounts its probe at once — or, if it was never dropped,
+ * makes it ask afresh.
+ */
 function useProvider(
-  register: (ask: (threadIds: string[]) => void) => Parameters<
-    NonNullable<ReturnType<typeof getComplications>>["provide"]
-  >[0],
-): [ComplicationProviderHandle | null, string[]] {
+  register: (ask: (threadIds: string[]) => void) => ComplicationProviderRegistration,
+): [ComplicationProviderHandle | null, Asked[]] {
   const [handle, setHandle] = useState<ComplicationProviderHandle | null>(null);
-  const [asked, setAsked] = useState<string[]>([]);
+  const [asked, setAsked] = useState<ReadonlyMap<string, number>>(new Map());
+
   useEffect(() => {
     const registry = getComplications();
     if (registry === null) return;
     const ask = (threadIds: string[]) =>
       setAsked((current) => {
-        const fresh = threadIds.filter((id) => !current.includes(id));
-        return fresh.length === 0 ? current : [...current, ...fresh];
+        const next = new Map(current);
+        for (const id of threadIds) next.set(id, (current.get(id) ?? 0) + 1);
+        return next;
       });
     const next = registry.provide(register(ask));
     setHandle(next);
     return () => {
       setHandle(null);
+      setAsked(new Map());
       next.dispose();
     };
   }, [register]);
-  const wanted = useWanted(handle, asked);
+
+  useEffect(() => {
+    if (handle === null) return;
+    const timer = window.setInterval(
+      () =>
+        setAsked((current) => {
+          const kept = [...current].filter(([id]) => handle.isWanted(thread(id)));
+          return kept.length === current.size ? current : new Map(kept);
+        }),
+      PRUNE_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, [handle]);
+
+  const wanted = useMemo(
+    () => [...asked].map(([threadId, revision]) => ({ threadId, revision })),
+    [asked],
+  );
   return [handle, wanted];
 }
 
@@ -77,28 +103,44 @@ function PullRequestProbe({ threadId, handle }: { threadId: string; handle: Comp
   const { isLoading, pullRequest } = experimental_useSidebarThreadPullRequest(threadId);
   const value = useMemo(() => prValue(pullRequest), [pullRequest]);
   useEffect(() => {
-    // Until the first lookup lands there is nothing to say either way.
+    // Until the first lookup lands there is nothing to say either way, and
+    // `null` would wipe the value a surface kept while this thread was away.
     if (isLoading) return;
     handle.set(thread(threadId), value);
   }, [handle, isLoading, threadId, value]);
   return null;
 }
 
+/**
+ * Where a thread's environment comes from: the sidebar's list, read live, or
+ * — for a thread it does not carry, such as an archived one — bb, asked at
+ * each refresh. While the list loads, nothing is asked at all.
+ */
+type EnvironmentSource =
+  | { from: "sidebar"; environmentId: string | null }
+  | { from: "bb" }
+  | { from: "loading" };
+
 function GitProbe({
   threadId,
   handle,
+  source,
+  askRevision,
   idleRevision,
+  limit,
 }: {
   threadId: string;
   handle: ComplicationProviderHandle;
+  source: EnvironmentSource;
+  /** Moves each time a surface wants this thread afresh. */
+  askRevision: number;
   /** Moves each time this thread's agent goes from busy to idle. */
   idleRevision: number;
+  limit: <T>(task: () => Promise<T>) => Promise<T>;
 }) {
   const sdk = useSdk();
   const sdkRef = useRef(sdk);
   sdkRef.current = sdk;
-  const environmentRef = useRef<string | null | undefined>(undefined);
-  const sequenceRef = useRef(0);
   const [openRevision, setOpenRevision] = useState(0);
   const [open, setOpen] = useState(() => isOpen(threadId));
 
@@ -112,16 +154,28 @@ function GitProbe({
     [threadId],
   );
 
+  // Primitives, so the refresh below runs when the environment changes and
+  // not on every render that rebuilds the same source.
+  const from = source.from;
+  const sidebarEnvironment = source.from === "sidebar" ? source.environmentId : null;
+
   useEffect(() => {
+    if (from === "loading") return;
+    // False once this refresh is superseded: React cleans an effect up before
+    // running it again, so a later refresh — or an unmount — ends this one.
     let live = true;
-    const sequence = ++sequenceRef.current;
     const refresh = async () => {
       try {
-        const status = await readGitStatus(sdkRef.current as unknown as GitSdk, threadId, environmentRef);
+        const value = await limit(async () => {
+          // Queued behind other threads and since superseded: skip the calls.
+          if (!live) return undefined;
+          const sdkNow = sdkRef.current as unknown as GitSdk;
+          const environmentId = from === "sidebar" ? sidebarEnvironment : await environmentOf(sdkNow, threadId);
+          if (environmentId === null) return null;
+          return gitValue(await readGitStatus(sdkNow, environmentId));
+        });
         // A slower, older answer must not overwrite a newer one.
-        if (live && sequence === sequenceRef.current) {
-          handle.set(thread(threadId), status === null ? null : gitValue(status));
-        }
+        if (value !== undefined && live) handle.set(thread(threadId), value);
       } catch {
         // Keep the last good value: a failed refresh is not "no branch".
       }
@@ -130,7 +184,7 @@ function GitProbe({
     return () => {
       live = false;
     };
-  }, [handle, threadId, idleRevision, openRevision]);
+  }, [handle, threadId, from, sidebarEnvironment, askRevision, idleRevision, openRevision, limit]);
 
   useEffect(() => {
     if (!open) return;
@@ -146,8 +200,9 @@ function GitProbe({
  * idle, read from the sidebar's live thread list — the host's own cache, so
  * this costs no request.
  */
-function useIdleRevisions(): ReadonlyMap<string, number> {
-  const { threads } = experimental_useSidebarThreads();
+function useIdleRevisions(
+  threads: readonly { id: string; status: string }[],
+): ReadonlyMap<string, number> {
   const busyRef = useRef<ReadonlyMap<string, boolean>>(new Map());
   const [revisions, setRevisions] = useState<ReadonlyMap<string, number>>(new Map());
   useEffect(() => {
@@ -166,21 +221,35 @@ function useIdleRevisions(): ReadonlyMap<string, number> {
 export function Publisher() {
   const [gitHandle, gitThreads] = useProvider(gitRegistration);
   const [prHandle, prThreads] = useProvider(pullRequestRegistration);
-  const idle = useIdleRevisions();
+  const { status, threads } = experimental_useSidebarThreads();
+  const idle = useIdleRevisions(threads);
+  const limit = useMemo(() => createLimiter(MAX_CONCURRENT_GIT), []);
+  const environments = useMemo(
+    () => new Map(threads.map((entry) => [entry.id, entry.environment?.id ?? null])),
+    [threads],
+  );
+  const sourceOf = (threadId: string): EnvironmentSource => {
+    if (status !== "ready") return { from: "loading" };
+    const environmentId = environments.get(threadId);
+    return environmentId === undefined ? { from: "bb" } : { from: "sidebar", environmentId };
+  };
   return (
     <>
       {gitHandle !== null
-        ? gitThreads.map((threadId) => (
+        ? gitThreads.map(({ threadId, revision }) => (
             <GitProbe
+              askRevision={revision}
               handle={gitHandle}
               idleRevision={idle.get(threadId) ?? 0}
               key={threadId}
+              limit={limit}
+              source={sourceOf(threadId)}
               threadId={threadId}
             />
           ))
         : null}
       {prHandle !== null
-        ? prThreads.map((threadId) => (
+        ? prThreads.map(({ threadId }) => (
             <PullRequestProbe handle={prHandle} key={threadId} threadId={threadId} />
           ))
         : null}

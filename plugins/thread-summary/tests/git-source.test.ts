@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { readGitStatus, type GitSdk } from "../lib/git-source";
+import { environmentOf, readGitStatus, type GitSdk } from "../lib/git-source";
 
-function sdk(environmentId: string | null, environment = { mergeBaseBranch: "main" as string | null, defaultBranch: "trunk" as string | null }) {
+function sdk(
+  environmentIds: (string | null)[] = ["env_1"],
+  environment = { mergeBaseBranch: "main" as string | null, defaultBranch: "trunk" as string | null },
+) {
   const calls: string[] = [];
+  const queue = [...environmentIds];
   const fake: GitSdk = {
-    threads: { get: vi.fn(async () => (calls.push("threads.get"), { environmentId })) },
+    threads: { get: vi.fn(async () => (calls.push("threads.get"), { environmentId: queue.shift() ?? null })) },
     environments: {
       get: vi.fn(async () => (calls.push("environments.get"), environment)),
       status: vi.fn(async (args) => (calls.push(`status ${JSON.stringify(args)}`), { outcome: "not_applicable" })),
@@ -14,37 +18,34 @@ function sdk(environmentId: string | null, environment = { mergeBaseBranch: "mai
 }
 
 describe("readGitStatus", () => {
-  it("asks for the status against the environment's merge-base branch", async () => {
-    const { fake, calls } = sdk("env_1");
-    await readGitStatus(fake, "thr_1", { current: undefined });
-    expect(calls).toEqual([
-      "threads.get",
-      "environments.get",
-      'status {"environmentId":"env_1","mergeBaseBranch":"main"}',
-    ]);
+  it("asks for the status against the environment's merge-base branch, and nothing else", async () => {
+    const { fake, calls } = sdk();
+    await readGitStatus(fake, "env_1");
+    expect(calls).toEqual(["environments.get", 'status {"environmentId":"env_1","mergeBaseBranch":"main"}']);
   });
 
   it("falls back to the default branch, then to none", async () => {
-    const fallback = sdk("env_1", { mergeBaseBranch: null, defaultBranch: "trunk" });
-    await readGitStatus(fallback.fake, "thr_1", { current: undefined });
+    const fallback = sdk([], { mergeBaseBranch: null, defaultBranch: "trunk" });
+    await readGitStatus(fallback.fake, "env_1");
     expect(fallback.calls.at(-1)).toBe('status {"environmentId":"env_1","mergeBaseBranch":"trunk"}');
-    const none = sdk("env_1", { mergeBaseBranch: null, defaultBranch: null });
-    await readGitStatus(none.fake, "thr_1", { current: undefined });
+    const none = sdk([], { mergeBaseBranch: null, defaultBranch: null });
+    await readGitStatus(none.fake, "env_1");
     expect(none.calls.at(-1)).toBe('status {"environmentId":"env_1"}');
   });
 
-  it("reads the thread's environment once, but its merge-base branch every time", async () => {
-    const { fake, calls } = sdk("env_1");
-    const environment = { current: undefined as string | null | undefined };
-    await readGitStatus(fake, "thr_1", environment);
-    await readGitStatus(fake, "thr_1", environment);
-    expect(calls.filter((call) => call === "threads.get")).toHaveLength(1);
+  it("reads the merge-base branch every time, since it can change", async () => {
+    const { fake, calls } = sdk();
+    await readGitStatus(fake, "env_1");
+    await readGitStatus(fake, "env_1");
     expect(calls.filter((call) => call === "environments.get")).toHaveLength(2);
   });
+});
 
-  it("is null for a thread with no environment, without asking for a status", async () => {
-    const { fake, calls } = sdk(null);
-    expect(await readGitStatus(fake, "thr_1", { current: undefined })).toBeNull();
-    expect(calls).toEqual(["threads.get"]);
+describe("environmentOf", () => {
+  it("asks bb each time, so an environment created or replaced since is seen", async () => {
+    const { fake } = sdk([null, "env_new", "env_moved"]);
+    expect(await environmentOf(fake, "thr_1")).toBeNull();
+    expect(await environmentOf(fake, "thr_1")).toBe("env_new");
+    expect(await environmentOf(fake, "thr_1")).toBe("env_moved");
   });
 });

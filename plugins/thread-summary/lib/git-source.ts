@@ -1,11 +1,15 @@
 // Asking bb for a thread's Git status.
 //
-// Three calls: the thread for its environment, the environment for the branch
-// it merges into, then the status against that branch. The second is not
-// optional — without `mergeBaseBranch` the status leaves out the merge base,
-// and with it the ahead and behind counts and the branch's committed files.
-// The thread's environment is read once per thread; the merge-base branch
-// every time, because it can be changed in bb while a card is open.
+// Two calls: the environment, for the branch it merges into, then the status
+// against that branch. The first is not optional — without `mergeBaseBranch`
+// the status leaves out the merge base, and with it the ahead and behind counts
+// and the branch's committed files. Neither is cached: the merge-base branch
+// can be changed in bb while a card is open.
+//
+// Which environment is the caller's business. The publisher reads it live
+// from the sidebar's thread list, as the header does for its file links, so a
+// thread that gets an environment, or moves to another, is followed at once.
+// `environmentOf` is for a thread that list does not carry.
 import type { GitStatus } from "./git-value";
 
 export interface GitSdk {
@@ -19,20 +23,16 @@ export interface GitSdk {
   };
 }
 
-/** The status, or `null` when the thread has no environment to ask about. */
-export async function readGitStatus(
-  sdk: GitSdk,
-  threadId: string,
-  environment: { current: string | null | undefined },
-): Promise<GitStatus | null> {
-  if (environment.current === undefined) {
-    environment.current = (await sdk.threads.get({ threadId })).environmentId;
-  }
-  const environmentId = environment.current;
-  if (environmentId === null) return null;
+/** The environment's status against the branch it merges into. */
+export async function readGitStatus(sdk: GitSdk, environmentId: string): Promise<GitStatus> {
   const { mergeBaseBranch, defaultBranch } = await sdk.environments.get({ environmentId });
   const base = mergeBaseBranch ?? defaultBranch;
   return (await sdk.environments.status(
     base === null ? { environmentId } : { environmentId, mergeBaseBranch: base },
   )) as GitStatus;
+}
+
+/** A thread's environment, asked of bb each time: it can be created or replaced. */
+export async function environmentOf(sdk: GitSdk, threadId: string): Promise<string | null> {
+  return (await sdk.threads.get({ threadId })).environmentId;
 }

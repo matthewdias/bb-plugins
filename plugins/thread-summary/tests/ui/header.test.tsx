@@ -8,6 +8,7 @@ import pluginApp from "../../app";
 import { SummaryAction } from "../../src/header";
 import { resetDeviceState } from "../../src/device-state";
 import { isOpen } from "../../src/open-cards";
+import { resetHiddenProviders } from "../../src/use-hidden-providers";
 import { GIT_ID, PULL_REQUEST_ID } from "../../lib/order";
 import { disposeProviders, freshThread, hiddenBackend, provide, sidebarThread } from "./fixtures";
 
@@ -16,6 +17,7 @@ void pluginApp;
 beforeEach(() => {
   window.localStorage.clear();
   resetDeviceState();
+  resetHiddenProviders();
 });
 afterEach(() => {
   disposeProviders();
@@ -280,6 +282,9 @@ describe("the strip", () => {
         "group-hover:pointer-events-auto",
         "group-has-[:focus-visible]:opacity-100",
         "group-has-[:focus-visible]:pointer-events-auto",
+        // The card itself, which a keyboard open focuses.
+        "group-focus-visible:opacity-100",
+        "group-focus-visible:pointer-events-auto",
       ]),
     );
   });
@@ -297,6 +302,25 @@ describe("the strip", () => {
     expect(card()).toBeNull();
   });
 
+  it.each([
+    ["Cmd", { metaKey: true }],
+    ["Ctrl", { ctrlKey: true }],
+    ["Shift", { shiftKey: true }],
+    ["Alt", { altKey: true }],
+    ["the middle button", { button: 1 }],
+  ])("leaves a %s-click on the settings link to the browser", (_name, init) => {
+    window.history.replaceState({}, "", "/projects/proj_1/threads/thr_1");
+    const { slot } = render();
+    fireEvent.click(button(slot));
+    const link = within(card()!).getByRole("link", { name: "Thread Summary settings" });
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...init });
+    act(() => {
+      link.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(false);
+    expect(window.location.pathname).toBe("/projects/proj_1/threads/thr_1");
+  });
+
   it("opens the plugin's settings in place", () => {
     const { slot } = render();
     fireEvent.click(button(slot));
@@ -306,6 +330,77 @@ describe("the strip", () => {
     window.removeEventListener("popstate", popstate);
     expect(window.location.pathname).toBe("/settings/plugins/thread-summary");
     expect(popstate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the keyboard", () => {
+  // A click a key made has no click count; a mouse click has one.
+  const keyboardClick = (element: Element) => fireEvent.click(element, { detail: 0 });
+  const mouseClick = (element: Element) => fireEvent.click(element, { detail: 1 });
+
+  it("moves focus into the card when the button opens it from the keyboard", () => {
+    const { slot } = render();
+    button(slot).focus();
+    keyboardClick(button(slot));
+    expect(card()!.contains(document.activeElement)).toBe(true);
+  });
+
+  it("moves focus into the card when a chip opens it from the keyboard", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    const chip = await waitFor(() => slot.getByRole("button", { name: /^Git:/ }));
+    chip.focus();
+    keyboardClick(chip);
+    expect(card()!.contains(document.activeElement)).toBe(true);
+  });
+
+  it("leaves focus alone when the mouse opens it", () => {
+    const { slot } = render();
+    button(slot).focus();
+    mouseClick(button(slot));
+    expect(card()).not.toBeNull();
+    expect(card()!.contains(document.activeElement)).toBe(false);
+  });
+
+  it("returns focus to the button on Escape", () => {
+    const { slot } = render();
+    keyboardClick(button(slot));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(card()).toBeNull();
+    expect(document.activeElement).toBe(button(slot));
+  });
+
+  it("returns focus to the button from the close button", () => {
+    const { slot } = render();
+    mouseClick(button(slot));
+    const close = within(card()!).getByRole("button", { name: "Close" });
+    close.focus();
+    fireEvent.click(close);
+    expect(card()).toBeNull();
+    expect(document.activeElement).toBe(button(slot));
+  });
+
+  it("does not take focus from elsewhere when Escape closes it", () => {
+    const { slot } = render();
+    mouseClick(button(slot));
+    const composer = document.createElement("textarea");
+    document.body.append(composer);
+    composer.focus();
+    fireEvent.keyDown(composer, { key: "Escape" });
+    expect(card()).toBeNull();
+    expect(document.activeElement).toBe(composer);
+    composer.remove();
+  });
+
+  it("leaves an Escape that something else already handled alone", () => {
+    const { slot } = render();
+    mouseClick(button(slot));
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    event.preventDefault();
+    act(() => {
+      document.dispatchEvent(event);
+    });
+    expect(card()).not.toBeNull();
   });
 });
 

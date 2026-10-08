@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { renderSlot } from "@get-bb/plugin-sdk/testing/app";
 // At the top, not inside a test: see header.test.tsx (#18).
 import pluginApp from "../../app";
 import { SummaryAction } from "../../src/header";
 import { resetDeviceState } from "../../src/device-state";
+import { resetHiddenProviders } from "../../src/use-hidden-providers";
 import { GIT_ID } from "../../lib/order";
 import { disposeProviders, freshThread, hiddenBackend, provide, sidebarThread } from "./fixtures";
 
@@ -13,6 +14,7 @@ void pluginApp;
 beforeEach(() => {
   window.localStorage.clear();
   resetDeviceState();
+  resetHiddenProviders();
 });
 afterEach(() => {
   disposeProviders();
@@ -114,6 +116,19 @@ describe("the phone drawer", () => {
   it("has no pin, which does not apply on a phone", () => {
     render();
     expect(within(drawer()!).queryByRole("button", { name: /pin/i })).toBeNull();
+  });
+
+  it("does not open by itself on a thread switch while pinned", () => {
+    window.localStorage.setItem("thread-summary:pinned", "true");
+    const slot = renderSlot(
+      { component: SummaryAction },
+      { threadId: freshThread(), projectId: "proj_1", isCompactViewport: true },
+      { pluginId: "thread-summary", rpc: hiddenBackend() as never },
+    );
+    act(() => {
+      slot.lifecycle.rerender(<SummaryAction isCompactViewport projectId="proj_1" threadId={freshThread()} />);
+    });
+    expect(drawer()).toBeNull();
   });
 
   it("does not open by itself while pinned", () => {

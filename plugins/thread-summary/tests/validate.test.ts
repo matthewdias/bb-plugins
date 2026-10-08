@@ -43,6 +43,8 @@ describe("safeFile", () => {
     expect(safeFile("README.md")).toBe("README.md");
     expect(safeFile("a/./b.ts")).toBe("a/./b.ts");
     expect(safeFile("a..b/c")).toBe("a..b/c");
+    expect(safeFile("docs/my notes.md")).toBe("docs/my notes.md");
+    expect(safeFile("a/b:c.txt")).toBe("a/b:c.txt");
   });
 
   it.each([
@@ -57,6 +59,16 @@ describe("safeFile", () => {
     ["a control character", "a\u0000b"],
     ["a newline", "a\nb"],
     ["the empty string", ""],
+    ["a leading space", " /etc/passwd"],
+    ["a segment with a trailing space, which Windows strips to ..", "a/.. /x"],
+    ["a segment with a leading space", "a/ ../x"],
+    ["a trailing space", "a/b.ts "],
+    ["a segment of only a tab", "a/\t/b"],
+    ["a non-breaking space at a segment's edge", "a/\u00a0b"],
+    ["a file: URL", "file:///etc/passwd"],
+    ["any other scheme", "vscode://file/x"],
+    ["a colon before the first slash", "c:x/y"],
+    ["a colon in a bare name", "notes:txt"],
   ])("refuses %s", (_name, file) => {
     expect(safeFile(file)).toBeNull();
   });
@@ -101,6 +113,12 @@ describe("readDetail", () => {
         },
       }),
     ).toEqual({ rows: [{ label: "evil" }, { label: "secret" }] });
+  });
+
+  it("drops a row whose label is only whitespace, and blank fields", () => {
+    expect(
+      readDetail({ detail: { title: "   ", rows: [{ label: " \t " }, { label: "ok", value: "  ", tone: " " }] } }),
+    ).toEqual({ rows: [{ label: "ok" }] });
   });
 
   it("drops rows without a label, and fields of the wrong type", () => {

@@ -52,6 +52,8 @@ function usePlacement(control: HTMLElement | null): CardPlacement | null {
 
 export function FloatingCard({
   control,
+  returnFocusTo,
+  focusOnOpen,
   pinned,
   onClose,
   controls,
@@ -59,6 +61,13 @@ export function FloatingCard({
 }: {
   /** The header control the card hangs from: presses on it are not outside. */
   control: HTMLElement | null;
+  /** Where focus goes back to when Escape closes the card from inside it. */
+  returnFocusTo: HTMLElement | null;
+  /**
+   * Opened from the keyboard: take focus, or the card — at the end of the
+   * document — would come only after tabbing through the whole app.
+   */
+  focusOnOpen: boolean;
   pinned: boolean;
   onClose: () => void;
   /** The strip's buttons. */
@@ -71,12 +80,26 @@ export function FloatingCard({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  const returnFocusRef = useRef(returnFocusTo);
+  returnFocusRef.current = returnFocusTo;
+
   const dismiss = useCallback(
     (reason: "escape" | "outside") => {
-      if (closesOn(reason, pinned)) onCloseRef.current();
+      if (!closesOn(reason, pinned)) return;
+      // Escape from inside the card hands focus back to the button. From
+      // anywhere else — the composer — focus stays where the reader is.
+      const fromInside = reason === "escape" && cardRef.current?.contains(document.activeElement) === true;
+      onCloseRef.current();
+      if (fromInside) returnFocusRef.current?.focus();
     },
     [pinned],
   );
+
+  const placed = placement !== null;
+  useEffect(() => {
+    if (placed && focusOnOpen) cardRef.current?.focus();
+    // Only when the card first appears: a later re-render must not pull focus.
+  }, [placed]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -99,15 +122,17 @@ export function FloatingCard({
     <section
       {...scope}
       aria-label="Thread summary"
-      className="group fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border bg-popover text-xs text-popover-foreground shadow-lg"
+      className="group fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border bg-popover text-xs text-popover-foreground shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
       data-thread-summary-card=""
       ref={cardRef}
       role="dialog"
+      tabIndex={-1}
       style={{ left: placement.left, top: placement.top, width: placement.width, maxHeight: placement.maxHeight }}
     >
       {/*
         The strip overlays the card's top-right corner, inside its edges, and
-        shows only on hover or keyboard focus. Keyboard focus means
+        shows only on hover or keyboard focus — on the card itself, which a
+        keyboard open focuses, or anything in it. Keyboard focus means
         :focus-visible, not :focus-within: a mouse click leaves its button
         focused, and the strip would stay up after the pointer left. It may
         cover the first line's trailing text while it shows; the card takes no
@@ -115,7 +140,7 @@ export function FloatingCard({
       */}
       <div
         aria-label="Thread summary controls"
-        className="pointer-events-none absolute right-1 top-1 z-10 flex items-center gap-0.5 rounded-md border border-border bg-popover p-0.5 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
+        className="pointer-events-none absolute right-1 top-1 z-10 flex items-center gap-0.5 rounded-md border border-border bg-popover p-0.5 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
         data-thread-summary-strip=""
         role="toolbar"
       >

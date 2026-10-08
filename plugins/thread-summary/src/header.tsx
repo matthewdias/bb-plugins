@@ -8,7 +8,7 @@
 // Beside the button sit up to three chips, the thread's worst values first,
 // unless the setting is off or the viewport is compact; then the button
 // carries a dot in the worst tone instead, and none when all is quiet.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   experimental_useSidebarThreads,
   experimental_usePluginId,
@@ -82,10 +82,23 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
 
   // The whole group: a chip opens the card, so pressing one is not "outside".
   const [control, setControl] = useState<HTMLSpanElement | null>(null);
+  const [button, setButton] = useState<HTMLButtonElement | null>(null);
+  // Whether the open in progress came from a key: Enter and Space make a
+  // click with no click count, a mouse one has one.
+  const [focusOnOpen, setFocusOnOpen] = useState(false);
+  const openFrom = (event: MouseEvent) => {
+    setFocusOnOpen(event.detail === 0);
+    setOpen(true);
+  };
   const shown = useMemo(() => (showChips ? chips(entries) : []), [entries, showChips]);
   const dot = showChips ? null : worstTone(entries);
   const settingsHref = settingsPath(pluginId);
   const close = () => setOpen(false);
+  /** The close button: focus was on it, inside the card, so give it back. */
+  const closeFromCard = () => {
+    setOpen(false);
+    button?.focus();
+  };
 
   const body = <CardBody entries={entries} environmentId={environmentId} mode={device.mode} />;
 
@@ -97,7 +110,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
           className={CONTROL}
           data-thread-summary-chip={entry.provider.id}
           key={entry.provider.id}
-          onClick={() => setOpen(true)}
+          onClick={openFrom}
           title={chipLabel(entry)}
           type="button"
         >
@@ -113,7 +126,8 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
         aria-label="Thread summary"
         className={`${CONTROL} relative w-7 justify-center px-0`}
         data-thread-summary-button=""
-        onClick={() => setOpen((current) => !current)}
+        onClick={(event) => (open ? close() : openFrom(event))}
+        ref={setButton}
         title="Thread summary"
         type="button"
       >
@@ -147,10 +161,12 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
       ) : open ? (
         <FloatingCard
           control={control}
+          focusOnOpen={focusOnOpen}
+          returnFocusTo={button}
           controls={
             <Controls
               mode={device.mode}
-              onClose={close}
+              onClose={closeFromCard}
               onMode={(mode) => updateDevice({ mode })}
               onPin={(pinned) => updateDevice({ pinned })}
               onSettings={(event) => navigateInApp(event, settingsHref)}

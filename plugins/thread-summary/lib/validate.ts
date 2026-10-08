@@ -63,16 +63,24 @@ export function safeHref(raw: unknown): string | null {
   return url.protocol === "http:" || url.protocol === "https:" ? raw : null;
 }
 
+/** A colon before the first separator: a scheme (`file:`), or a drive (`C:`). */
+const SCHEME_OR_DRIVE = /^[^/\\]*:/u;
+
 /**
- * A path inside the thread's workspace, or `null`. Absolute paths, drive
- * letters and any `..` segment are refused: a provider names a file the
+ * A path inside the thread's workspace, or `null`. Absolute paths, schemes,
+ * drive letters and any `..` segment are refused: a provider names a file the
  * thread has, never one outside it.
+ *
+ * So is a segment with whitespace at either end. Windows drops trailing
+ * spaces from a path component, so `a/.. /x` is `..` there, and anything that
+ * trims ` /etc/passwd` makes it absolute; no real file needs either.
  */
 export function safeFile(raw: unknown): string | null {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_FILE_LENGTH) return null;
   if (CONTROL_CHARACTER.test(raw)) return null;
-  if (raw.startsWith("/") || raw.startsWith("\\") || /^[A-Za-z]:/u.test(raw)) return null;
-  if (raw.split(/[\\/]/u).some((segment) => segment === "..")) return null;
+  if (raw.startsWith("/") || raw.startsWith("\\") || SCHEME_OR_DRIVE.test(raw)) return null;
+  const segments = raw.split(/[\\/]/u);
+  if (segments.some((segment) => segment === ".." || segment !== segment.trim())) return null;
   return raw;
 }
 

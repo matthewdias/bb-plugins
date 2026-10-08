@@ -49,6 +49,10 @@ The controls — mode, pin, settings and close — sit in the card's top-right
 corner, inside it, and show only while the card is hovered or has keyboard
 focus.
 
+Opened from the keyboard, the card takes focus, so Tab reaches its controls
+and links next; opened with the mouse, focus stays where it was. Escape from
+inside the card, or its close button, hands focus back to the header button.
+
 **Pin** is one setting per device. Pinned, the card stays open on every thread,
 through thread switches and clicks elsewhere. Unpinned, Escape, a click outside
 or a thread switch closes it. A click inside one of bb's own portaled overlays
@@ -82,10 +86,14 @@ the merge queue are `running`; changes requested and blocked are `warning`;
 review requested is `info`; ready to merge and merged are `success`; draft,
 closed and a quiet open PR are `default`.
 
-Each provider answers only the threads some surface wants. Git is read from
-`environments.status` against the environment's merge-base branch: again when
-a card opens for the thread, every 20 seconds while it stays open, and when the
-thread's agent goes from busy to idle. bb sends a plugin no turn or diff events
+Each provider answers only the threads some surface wants, and asks afresh
+whenever one is wanted again. Git is read from `environments.status` against
+the environment's merge-base branch — `environments.get` then the status, two
+calls, four threads at a time at most: again when a card opens for the thread,
+every 20 seconds while it stays open, and when the thread's agent goes from busy
+to idle. The environment is the sidebar's live one, so a thread that gets an
+environment, or moves to another, is followed at once; only a thread the sidebar
+does not list, such as an archived one, costs a `threads.get` as well. bb sends a plugin no turn or diff events
 of its own, so that transition, read from the sidebar's live thread list, is
 the signal. The pull request comes from `experimental_useSidebarThreadPullRequest`,
 which owns its polling.
@@ -106,8 +114,11 @@ open?: { href: string }
   first, since a browser strips the one and reads the other as a slash —
   `/\t/x` and `/\x` both become `//x`. Drawn as a real link, so copy and
   middle-click work.
-- **`file`**: a path relative to the thread's workspace. Absolute paths, drive
-  letters and any `..` segment are refused. Drawn as bb's file link.
+- **`file`**: a path relative to the thread's workspace. Absolute paths, any
+  scheme or drive (a colon before the first `/`, so `file://` is out), any
+  `..` segment, and any segment with whitespace at either end are refused —
+  Windows strips a trailing space, so `a/.. /x` is `..` there. Drawn as bb's
+  file link.
 
 A field that fails is dropped, not its row.
 
