@@ -1,19 +1,21 @@
 // The card on a phone or a coarse pointer: a drawer from the bottom of the
 // screen, like bb's own composer popups.
 //
-// It always shows the expanded summary: on a phone there is nothing to
-// toggle, and the desktop card's remembered mode is neither read nor written
-// here. Its height fits its contents, up to 92% of the screen, and it scrolls
-// inside once it reaches that.
+// It shows what the desktop card shows, and opens only when asked: whether
+// the desktop card is showing is neither read nor written here. Its height
+// fits its contents, up to 92% of the screen, and it scrolls inside once it
+// reaches that.
 //
-// The top edge holds the handle, then the controls (settings and close). The
-// drawer moves down only: dragged past a quarter of its own height it closes,
+// The top edge holds the handle and a close button: the backdrop covers the
+// header button, so the drawer needs its own way out. The drawer moves down
+// only: dragged past a quarter of its own height it closes,
 // short of that it springs back. Tapping the backdrop, Escape and the close
 // button close it too, and focus goes back to the header button. Focus and
 // Escape are the vendored drawer's (components/ui/responsive-overlay.tsx),
 // reused rather than rebuilt.
 import { useCallback, useRef, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import { usePersistentOverlayFocus } from "@/components/ui/responsive-overlay";
 import { DRAWER_FULL, dismissesAt } from "../lib/placement";
 import { usePortalScopeProps } from "../lib/portal-scope";
@@ -31,15 +33,12 @@ export function SummaryDrawer({
   open,
   onClose,
   returnFocusTo,
-  controls,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   /** The header button, which gets focus back however the drawer closes. */
   returnFocusTo: HTMLElement | null;
-  /** Sits on the drawer's top edge, beside the handle. */
-  controls: ReactNode;
   children: ReactNode;
 }) {
   const scope = usePortalScopeProps();
@@ -126,7 +125,15 @@ export function SummaryDrawer({
           >
             <div className="h-1 w-10 rounded-full bg-muted-foreground/20" />
           </div>
-          <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">{controls}</div>
+          <button
+            aria-label="Close"
+            className="absolute right-2 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={requestClose}
+            title="Close"
+            type="button"
+          >
+            <Icon aria-hidden name="X" style={{ height: 16, width: 16 }} />
+          </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">{children}</div>
       </div>

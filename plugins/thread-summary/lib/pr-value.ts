@@ -1,11 +1,11 @@
 // The pull-request complication, from bb's own per-thread lookup.
 //
-// `attention` is bb's rolled-up "does this need you", so it alone decides the
-// small sizes: a phrase for the text and a tone for the glyph. The detail
-// spells out what it was rolled up from.
+// One line: `#N title`, then the worst state as a phrase, and a link to the
+// pull request. `attention` is bb's rolled-up "does this need you", so it
+// alone decides the phrase and the tone. No detail: bb's own Info panel shows
+// the checks, review and mergeability, and can act on them.
 import type { PluginSidebarPullRequest } from "@get-bb/plugin-sdk/app";
 import type { ComplicationValue } from "./complications";
-import type { DetailRow } from "./validate";
 
 /**
  * Each attention state's text and tone. Pending and queued are `running`,
@@ -28,37 +28,6 @@ export const ATTENTION: Readonly<Record<string, { text?: string; tone: string }>
   none: { tone: "default" },
 };
 
-const CHECKS: Readonly<Record<string, { value: string; tone?: string }>> = {
-  passing: { value: "passing", tone: "success" },
-  failing: { value: "failing", tone: "error" },
-  pending: { value: "running", tone: "running" },
-  no_checks: { value: "none" },
-  unknown: { value: "unknown" },
-};
-
-const REVIEW: Readonly<Record<string, { value: string; tone?: string }>> = {
-  approved: { value: "approved", tone: "success" },
-  changes_requested: { value: "changes requested", tone: "warning" },
-  review_requested: { value: "requested", tone: "info" },
-  review_required: { value: "required" },
-  none: { value: "none" },
-};
-
-const MERGEABILITY: Readonly<Record<string, { value: string; tone?: string }>> = {
-  mergeable: { value: "mergeable", tone: "success" },
-  conflicts: { value: "conflicts", tone: "error" },
-  blocked: { value: "blocked", tone: "warning" },
-  draft: { value: "draft" },
-  unknown: { value: "unknown" },
-};
-
-function lookup(
-  table: Readonly<Record<string, { value: string; tone?: string }>>,
-  state: string,
-): { value: string; tone?: string } {
-  return Object.prototype.hasOwnProperty.call(table, state) ? table[state] : { value: state };
-}
-
 /** `null` when the thread's branch has no pull request. */
 export function prValue(pullRequest: PluginSidebarPullRequest | null): ComplicationValue | null {
   if (pullRequest === null) return null;
@@ -67,23 +36,11 @@ export function prValue(pullRequest: PluginSidebarPullRequest | null): Complicat
     ? ATTENTION[pullRequest.attention]
     : { tone: "default" };
 
-  const rows: DetailRow[] = [
-    { label: "Checks", ...lookup(CHECKS, pullRequest.experimental_checks.state) },
-    { label: "Review", ...lookup(REVIEW, pullRequest.experimental_review.state) },
-    { label: "Mergeability", ...lookup(MERGEABILITY, pullRequest.experimental_mergeability.state) },
-  ];
-  if (pullRequest.experimental_inMergeQueue === true) {
-    rows.push({ label: "Merge queue", value: "queued", tone: "running" });
-  } else if (pullRequest.experimental_autoMerge) {
-    rows.push({ label: "Auto-merge", value: "on" });
-  }
-
   return {
     icon: "GitPullRequest",
     label,
     tone: attention.tone,
     ...(attention.text !== undefined ? { text: attention.text } : {}),
-    detail: { title: label, rows },
     open: { href: pullRequest.url },
   } as ComplicationValue;
 }

@@ -26,7 +26,7 @@
   },
   "bb": {
     "name": "Thread Summary",
-    "description": "A card under the thread header that shows the thread's branch, its pull request and what other plugins publish about it, like Follow Up's progress, with the worst of them as chips beside the button.",
+    "description": "A card under the thread header, shown and hidden from one button, with a line each for the thread's branch, its pull request and what other plugins publish about it, like Follow Up's progress. The worst of them sit beside the button as chips.",
     "branding": {
       "icon": "DashboardSquare01"
     },

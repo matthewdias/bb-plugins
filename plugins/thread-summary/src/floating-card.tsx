@@ -6,9 +6,10 @@
 // by the header action rather than an app overlay, because bb's file links
 // work only beneath a thread's own surface, and React context — unlike the
 // DOM — follows a portal back to where it was rendered.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+//
+// It has no controls of its own. The header button shows and hides it.
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { closesOn, isOutside } from "../lib/card-state";
 import { placeCard, type CardPlacement, type Rect } from "../lib/placement";
 import { usePortalScopeProps } from "../lib/portal-scope";
 
@@ -54,12 +55,10 @@ export function FloatingCard({
   control,
   returnFocusTo,
   focusOnOpen,
-  pinned,
   onClose,
-  controls,
   children,
 }: {
-  /** The header control the card hangs from: presses on it are not outside. */
+  /** The header control the card hangs from. */
   control: HTMLElement | null;
   /** Where focus goes back to when Escape closes the card from inside it. */
   returnFocusTo: HTMLElement | null;
@@ -68,10 +67,7 @@ export function FloatingCard({
    * document — would come only after tabbing through the whole app.
    */
   focusOnOpen: boolean;
-  pinned: boolean;
   onClose: () => void;
-  /** The strip's buttons. */
-  controls: ReactNode;
   children: ReactNode;
 }) {
   const scope = usePortalScopeProps();
@@ -79,73 +75,41 @@ export function FloatingCard({
   const cardRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-
   const returnFocusRef = useRef(returnFocusTo);
   returnFocusRef.current = returnFocusTo;
 
-  const dismiss = useCallback(
-    (reason: "escape" | "outside") => {
-      if (!closesOn(reason, pinned)) return;
-      // Escape from inside the card hands focus back to the button. From
-      // anywhere else — the composer — focus stays where the reader is.
-      const fromInside = reason === "escape" && cardRef.current?.contains(document.activeElement) === true;
+  // The card stays until the header button hides it: a click elsewhere does
+  // not. Escape hides it only from inside the card, and hands focus back to
+  // the button; pressed anywhere else — the composer — it is not the card's.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (cardRef.current?.contains(document.activeElement) !== true) return;
       onCloseRef.current();
-      if (fromInside) returnFocusRef.current?.focus();
-    },
-    [pinned],
-  );
+      returnFocusRef.current?.focus();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const placed = placement !== null;
   useEffect(() => {
-    if (placed && focusOnOpen) cardRef.current?.focus();
     // Only when the card first appears: a later re-render must not pull focus.
+    if (placed && focusOnOpen) cardRef.current?.focus();
   }, [placed]);
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (isOutside(event.target, cardRef.current, control)) dismiss("outside");
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) dismiss("escape");
-    };
-    // Capture: a menu that stops propagation must not keep the card open.
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [control, dismiss]);
 
   if (placement === null) return null;
   return createPortal(
     <section
       {...scope}
       aria-label="Thread summary"
-      className="group fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border bg-popover text-xs text-popover-foreground shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border bg-popover text-xs text-popover-foreground shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
       data-thread-summary-card=""
       ref={cardRef}
       role="dialog"
-      tabIndex={-1}
       style={{ left: placement.left, top: placement.top, width: placement.width, maxHeight: placement.maxHeight }}
+      tabIndex={-1}
     >
-      {/*
-        The strip overlays the card's top-right corner, inside its edges, and
-        shows only on hover or keyboard focus — on the card itself, which a
-        keyboard open focuses, or anything in it. Keyboard focus means
-        :focus-visible, not :focus-within: a mouse click leaves its button
-        focused, and the strip would stay up after the pointer left. It may
-        cover the first line's trailing text while it shows; the card takes no
-        room beyond itself.
-      */}
-      <div
-        aria-label="Thread summary controls"
-        className="pointer-events-none absolute right-1 top-1 z-10 flex items-center gap-0.5 rounded-md border border-border bg-popover p-0.5 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
-        data-thread-summary-strip=""
-        role="toolbar"
-      >
-        {controls}
-      </div>
       <div className="min-h-0 overflow-y-auto">{children}</div>
     </section>,
     document.body,

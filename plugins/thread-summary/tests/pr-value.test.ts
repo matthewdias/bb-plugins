@@ -60,34 +60,9 @@ describe("prValue", () => {
     expect(value.text).toBeUndefined();
   });
 
-  it("details checks, review and mergeability", () => {
-    const detail = readDetail(
-      prValue(
-        pr({
-          experimental_checks: { state: "failing" },
-          experimental_review: { state: "approved" },
-          experimental_mergeability: { state: "conflicts" },
-        }),
-      ),
-    )!;
-    expect(detail.title).toBe("#41 Thread Summary");
-    expect(detail.rows).toEqual([
-      { label: "Checks", value: "failing", tone: "error" },
-      { label: "Review", value: "approved", tone: "success" },
-      { label: "Mergeability", value: "conflicts", tone: "error" },
-    ]);
-  });
-
-  it("adds auto-merge when it is on, and the merge queue instead when queued", () => {
-    const auto = readDetail(prValue(pr({ experimental_autoMerge: true })))!.rows;
-    expect(auto.at(-1)).toEqual({ label: "Auto-merge", value: "on" });
-    const queued = readDetail(prValue(pr({ experimental_autoMerge: true, experimental_inMergeQueue: true })))!.rows;
-    expect(queued.at(-1)).toEqual({ label: "Merge queue", value: "queued", tone: "running" });
-    expect(queued.some((row) => row.label === "Auto-merge")).toBe(false);
-  });
-
-  it("adds neither when both are off or unknown", () => {
-    const rows = readDetail(prValue(pr({ experimental_inMergeQueue: null })))!.rows;
-    expect(rows.map((row) => row.label)).toEqual(["Checks", "Review", "Mergeability"]);
+  it("is one line: no detail, and a link to the pull request", () => {
+    const value = prValue(pr({ attention: "checks_failed", experimental_autoMerge: true, experimental_inMergeQueue: true })) as unknown as Record<string, unknown>;
+    expect(Object.keys(value).sort()).toEqual(["icon", "label", "open", "text", "tone"]);
+    expect(readDetail(value)).toBeNull();
   });
 });

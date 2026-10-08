@@ -1,7 +1,7 @@
-// The card's mode and pin, as a hook every card in the window shares.
+// Whether the card is showing, as a hook every card in the window shares.
 //
-// ../lib/card-state stores them per device; this keeps the cards in step, so
-// pinning in one pane or switching the mode shows in every other at once.
+// ../lib/card-state stores it per device; this keeps the cards in step, so
+// pressing the button in one pane shows or hides the card in every other.
 import { useCallback, useSyncExternalStore } from "react";
 import { experimental_usePluginId } from "@get-bb/plugin-sdk/app";
 import { readState, writeState, type DeviceState } from "../lib/card-state";

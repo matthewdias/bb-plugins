@@ -24,40 +24,30 @@ and `bb plugin update` follows it.
 
 ## What it does
 
-![The card, compact: Git behind main, the merged pull request and Follow Up's ring](screenshots/desktop-compact.jpg)
-
-![The card, expanded, with its controls showing on hover](screenshots/desktop-expanded.jpg)
+![The card: Git behind main, the merged pull request and Follow Up's ring](screenshots/desktop-card.jpg)
 
 The `screenshots/` directory holds the frames for a store listing, taken from a
-live bb 0.45 window: desktop compact, expanded, the controls on hover, the
-phone header with its dot in place of chips, and the phone drawer, short and at
-its full height.
+live bb 0.45 window: the desktop card, the phone header with its dot in place
+of chips, and the phone drawer.
 
 ### The card
 
-The header button opens a card, top right of the thread pane and under the
-header, 260px wide. One block per provider with something to say, Git and the
-pull request first, then the rest in the order they registered. A block's
-first line is the value's glyph in its tone, its headline (`detail.title`, or
-the label), then its text; the provider's name is the line's tooltip and
-accessible name. A value with a `fraction` draws as a ring.
+The header button shows a card, top right of the thread pane and under the
+header, 260px wide; press it again to hide it. One block per provider with
+something to say, Git and the pull request first, then the rest in the order
+they registered. A block's first line is the value's glyph in its tone, its
+headline (`detail.title`, or the label), then its text; the provider's name is
+the line's tooltip and accessible name. A value with a `fraction` draws as a
+ring. A provider that supplies detail rows gets them under its line, eight at
+most and then "N more"; Git and the pull request supply none, since bb's own
+Info panel already shows their detail and can act on it.
 
-Two modes, switched from the card and remembered per device: **compact** shows
-headline lines only; **expanded** adds each value's detail rows, eight at most
-and then "N more".
-
-The controls — mode, pin, settings and close — sit in the card's top-right
-corner, inside it, and show only while the card is hovered or has keyboard
-focus.
-
-Opened from the keyboard, the card takes focus, so Tab reaches its controls
-and links next; opened with the mouse, focus stays where it was. Escape from
-inside the card, or its close button, hands focus back to the header button.
-
-**Pin** is one setting per device. Pinned, the card stays open on every thread,
-through thread switches and clicks elsewhere. Unpinned, Escape, a click outside
-or a thread switch closes it. A click inside one of bb's own portaled overlays
-— a menu, a popover, the file preview — is not "outside".
+The card has no controls of its own. Whether it shows is remembered on this
+device: it stays through thread switches and reloads, in every pane, until the
+button hides it. A click elsewhere does not hide it. Opened from the keyboard,
+the card takes focus, so Tab reaches its links next; opened with the mouse,
+focus stays where it was. Escape from inside the card hides it and hands focus
+back to the button.
 
 A split layout has a header per pane, and each gets its own card.
 
@@ -71,20 +61,22 @@ dot in the worst tone instead, and no dot when every value is `default`.
 
 ### Phones and coarse pointers
 
-The card becomes a bottom drawer that always shows the details: there is no
-mode to switch, and the desktop card's remembered mode is left alone. It fits
-its contents, up to 92% of the screen, and scrolls inside past that. Its top
-edge holds the handle, settings and close. Drag it down past a quarter of its
-height, tap outside, press Escape or close it, and focus goes back to the
-header button; let go short of that quarter and it springs back. Pin does not
-apply.
+The card becomes a bottom drawer. It fits its contents, up to 92% of the
+screen, and scrolls inside past that. Its top edge holds the handle and a close
+button, since its backdrop covers the header button. Drag it down past a
+quarter of its height, tap outside, press Escape or close it, and focus goes
+back to the header button; let go short of that quarter and it springs back.
+Showing it is never remembered on a phone: it opens when asked and closes on a
+thread switch.
 
 ### Providers it publishes
 
-| Id | Glyph, label, text, tone | Detail | Opens |
-| --- | --- | --- | --- |
-| `thread-summary/git` | `GitBranch`; `<branch> → <base>`; `↑ahead`, plus `↓behind` when non-zero; `warning` when behind or with uncommitted changes | ahead · behind, uncommitted N files, then the files with the most changed lines (branch and working tree summed per path), each opening in the thread's workspace | — |
-| `thread-summary/pull-request` | `GitPullRequest`; `#<n> <title>`; text and tone from bb's `attention` | checks, review, mergeability, and auto-merge or the merge queue when set | the pull request |
+Each is one line, with no `detail`: bb's own Info panel shows the rest.
+
+| Id | Glyph, label, text, tone | Opens |
+| --- | --- | --- |
+| `thread-summary/git` | `GitBranch`; `<branch> → <base>`; `↑ahead`, plus `↓behind` when non-zero; `warning` when behind or with uncommitted changes | — |
+| `thread-summary/pull-request` | `GitPullRequest`; `#<n> <title>`; the worst state as a phrase, and its tone, from bb's `attention` | the pull request |
 
 Pull-request tones: failed checks and conflicts are `error`; pending checks and
 the merge queue are `running`; changes requested and blocked are `warning`;
@@ -95,7 +87,7 @@ Each provider answers only the threads some surface wants, and asks afresh
 whenever one is wanted again. Git is read from `environments.status` against
 the environment's merge-base branch — `environments.get` then the status, two
 calls, four threads at a time at most: again when a card opens for the thread,
-every 20 seconds while it stays open, and when the thread's agent goes from busy
+every 20 seconds while it stays shown, and when the thread's agent goes from busy
 to idle. The environment is the sidebar's live one, so a thread that gets an
 environment, or moves to another, is followed at once; only a thread the sidebar
 does not list, such as an archived one, costs a `threads.get` as well. bb sends a plugin no turn or diff events

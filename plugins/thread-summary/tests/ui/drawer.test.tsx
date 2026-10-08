@@ -66,8 +66,7 @@ function drag(height: number, dy: number) {
 }
 
 describe("the phone drawer", () => {
-  it("opens instead of the floating card, always showing the details", () => {
-    window.localStorage.setItem("thread-summary:mode", "compact");
+  it("opens instead of the floating card, showing each line and its details", () => {
     render();
     expect(document.querySelector("[data-thread-summary-card]")).toBeNull();
     expect(within(drawer()!).getByText("feature → main")).toBeTruthy();
@@ -80,19 +79,18 @@ describe("the phone drawer", () => {
     expect(drawer()!.style.height).toBe("");
   });
 
-  it("has no mode control, and never writes the stored mode", () => {
-    window.localStorage.setItem("thread-summary:mode", "compact");
+  it("has only a handle and a close button on its top edge", () => {
     render();
-    expect(within(drawer()!).queryByRole("button", { name: /details|headlines/i })).toBeNull();
-    drag(400, 50);
-    drag(400, 200);
-    expect(window.localStorage.getItem("thread-summary:mode")).toBe("compact");
+    expect(within(drawer()!).getAllByRole("button").map((element) => element.getAttribute("aria-label"))).toEqual(["Close"]);
+    expect(within(drawer()!).queryByRole("link", { name: /settings/i })).toBeNull();
+    expect(handle()).not.toBeNull();
   });
 
-  it("leaves no stored mode behind when there was none", () => {
+  it("never remembers showing, opened or dragged", () => {
     render();
     drag(400, 50);
-    expect(window.localStorage.getItem("thread-summary:mode")).toBeNull();
+    fireEvent.click(within(drawer()!).getByRole("button", { name: "Close" }));
+    expect(window.localStorage.getItem("thread-summary:shown")).toBeNull();
   });
 
   it("closes from its close button and gives focus back to the header button", async () => {
@@ -136,13 +134,8 @@ describe("the phone drawer", () => {
     await waitFor(() => expect(document.activeElement).toBe(button));
   });
 
-  it("has no pin, which does not apply on a phone", () => {
-    render();
-    expect(within(drawer()!).queryByRole("button", { name: /pin/i })).toBeNull();
-  });
-
-  it("does not open by itself on a thread switch while pinned", () => {
-    window.localStorage.setItem("thread-summary:pinned", "true");
+  it("does not open by itself on a thread switch, whatever the desktop remembers", () => {
+    window.localStorage.setItem("thread-summary:shown", "true");
     const slot = renderSlot(
       { component: SummaryAction },
       { threadId: freshThread(), projectId: "proj_1", isCompactViewport: true },
@@ -154,8 +147,16 @@ describe("the phone drawer", () => {
     expect(drawer()).toBeNull();
   });
 
-  it("does not open by itself while pinned", () => {
-    window.localStorage.setItem("thread-summary:pinned", "true");
+  it("closes on a thread switch", () => {
+    const { slot } = render();
+    act(() => {
+      slot.lifecycle.rerender(<SummaryAction isCompactViewport projectId="proj_1" threadId={freshThread()} />);
+    });
+    expect(drawer()).toBeNull();
+  });
+
+  it("does not open by itself, whatever the desktop remembers", () => {
+    window.localStorage.setItem("thread-summary:shown", "true");
     renderSlot(
       { component: SummaryAction },
       { threadId: freshThread(), projectId: "proj_1", isCompactViewport: true },

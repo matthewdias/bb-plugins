@@ -1,9 +1,9 @@
 // The thread header's Thread Summary control, and the card it opens.
 //
 // bb renders one of these per visible thread — a split layout has a header
-// per pane — so everything about an open card is this component's own state,
-// and each pane gets its own card. The two things a card remembers across
-// threads, its mode and the pin, are the device's (./device-state).
+// per pane — so each pane gets its own card. The button shows and hides it,
+// and on a desktop that choice is the device's (./device-state): it holds
+// across thread switches and reloads, in every pane.
 //
 // Beside the button sit up to three chips, the thread's worst values first,
 // unless the setting is off or the viewport is compact; then the button
@@ -11,7 +11,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   experimental_useSidebarThreads,
-  experimental_usePluginId,
   useSettings,
   type PluginThreadHeaderActionProps,
 } from "@get-bb/plugin-sdk/app";
@@ -21,13 +20,12 @@ import type { ComplicationProviderInfo } from "../lib/complications";
 import { SHOW_CHIPS_KEY } from "../lib/hidden";
 import { chips, orderedIds, present, worstTone } from "../lib/order";
 import { toneColor } from "../lib/tone";
-import { CardBody, Controls, type CardEntry } from "./card-body";
+import { CardBody, type CardEntry } from "./card-body";
 import { useThreadProviders, useThreadValues } from "./complications";
 import { useDeviceState } from "./device-state";
 import { SummaryDrawer } from "./drawer";
 import { FloatingCard } from "./floating-card";
 import { Glyph, useRunningStyle } from "./glyph";
-import { navigateInApp, settingsPath } from "./navigate";
 import { markOpen } from "./open-cards";
 import { useHiddenProviders } from "./use-hidden-providers";
 
@@ -67,7 +65,6 @@ const BUTTON = `${CONTROL} relative size-7 justify-center p-0`;
 
 export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeaderActionProps) {
   useRunningStyle();
-  const pluginId = experimental_usePluginId();
   const settings = useSettings();
   const showChips = settings.values?.[SHOW_CHIPS_KEY] !== false && !isCompactViewport;
   const [device, updateDevice] = useDeviceState();
@@ -75,50 +72,46 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
   const { threads } = experimental_useSidebarThreads();
   const environmentId = threads.find((entry) => entry.id === threadId)?.environment?.id ?? null;
 
-  // Pin does not apply to the phone drawer. Pinned on a desktop, the card is
-  // open the moment this header mounts — including the remount a thread
-  // switch can bring — and stays open through the switch.
-  const [open, setOpen] = useState(() => device.pinned && !isCompactViewport);
+  // On a desktop the card shows or hides for this whole device: the button's
+  // choice outlives the thread and the page, so a header that mounts — a
+  // thread switch can remount it — shows the card at once if it was showing.
+  // On a phone the drawer opens only when asked, and closes on a switch.
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const shownThread = useRef(threadId);
   useEffect(() => {
     if (shownThread.current === threadId) return;
     shownThread.current = threadId;
-    setOpen(device.pinned && !isCompactViewport);
-  }, [threadId, device.pinned, isCompactViewport]);
+    setDrawerOpen(false);
+  }, [threadId]);
+  const open = isCompactViewport ? drawerOpen : device.shown;
+  const setShown = (shown: boolean) => (isCompactViewport ? setDrawerOpen(shown) : updateDevice({ shown }));
 
   // Git refreshes when a card opens and polls while it stays open.
   useEffect(() => (open ? markOpen(threadId) : undefined), [open, threadId]);
 
-  // The whole group: a chip opens the card, so pressing one is not "outside".
   const [control, setControl] = useState<HTMLSpanElement | null>(null);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   // Whether the open in progress came from a key: Enter and Space make a
   // click with no click count, a mouse one has one.
   const [focusOnOpen, setFocusOnOpen] = useState(false);
-  const openFrom = (event: MouseEvent) => {
+  const show = (event: MouseEvent) => {
     setFocusOnOpen(event.detail === 0);
-    setOpen(true);
+    setShown(true);
   };
-  const shown = useMemo(() => (showChips ? chips(entries) : []), [entries, showChips]);
+  const hide = () => setShown(false);
+  const shownChips = useMemo(() => (showChips ? chips(entries) : []), [entries, showChips]);
   const dot = showChips ? null : worstTone(entries);
-  const settingsHref = settingsPath(pluginId);
-  const close = () => setOpen(false);
-  /** The close button: focus was on it, inside the card, so give it back. */
-  const closeFromCard = () => {
-    setOpen(false);
-    button?.focus();
-  };
-
+  const body = <CardBody entries={entries} environmentId={environmentId} />;
 
   return (
     <span className="flex items-center gap-0.5" data-thread-summary-header="" ref={setControl}>
-      {shown.map((entry) => (
+      {shownChips.map((entry) => (
         <button
           aria-label={chipLabel(entry)}
           className={CHIP}
           data-thread-summary-chip={entry.provider.id}
           key={entry.provider.id}
-          onClick={openFrom}
+          onClick={show}
           title={chipLabel(entry)}
           type="button"
         >
@@ -130,11 +123,10 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
       ))}
       <button
         aria-expanded={open}
-        aria-haspopup="dialog"
         aria-label="Thread summary"
         className={BUTTON}
         data-thread-summary-button=""
-        onClick={(event) => (open ? close() : openFrom(event))}
+        onClick={(event) => (open ? hide() : show(event))}
         ref={setButton}
         title="Thread summary"
         type="button"
@@ -162,42 +154,12 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
         ) : null}
       </button>
       {isCompactViewport ? (
-        // The phone drawer always shows the details, so it neither reads nor
-        // writes the desktop card's mode.
-        <SummaryDrawer
-          controls={
-            <Controls
-              onClose={close}
-              onSettings={(event) => navigateInApp(event, settingsHref)}
-              settingsHref={settingsHref}
-            />
-          }
-          onClose={close}
-          open={open}
-          returnFocusTo={button}
-        >
-          <CardBody entries={entries} environmentId={environmentId} mode="expanded" />
+        <SummaryDrawer onClose={hide} open={open} returnFocusTo={button}>
+          {body}
         </SummaryDrawer>
       ) : open ? (
-        <FloatingCard
-          control={control}
-          focusOnOpen={focusOnOpen}
-          returnFocusTo={button}
-          controls={
-            <Controls
-              mode={device.mode}
-              onClose={closeFromCard}
-              onMode={(mode) => updateDevice({ mode })}
-              onPin={(pinned) => updateDevice({ pinned })}
-              onSettings={(event) => navigateInApp(event, settingsHref)}
-              pinned={device.pinned}
-              settingsHref={settingsHref}
-            />
-          }
-          onClose={close}
-          pinned={device.pinned}
-        >
-          <CardBody entries={entries} environmentId={environmentId} mode={device.mode} />
+        <FloatingCard control={control} focusOnOpen={focusOnOpen} onClose={hide} returnFocusTo={button}>
+          {body}
         </FloatingCard>
       ) : null}
     </span>

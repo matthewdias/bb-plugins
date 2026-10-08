@@ -1,9 +1,10 @@
 // What the card draws, in either of its homes: the floating card on a desktop
-// and the drawer on a phone, which always draws it expanded.
+// and the drawer on a phone.
 //
 // One block per provider, with no provider titles: the first line is the
 // value's glyph, its headline and its text, and the provider's name is that
-// line's tooltip and accessible name. Expanded, a block adds its detail rows.
+// line's tooltip and accessible name. A provider that supplies detail rows
+// gets them under its line; Git and the pull request supply none.
 // Nothing here trusts the value's `detail` or `open`: ../lib/validate checks
 // them first, and a link that fails is drawn as plain text.
 import {
@@ -12,7 +13,6 @@ import {
   experimental_Icon as Icon,
 } from "@get-bb/plugin-sdk/app";
 import type { ComplicationProviderInfo } from "../lib/complications";
-import type { Mode } from "../lib/card-state";
 import type { Entry } from "../lib/order";
 import { toneColor } from "../lib/tone";
 import { readDetail, readOpen, type DetailRow } from "../lib/validate";
@@ -70,15 +70,7 @@ function Row({ row, environmentId }: { row: DetailRow; environmentId: string | n
   );
 }
 
-function Block({
-  entry,
-  expanded,
-  environmentId,
-}: {
-  entry: CardEntry;
-  expanded: boolean;
-  environmentId: string | null;
-}) {
+function Block({ entry, environmentId }: { entry: CardEntry; environmentId: string | null }) {
   const { provider, value } = entry;
   const detail = readDetail(value);
   const open = readOpen(value);
@@ -102,7 +94,7 @@ function Block({
           <span className="shrink-0 tabular-nums text-muted-foreground">{value.text}</span>
         ) : null}
       </div>
-      {expanded && rows.length > 0 ? (
+      {rows.length > 0 ? (
         <ul className="mt-1.5 flex flex-col gap-1 pl-[22px] text-muted-foreground">
           {rows.slice(0, MAX_ROWS).map((row, index) => (
             <Row environmentId={environmentId} key={`${index}:${row.label}`} row={row} />
@@ -116,11 +108,9 @@ function Block({
 
 export function CardBody({
   entries,
-  mode,
   environmentId,
 }: {
   entries: readonly CardEntry[];
-  mode: Mode;
   /** For file rows; `null` while the thread has no environment, which draws them as text. */
   environmentId: string | null;
 }) {
@@ -130,77 +120,8 @@ export function CardBody({
   return (
     <div className="flex flex-col divide-y divide-border">
       {entries.map((entry) => (
-        <Block
-          entry={entry}
-          environmentId={environmentId}
-          expanded={mode === "expanded"}
-          key={entry.provider.id}
-        />
+        <Block entry={entry} environmentId={environmentId} key={entry.provider.id} />
       ))}
     </div>
-  );
-}
-
-const BUTTON =
-  "inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
-
-/**
- * The card's controls: mode, pin, settings and close. The mode toggle and pin
- * are left out where they do not apply — the phone drawer always shows the
- * details, and is never pinned.
- */
-export function Controls({
-  mode,
-  onMode,
-  pinned,
-  onPin,
-  settingsHref,
-  onSettings,
-  onClose,
-}: {
-  mode?: Mode;
-  onMode?: (mode: Mode) => void;
-  pinned?: boolean;
-  onPin?: (pinned: boolean) => void;
-  settingsHref: string;
-  onSettings: (event: React.MouseEvent<HTMLAnchorElement>) => void;
-  onClose?: () => void;
-}) {
-  const expanded = mode === "expanded";
-  return (
-    <>
-      {onMode !== undefined ? (
-        <button
-          aria-label={expanded ? "Show headlines only" : "Show details"}
-          aria-pressed={expanded}
-          className={BUTTON}
-          onClick={() => onMode(expanded ? "compact" : "expanded")}
-          title={expanded ? "Show headlines only" : "Show details"}
-          type="button"
-        >
-          <Icon aria-hidden name={expanded ? "ChevronUp" : "ChevronDown"} style={{ height: 14, width: 14 }} />
-        </button>
-      ) : null}
-      {onPin !== undefined ? (
-        <button
-          aria-label={pinned ? "Unpin" : "Pin open on every thread"}
-          aria-pressed={pinned === true}
-          className={BUTTON}
-          onClick={() => onPin(!pinned)}
-          title={pinned ? "Unpin" : "Pin open on every thread"}
-          type="button"
-        >
-          <Icon aria-hidden name={pinned ? "PinOff" : "Pin"} style={{ height: 14, width: 14 }} />
-        </button>
-      ) : null}
-      <a aria-label="Thread Summary settings" className={BUTTON} href={settingsHref} onClick={onSettings} title="Settings">
-        <Icon aria-hidden name="SlidersHorizontal" style={{ height: 14, width: 14 }} />
-      </a>
-      {onClose !== undefined ? (
-        <button aria-label="Close" className={BUTTON} onClick={onClose} title="Close" type="button">
-          <Icon aria-hidden name="X" style={{ height: 14, width: 14 }} />
-        </button>
-      ) : null}
-    </>
   );
 }

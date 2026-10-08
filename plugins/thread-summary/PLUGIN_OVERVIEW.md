@@ -5,21 +5,21 @@ the header, and the most urgent of it beside the button.
 
 ## What you get
 
-**A card under the header.** One button in the thread header opens a small
-card, top right of the thread, over the chat. It shows one line per source:
-an icon in the source's colour, a headline, and a few characters beside it.
-Switch it to expanded to add each source's details. The card remembers that
-choice on this device.
+**A card under the header.** One button in the thread header shows a small
+card, top right of the thread, over the chat; press it again to hide it. It
+shows one line per source: an icon in the source's colour, a headline, and a
+few characters beside it, with any details a source adds underneath. Showing
+it is remembered on this device, so it stays through thread switches and
+reloads until you hide it, and a click elsewhere leaves it be.
 
-**Your branch.** The branch against the one it merges into, with how many
-commits it is ahead and behind. The line turns amber when the branch is behind
-or has uncommitted work. Expanded, it lists the uncommitted file count and the
-files with the most changed lines; each file opens in bb's preview.
+**Your branch.** One line: the branch against the one it merges into, and how
+many commits it is ahead and behind. It turns amber when the branch is behind
+or has uncommitted work.
 
-**Your pull request.** Its number and title, linked to the pull request, with
-what it needs: checks failing, checks running, changes requested, review
-requested, ready to merge and so on, coloured to match. Expanded, it shows
-checks, review, mergeability, and auto-merge or the merge queue when they apply.
+**Your pull request.** One line: its number and title, linked to the pull
+request, and what it needs most — checks failing, checks running, changes
+requested, review requested, ready to merge and so on, coloured to match.
+bb's own Info panel has the rest of the detail for both, and acts on it.
 
 **What other plugins publish.** Any plugin can publish a small value about a
 thread, called a complication, and the card draws it with no setup. Follow Up
@@ -31,18 +31,16 @@ so you see a failing check without opening anything. Clicking one opens the
 card. Turn chips off in settings and the button carries a dot in the worst
 colour instead, and no dot when everything is quiet.
 
-**Pin.** Pinned, the card stays open on every thread you switch to, and through
-clicks elsewhere. Unpinned, Escape, a click outside or a thread switch closes
-it. Each pane of a split layout has its own card.
+Each pane of a split layout has its own card.
 
-**On a phone.** The card is a drawer from the bottom of the screen that
-always shows the details, as tall as they need up to most of the screen. Swipe
-it down, tap outside or press its close button to put it away.
+**On a phone.** The card is a drawer from the bottom of the screen, as tall
+as it needs up to most of the screen. Swipe it down, tap outside or press its
+close button to put it away.
 
 ## How it works
 
 The branch comes from bb's own environment status. It is read again when the
-card opens, every 20 seconds while it stays open, and whenever the thread's
+card opens, every 20 seconds while it shows, and whenever the thread's
 agent finishes a turn. The pull request comes from bb's own lookup, which owns
 the polling. Both are published as complications too, so Thread Badges can
 draw them on sidebar rows once you turn them on there.
