@@ -384,11 +384,22 @@ export function prOwners(threads: readonly ThreadFacts[]): Map<string, string> {
 // ---------------------------------------------------------------------------
 // Replies
 
+/** The path bb serves a session's Thread Page at, on its own origin. */
+export function threadPagePath(threadId: string): string {
+  return `/api/v1/plugins/thread-pages/http/page?session=${encodeURIComponent(threadId)}`;
+}
+
 /**
- * The thread's own Thread Page link in its last reply, which is how Thread
- * Pages asks agents to end a turn: chat carries only the link. Only this
- * thread's own page counts — a reply that links to another session's page is
- * pointing somewhere, not asking here.
+ * Whether the thread's last reply links to its own Thread Page, which is how
+ * Thread Pages asks agents to end a turn: chat carries only the link. Only
+ * this thread's own page counts — a reply that links to another session's
+ * page is pointing somewhere, not asking here.
+ *
+ * The answer is the page's path, built from the thread id, never the URL the
+ * reply wrote. The reply is the model's output: a link it wrote could name
+ * any host, and the card's button says it opens this thread's page, so it
+ * must open bb's own and nothing else. The page puts the path on its own
+ * origin.
  */
 export function pageLinkIn(reply: string | null, threadId: string): string | null {
   if (reply === null) return null;
@@ -397,7 +408,7 @@ export function pageLinkIn(reply: string | null, threadId: string): string | nul
   for (const match of reply.matchAll(pattern)) {
     const url = match[0];
     const query = url.slice(url.indexOf("?") + 1);
-    if (new URLSearchParams(query).get("session") === threadId) return url;
+    if (new URLSearchParams(query).get("session") === threadId) return threadPagePath(threadId);
   }
   return null;
 }

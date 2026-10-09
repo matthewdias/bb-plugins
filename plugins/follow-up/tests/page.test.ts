@@ -289,7 +289,7 @@ test("cardFor: a reply ending on this thread's page link is a page card", () => 
   const reply = "[Open the Thread Page](https://h.example/api/v1/plugins/thread-pages/http/page?session=thr_a)";
   const card = must(cardFor(inputs({ reply })));
   assert.equal(card.lead, "page");
-  assert.equal(card.pageUrl, "https://h.example/api/v1/plugins/thread-pages/http/page?session=thr_a");
+  assert.equal(card.pageUrl, "/api/v1/plugins/thread-pages/http/page?session=thr_a");
 });
 
 test("cardFor: a pull request that wants you is your turn; one that does not adds nothing", () => {
@@ -431,12 +431,18 @@ test("PR messages name the PR and what is wrong", () => {
 // --- replies ---------------------------------------------------------------------
 
 test("pageLinkIn: only this thread's own page counts", () => {
-  const own = "https://h/api/v1/plugins/thread-pages/http/page?session=thr_a";
+  const path = "/api/v1/plugins/thread-pages/http/page?session=thr_a";
+  const own = `https://h${path}`;
   const other = "https://h/api/v1/plugins/thread-pages/http/page?session=thr_b";
-  assert.equal(pageLinkIn(`See ${other} and [here](${own})`, "thr_a"), own);
+  assert.equal(pageLinkIn(`See ${other} and [here](${own})`, "thr_a"), path);
   assert.equal(pageLinkIn(other, "thr_a"), null);
-  assert.equal(pageLinkIn("/api/v1/plugins/thread-pages/http/page?session=thr_a", "thr_a"), "/api/v1/plugins/thread-pages/http/page?session=thr_a");
+  assert.equal(pageLinkIn(path, "thr_a"), path);
   assert.equal(pageLinkIn(null, "thr_a"), null);
+});
+
+test("pageLinkIn: never hands back the host a reply wrote, only bb's own path", () => {
+  const phish = "https://evil.example/api/v1/plugins/thread-pages/http/page?session=thr_a&x=1";
+  assert.equal(pageLinkIn(`[Open the Thread Page](${phish})`, "thr_a"), "/api/v1/plugins/thread-pages/http/page?session=thr_a");
 });
 
 test("excerptOf: the last paragraph, cut from the front, links reduced to text", () => {

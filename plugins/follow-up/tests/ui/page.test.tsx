@@ -231,7 +231,7 @@ describe("the page", () => {
         card("thr_pr", {
           tier: "turn",
           lead: "page",
-          pageUrl: "https://h/api/v1/plugins/thread-pages/http/page?session=thr_pr",
+          pageUrl: "/api/v1/plugins/thread-pages/http/page?session=thr_pr",
           pr: { ...pr("ready_to_merge"), action: "merge" },
         }),
       ],
@@ -239,7 +239,7 @@ describe("the page", () => {
     fireEvent.click(await slot.findByRole("button", { name: /Open its Thread Page/ }));
     fireEvent.click(slot.getByRole("button", { name: /GitHub/ }));
     expect(slot.inspection.navigateCalls).toEqual([
-      { method: "openUrl", url: "https://h/api/v1/plugins/thread-pages/http/page?session=thr_pr" },
+      { method: "openUrl", url: `${window.location.origin}/api/v1/plugins/thread-pages/http/page?session=thr_pr` },
       { method: "openUrl", url: "https://github.com/o/r/pull/44" },
     ]);
   });

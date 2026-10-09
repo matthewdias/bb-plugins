@@ -232,11 +232,13 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
 /** The thread's Thread Page, which its last reply pointed to. */
 function PageLink({ url, primary }: { url: string; primary: boolean }) {
   const navigate = useBbNavigate();
+  // A path on this bb's own origin (see pageLinkIn): never a URL a reply wrote.
+  const href = new URL(url, window.location.origin).toString();
   return (
     <div>
       {/* Through bb rather than a plain link, so it opens where your browser
           preference says. A plain link is routed into bb's own browser. */}
-      <Button size="sm" variant={primary ? "default" : "outline"} onClick={() => navigate.openUrl(url)}>
+      <Button size="sm" variant={primary ? "default" : "outline"} onClick={() => navigate.openUrl(href)}>
         Open its Thread Page
         <Icon name="ArrowUpRight" aria-hidden />
       </Button>
