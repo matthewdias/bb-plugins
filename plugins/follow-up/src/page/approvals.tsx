@@ -3,9 +3,11 @@
 //
 // Each card shows what bb's own approval card shows, offers the choices the
 // approval offers, in bb's words, and answers through page_approve, which
-// resolves it exactly as bb's card would. Click only: no key answers an
-// approval, here or in Focus, because the whole of what it allows has to be
-// on screen when it is answered.
+// resolves it exactly as bb's card would. Nothing is folded away beside a
+// choice that allows it: the whole command, every file's diff, the whole
+// plan. One the card can't show whole is held for the thread (see `held` in
+// lib/page.ts) and never reaches this form. Click only: no key answers an
+// approval, here or in Focus, for the same reason.
 import { useState } from "react";
 import { experimental_Diff as Diff, Markdown, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -29,9 +31,6 @@ export function decisionLabel(decision: Decision, subject: Approval["subject"]):
       return "Deny";
   }
 }
-
-/** Lines past which a plan folds behind "Show whole plan". */
-const PLAN_FOLD_LINES = 14;
 
 export function ApprovalForm({ card, ask }: { card: Card; ask: Approval }) {
   const rpc = useRpc<typeof rpcContract>();
@@ -74,7 +73,7 @@ export function ApprovalForm({ card, ask }: { card: Card; ask: Approval }) {
         </p>
       )}
       <ApprovalDetail ask={ask} />
-      {ask.reason !== null && <p className="text-xs text-muted-foreground">“{ask.reason}”</p>}
+      {ask.reason !== null && <p className="text-xs text-muted-foreground">The agent says: “{ask.reason}”</p>}
       {ask.subject === "plan" && ask.decisions.includes("deny") && (
         <textarea
           rows={2}
@@ -170,11 +169,11 @@ function ApprovalDetail({ ask }: { ask: Approval }) {
             detail.destructive ? "border-destructive/60 bg-destructive/5" : "border-border bg-muted/50",
           )}
         >
+          {/* Which tool runs comes first, by name; its title only describes it. */}
           <span className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-foreground">{detail.title ?? detail.tool}</span>
-            {/* The title is the tool's own description of itself; which tool runs is the name. */}
+            <span className="font-mono text-sm font-medium text-foreground">{detail.tool}</span>
             {detail.title !== null && detail.title !== detail.tool && (
-              <span className="font-mono text-muted-foreground">{detail.tool}</span>
+              <span className="text-sm text-foreground">{detail.title}</span>
             )}
             {detail.badge !== null && (
               <span className={cn("rounded px-1 text-[10px] font-semibold uppercase tracking-wide", detail.destructive ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}>
@@ -190,64 +189,53 @@ function ApprovalDetail({ ask }: { ask: Approval }) {
   }
 }
 
+/** Every file open: what Allow allows is on the card, not behind a click. You can close one you've read. */
 function FileChange({ detail }: { detail: Extract<Approval["detail"], { kind: "file_change" }> }) {
-  const [open, setOpen] = useState<string | null>(detail.files[0]?.path ?? null);
-  if (detail.files.length === 0) {
-    return (
-      <p className="rounded-md border border-border bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground">
-        Writes {detail.writeScope === null ? "files" : <span className="font-mono">in {detail.writeScope}</span>}. The diff
-        couldn't be read here; it's in the thread.
-      </p>
-    );
-  }
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (path: string) => {
+    const next = new Set(closed);
+    if (!next.delete(path)) next.add(path);
+    setClosed(next);
+  };
   return (
     <div className="flex flex-col gap-1">
-      {detail.files.map((file) => (
-        <div key={file.path} className="overflow-hidden rounded-md border border-border">
-          <button
-            type="button"
-            aria-expanded={open === file.path}
-            onClick={() => setOpen(open === file.path ? null : file.path)}
-            className="flex w-full items-center gap-2 bg-muted/50 px-2.5 py-1 text-left text-xs hover:bg-state-hover"
-          >
-            <Icon name={open === file.path ? "ChevronDown" : "ChevronRight"} className="size-3 shrink-0" aria-hidden />
-            <span className="min-w-0 flex-1 truncate font-mono text-foreground">{file.path}</span>
-            <span className="shrink-0 text-muted-foreground">{file.change}</span>
-          </button>
-          {open === file.path && (
-            <div className="max-h-80 overflow-auto">
-              <Diff patch={file.patch} path={file.path} />
-              {file.cut && <p className="px-2.5 py-1 text-xs text-muted-foreground">The rest of this diff is in the thread.</p>}
-            </div>
-          )}
-        </div>
-      ))}
+      {detail.files.map((file) => {
+        const open = !closed.has(file.path);
+        return (
+          <div key={file.path} className="overflow-hidden rounded-md border border-border">
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => toggle(file.path)}
+              className="flex w-full items-center gap-2 bg-muted/50 px-2.5 py-1 text-left text-xs hover:bg-state-hover"
+            >
+              <Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1 break-all font-mono text-foreground">
+                {file.path}
+                {file.movedTo !== null && <> → {file.movedTo}</>}
+              </span>
+              <span className="shrink-0 text-muted-foreground">{file.movedTo !== null ? "move" : file.change}</span>
+            </button>
+            {open && file.patch !== "" && (
+              <div className="max-h-80 overflow-auto">
+                <Diff patch={file.patch} path={file.path} />
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
+/** The whole plan, never folded: Approve plan approves all of it. */
 function Plan({ plan, path }: { plan: string; path: string | null }) {
-  const long = plan.split("\n").length > PLAN_FOLD_LINES;
-  const [whole, setWhole] = useState(!long);
   return (
     <div className="flex flex-col gap-1">
-      <div
-        className={cn(
-          "relative overflow-hidden rounded-md border border-border bg-muted/30 px-3 py-2 text-sm",
-          !whole && "max-h-72",
-        )}
-      >
+      <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
         <Markdown content={plan} />
-        {!whole && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent" />}
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        {long && (
-          <button type="button" className="hover:text-foreground hover:underline" onClick={() => setWhole(!whole)}>
-            {whole ? "Fold the plan" : "Show whole plan"}
-          </button>
-        )}
-        {path !== null && <span className="font-mono">{path}</span>}
-      </div>
+      {path !== null && <span className="font-mono text-xs text-muted-foreground">{path}</span>}
     </div>
   );
 }

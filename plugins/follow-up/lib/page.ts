@@ -158,7 +158,10 @@ const grantSchema = z.object({
 });
 export type Grant = z.infer<typeof grantSchema>;
 
-/** Most of a file change's diff a card carries; the thread has the rest. */
+/**
+ * The most of a file change a card carries. One bigger than this is answered
+ * in the thread, since the page answers only what it can show whole.
+ */
 export const PATCH_MAX = 40_000;
 export const PATCH_FILES_MAX = 10;
 
@@ -186,6 +189,8 @@ export const approvalDetailSchema = z.discriminatedUnion("kind", [
       z.object({
         path: z.string(),
         change: z.string(),
+        /** Where a renamed file goes. */
+        movedTo: z.string().nullable(),
         patch: z.string(),
         cut: z.boolean(),
         /** Its path or diff held characters that don't draw; see `unseen` on the ask. */
@@ -241,6 +246,12 @@ export const pendingAskSchema = z.discriminatedUnion("kind", [
      * says so: removing them would show something other than what runs.
      */
     unseen: z.boolean(),
+    /**
+     * Why the page won't answer it, when it won't: the page answers only an
+     * approval whose card shows all that answering does. Then `decisions` is
+     * empty and the card sends you to the thread.
+     */
+    held: z.string().nullable(),
   }),
   z.object({
     kind: z.literal("form"),
@@ -273,7 +284,12 @@ function record(value: unknown): Record<string, unknown> | null {
  * says so — so an unreadable one becomes a generic form that opens the thread,
  * never a thread that silently drops off the list.
  */
-export function pendingAsk(interaction: unknown): PendingAsk | null {
+/**
+ * The ask an interaction makes, or null when it is not pending. `events` are
+ * the thread's started items, where a file change's diff is: without them a
+ * file change's approval is held for the thread.
+ */
+export function pendingAsk(interaction: unknown, events?: readonly unknown[]): PendingAsk | null {
   const row = record(interaction);
   if (row === null || row.status !== "pending") return null;
   const interactionId = typeof row.id === "string" ? row.id : null;
@@ -316,18 +332,35 @@ export function pendingAsk(interaction: unknown): PendingAsk | null {
     if (typeof subjectKind === "string" && (APPROVAL_SUBJECTS as readonly string[]).includes(subjectKind)) {
       const offered = Array.isArray(payload?.availableDecisions) ? payload.availableDecisions : [];
       const reason = typeof payload?.reason === "string" && payload.reason.trim() !== "" ? payload.reason.trim() : null;
+      const shown = approvalDetail(subject ?? {});
+      const changes =
+        shown.kind === "file_change" && shown.itemId !== "" && events !== undefined
+          ? fileChangesFor(shown.itemId, events)
+          : null;
+      const detail = shown.kind === "file_change" && changes !== null ? { ...shown, files: changes.files } : shown;
+      // Only choices bb offers, and of those only ones whose effect the card
+      // shows: Allow for session sends a session grant, so it goes when the
+      // grant holds anything the card can't list.
+      const choices = DECISIONS.filter(
+        (decision) =>
+          offered.includes(decision) &&
+          (decision !== "allow_for_session" || !("sessionGrant" in (subject ?? {})) || grantShown(subject?.sessionGrant)),
+      );
+      const held = holdOf(subject ?? {}, detail, changes) ?? (choices.length === 0 ? "It offers no choice the page can make." : null);
       return {
         kind: "approval",
         interactionId,
         createdAt,
         subject: subjectKind as (typeof APPROVAL_SUBJECTS)[number],
         summary: reveal(approvalSummary(subject ?? {})),
-        // Only the choices the approval offers. One that names none is
-        // answered in the thread; the page never offers what bb didn't.
-        decisions: DECISIONS.filter((decision) => offered.includes(decision)),
+        decisions: held === null ? choices : [],
         reason: reason === null ? null : reveal(reason),
-        detail: approvalDetail(subject ?? {}),
-        unseen: hasUnseen(subject) || (reason !== null && hasUnseen(reason)),
+        detail,
+        unseen:
+          hasUnseen(subject) ||
+          (reason !== null && hasUnseen(reason)) ||
+          (changes?.files.some((file) => file.unseen) ?? false),
+        held,
       };
     }
   }
@@ -431,6 +464,55 @@ function strings(value: unknown): string[] {
 }
 
 /** A permission object (`{ fileSystem: { read, write }, network: { enabled } }`) as a card shows it. */
+/**
+ * Why the page won't answer an approval, or null when its card shows all that
+ * answering it does. A card that can't show the command, the plan or the tool
+ * shows nothing to approve; a file change needs every file's whole diff; and
+ * a permission grant sends its permissions, so they must all be listable.
+ */
+function holdOf(subject: Record<string, unknown>, detail: ApprovalDetail, changes: FileChanges | null): string | null {
+  switch (detail.kind) {
+    case "command":
+      return detail.command === "" ? "Its command couldn't be read here." : null;
+    case "plan":
+      return detail.plan === "" ? "Its plan couldn't be read here." : null;
+    case "tool_use":
+      return typeof subject.tool === "string" && subject.tool.trim() !== "" ? null : "Its tool couldn't be read here.";
+    case "permission_grant":
+      return grantShown(subject.permissions) ? null : "It asks for more than the page can list.";
+    case "file_change":
+      if (changes === null || changes.files.length === 0) return "Its diff couldn't be read here.";
+      return changes.whole ? null : "Its change is too big to show whole here.";
+  }
+}
+
+/**
+ * Whether the card lists all of a grant: bb's own shape, `{ network:
+ * { enabled }, fileSystem: { read, write } }` with paths for strings, and
+ * nothing else. A grant is sent as it came, so anything the card can't list
+ * would be granted unseen.
+ */
+function grantShown(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  const only = (row: Record<string, unknown>, keys: readonly string[]) => Object.keys(row).every((key) => keys.includes(key));
+  const grant = record(value);
+  if (grant === null || !only(grant, ["network", "fileSystem"])) return false;
+  if (grant.network !== null && grant.network !== undefined) {
+    const network = record(grant.network);
+    if (network === null || !only(network, ["enabled"])) return false;
+    if (network.enabled !== null && network.enabled !== undefined && typeof network.enabled !== "boolean") return false;
+  }
+  if (grant.fileSystem !== null && grant.fileSystem !== undefined) {
+    const fileSystem = record(grant.fileSystem);
+    if (fileSystem === null || !only(fileSystem, ["read", "write"])) return false;
+    for (const paths of [fileSystem.read, fileSystem.write]) {
+      if (paths === null || paths === undefined) continue;
+      if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) return false;
+    }
+  }
+  return true;
+}
+
 function grantOf(value: unknown): Grant | null {
   const permissions = record(value);
   if (permissions === null) return null;
@@ -509,32 +591,54 @@ export function approvalDetail(subject: Record<string, unknown>): ApprovalDetail
   }
 }
 
+/** A file change as the card shows it, and whether that is all of it. */
+export interface FileChanges {
+  files: ChangedFile[];
+  /**
+   * Every file is there with its whole diff. Not when a file was past
+   * PATCH_FILES_MAX, its diff past PATCH_MAX, or anything about it unreadable.
+   */
+  whole: boolean;
+}
+
 /**
  * A file change's diff, from the thread's started items: the one whose id the
- * approval names. Each file's patch is cut past PATCH_MAX, and at most
- * PATCH_FILES_MAX files are carried; the thread has the whole change.
+ * approval names, or null when none does.
  */
-export function fileChangesFor(itemId: string, events: readonly unknown[]): ChangedFile[] {
+export function fileChangesFor(itemId: string, events: readonly unknown[]): FileChanges | null {
   for (const event of events) {
     const item = record(record(record(event)?.data)?.item);
     if (item === null || item.id !== itemId || item.type !== "fileChange") continue;
     const changes = Array.isArray(item.changes) ? item.changes : [];
-    return changes.slice(0, PATCH_FILES_MAX).flatMap((raw): ChangedFile[] => {
+    let whole = changes.length > 0 && changes.length <= PATCH_FILES_MAX;
+    const files = changes.slice(0, PATCH_FILES_MAX).flatMap((raw): ChangedFile[] => {
       const change = record(raw);
-      if (change === null || typeof change.path !== "string") return [];
-      const patch = typeof change.diff === "string" ? reveal(change.diff) : "";
+      const kind = typeof change?.kind === "string" ? change.kind : null;
+      const diff = typeof change?.diff === "string" ? change.diff : null;
+      if (change === null || typeof change.path !== "string" || kind === null) {
+        whole = false;
+        return [];
+      }
+      // A deletion is all there in its name; anything else needs its diff.
+      if (diff === null && kind !== "delete") whole = false;
+      if (change.movePath !== undefined && typeof change.movePath !== "string") whole = false;
+      const patch = reveal(diff ?? "");
+      const cut = patch.length > PATCH_MAX;
+      if (cut) whole = false;
       return [
         {
           path: reveal(change.path),
-          change: typeof change.kind === "string" ? change.kind : "update",
-          patch: patch.length > PATCH_MAX ? patch.slice(0, PATCH_MAX) : patch,
-          cut: patch.length > PATCH_MAX,
-          unseen: hasUnseen(change.path) || hasUnseen(change.diff),
+          change: kind,
+          movedTo: typeof change.movePath === "string" ? reveal(change.movePath) : null,
+          patch: cut ? patch.slice(0, PATCH_MAX) : patch,
+          cut,
+          unseen: hasUnseen(change.path) || hasUnseen(diff) || hasUnseen(change.movePath),
         },
       ];
     });
+    return { files, whole };
   }
-  return [];
+  return null;
 }
 
 /**

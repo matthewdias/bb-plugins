@@ -9,6 +9,7 @@ import {
   approvalResolution,
   fileChangesFor,
   hasUnseen,
+  PATCH_FILES_MAX,
   PATCH_MAX,
   asksFor,
   parsePutAway,
@@ -233,6 +234,7 @@ test("pendingAsk: approvals say what is being approved", () => {
     reason: null,
     detail: { kind: "command", command: "git push\n  --force", cwd: null, actions: [], sessionGrant: null },
     unseen: false,
+    held: "It offers no choice the page can make.",
   });
   const plan = pendingAsk({
     id: "i",
@@ -374,24 +376,99 @@ test("approvalResolution: a plan or a tool sends no grant", () => {
   assert.deepEqual(approvalResolution(approval({ kind: "tool_use", tool: "t" }), "allow_for_session"), { decision: "allow_for_session", grantedPermissions: null });
 });
 
-test("fileChangesFor: finds the approval's item among the thread's events, and cuts a long patch", () => {
-  const events = [
-    { type: "item/started", data: { item: { id: "other", type: "fileChange", changes: [{ path: "/x", kind: "add", diff: "+x" }] } } },
-    { type: "item/started", data: { item: { id: "it_1", type: "fileChange", changes: [{ path: "/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }, { path: "/big.ts", kind: "add", diff: "x".repeat(PATCH_MAX + 5) }] } } },
-  ];
-  const files = fileChangesFor("it_1", events);
-  assert.deepEqual(files[0], { path: "/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false });
-  assert.equal(files[1]?.patch.length, PATCH_MAX);
-  assert.equal(files[1]?.cut, true);
-  assert.deepEqual(fileChangesFor("missing", events), []);
-  const sly = [{ type: "item/started", data: { item: { id: "it_2", type: "fileChange", changes: [{ path: "/a\u202E.ts", kind: "update", diff: "+ok" }, { path: "/b.ts", kind: "add", diff: "+x\u200By" }] } } }];
+const started = (id: string, changes: unknown[]) => ({ type: "item/started", data: { item: { id, type: "fileChange", changes } } });
+
+test("fileChangesFor: finds the approval's item among the thread's events, whole", () => {
+  const events = [started("other", [{ path: "/x", kind: "add", diff: "+x" }]), started("it_1", [{ path: "/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }, { path: "/gone.ts", kind: "delete" }, { path: "/b.ts", kind: "update", movePath: "/c.ts", diff: "" }])];
+  assert.deepEqual(fileChangesFor("it_1", events), {
+    files: [
+      { path: "/a.ts", change: "update", movedTo: null, patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false },
+      { path: "/gone.ts", change: "delete", movedTo: null, patch: "", cut: false, unseen: false },
+      { path: "/b.ts", change: "update", movedTo: "/c.ts", patch: "", cut: false, unseen: false },
+    ],
+    whole: true,
+  });
+  assert.equal(fileChangesFor("missing", events), null);
+});
+
+test("fileChangesFor: anything it can't carry whole says so", () => {
+  const whole = (changes: unknown[]) => fileChangesFor("it", [started("it", changes)])?.whole;
+  const file = (n: number) => ({ path: `/f${n}.ts`, kind: "add", diff: "+x" });
+  assert.equal(whole(Array.from({ length: PATCH_FILES_MAX }, (_, n) => file(n))), true);
+  assert.equal(whole(Array.from({ length: PATCH_FILES_MAX + 1 }, (_, n) => file(n))), false, "more files than it carries");
+  assert.equal(whole([{ path: "/big.ts", kind: "add", diff: "x".repeat(PATCH_MAX + 1) }]), false, "a diff past the limit");
+  assert.equal(whole([file(1), { kind: "add", diff: "+x" }]), false, "a file with no path");
+  assert.equal(whole([{ path: "/a.ts", diff: "+x" }]), false, "a change of no kind");
+  assert.equal(whole([{ path: "/a.ts", kind: "update" }]), false, "an edit without its diff");
+  assert.equal(whole([{ path: "/a.ts", kind: "update", diff: "", movePath: 7 }]), false, "a move to somewhere unreadable");
+  assert.equal(whole([]), false, "nothing to show");
+  const big = fileChangesFor("it", [started("it", [{ path: "/big.ts", kind: "add", diff: "x".repeat(PATCH_MAX + 5) }])]);
+  assert.equal(big?.files[0]?.patch.length, PATCH_MAX);
+  assert.equal(big?.files[0]?.cut, true);
+  const sly = fileChangesFor("it_2", [started("it_2", [{ path: "/a\u202E.ts", kind: "update", diff: "+ok" }, { path: "/b.ts", kind: "add", diff: "+x\u200By" }, { path: "/c.ts", kind: "update", diff: "", movePath: "/d\u2066.ts" }])]);
   assert.deepEqual(
-    fileChangesFor("it_2", sly).map(({ path, patch, unseen }) => ({ path, patch, unseen })),
+    sly?.files.map(({ path, movedTo, patch, unseen }) => ({ path, movedTo, patch, unseen })),
     [
-      { path: "/a⟦U+202E⟧.ts", patch: "+ok", unseen: true },
-      { path: "/b.ts", patch: "+x⟦U+200B⟧y", unseen: true },
+      { path: "/a⟦U+202E⟧.ts", movedTo: null, patch: "+ok", unseen: true },
+      { path: "/b.ts", movedTo: null, patch: "+x⟦U+200B⟧y", unseen: true },
+      { path: "/c.ts", movedTo: "/d⟦U+2066⟧.ts", patch: "", unseen: true },
     ],
   );
+});
+
+test("pendingAsk: a file change is answerable only with its whole diff in hand", () => {
+  const change = approval({ kind: "file_change", itemId: "it", writeScope: "/repo", sessionGrant: null });
+  const held = (ask: PendingAsk | null) => (ask?.kind === "approval" ? { held: ask.held, decisions: ask.decisions } : null);
+  assert.deepEqual(held(pendingAsk(change)), { held: "Its diff couldn't be read here.", decisions: [] }, "no events read");
+  assert.deepEqual(held(pendingAsk(change, [])), { held: "Its diff couldn't be read here.", decisions: [] }, "its item not among them");
+  assert.deepEqual(held(pendingAsk(change, [started("it", [{ path: "/a", kind: "add", diff: "x".repeat(PATCH_MAX + 1) }])])), {
+    held: "Its change is too big to show whole here.",
+    decisions: [],
+  });
+  const ok = pendingAsk(change, [started("it", [{ path: "/a", kind: "add", diff: "+a\u200B" }])]);
+  assert.deepEqual(held(ok), { held: null, decisions: ["allow_once", "allow_for_session", "deny"] });
+  assert.equal(ok?.kind === "approval" && ok.detail.kind === "file_change" ? ok.detail.files.length : null, 1);
+  assert.equal(ok?.kind === "approval" ? ok.unseen : null, true, "an unseen character in the diff warns");
+});
+
+test("pendingAsk: an approval whose card would show nothing to approve is held", () => {
+  const heldOf = (subject: Record<string, unknown>) => {
+    const ask = pendingAsk(approval(subject));
+    return ask?.kind === "approval" ? [ask.held, ask.decisions.length] : null;
+  };
+  assert.deepEqual(heldOf({ kind: "command", command: "  " }), ["Its command couldn't be read here.", 0]);
+  assert.deepEqual(heldOf({ kind: "command", command: ["rm", "-rf", "/"] }), ["Its command couldn't be read here.", 0]);
+  assert.deepEqual(heldOf({ kind: "plan", plan: "" }), ["Its plan couldn't be read here.", 0]);
+  assert.deepEqual(heldOf({ kind: "tool_use", presentation: { title: "Harmless" } }), ["Its tool couldn't be read here.", 0]);
+  assert.deepEqual(heldOf({ kind: "command", command: "ls" }), [null, 3]);
+});
+
+test("pendingAsk: a grant the card can't list whole is never sent from the page", () => {
+  const real = { network: { enabled: null }, fileSystem: { read: ["/repo"], write: [] } };
+  const decisions = (subject: Record<string, unknown>) => {
+    const ask = pendingAsk(approval(subject));
+    return ask?.kind === "approval" ? ask.decisions : null;
+  };
+  // bb's own shape is listed whole, so every choice stays.
+  assert.deepEqual(decisions({ kind: "command", command: "ls", sessionGrant: real }), ["allow_once", "allow_for_session", "deny"]);
+  assert.deepEqual(decisions({ kind: "permission_grant", toolName: null, permissions: real }), ["allow_once", "allow_for_session", "deny"]);
+  assert.deepEqual(decisions({ kind: "permission_grant", toolName: null, permissions: null }), ["allow_once", "allow_for_session", "deny"]);
+  // Anything more: a session grant loses Allow for session; a permission
+  // grant, which sends its permissions with any allow, goes to the thread.
+  for (const unlisted of [
+    { ...real, macos: { accessibility: true } },
+    { network: { enabled: true, proxy: "x" }, fileSystem: null },
+    { network: { enabled: "yes" }, fileSystem: null },
+    { network: null, fileSystem: { read: ["/repo", { path: "/" }], write: [] } },
+    { network: null, fileSystem: { read: [], write: "/" } },
+    { network: null, fileSystem: { read: [], write: [], execute: ["/"] } },
+    "everything",
+  ]) {
+    assert.deepEqual(decisions({ kind: "command", command: "ls", sessionGrant: unlisted }), ["allow_once", "deny"], JSON.stringify(unlisted));
+    assert.deepEqual(decisions({ kind: "permission_grant", toolName: null, permissions: unlisted }), [], JSON.stringify(unlisted));
+  }
+  const held = pendingAsk(approval({ kind: "permission_grant", toolName: null, permissions: { ...real, extra: 1 } }));
+  assert.equal(held?.kind === "approval" ? held.held : null, "It asks for more than the page can list.");
 });
 
 test("pendingAsk: a kind it cannot read is a form, so the thread still shows as blocked", () => {

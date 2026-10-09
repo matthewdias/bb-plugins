@@ -115,7 +115,6 @@ import {
   countOf,
   DECISIONS,
   familyOf,
-  fileChangesFor,
   foldRunning,
   groupFollowUps,
   inMotion,
@@ -1072,6 +1071,11 @@ const PR_CONCURRENCY = 4;
 const ACTIVITY_EVENTS = "60";
 /** Started items read to find a file change an approval is about. */
 const FILE_CHANGE_EVENTS = "200";
+
+/** An approval of a file change, whose diff is read from the thread's events. */
+function namesFileChange(ask: PendingAsk | null): boolean {
+  return ask?.kind === "approval" && ask.detail.kind === "file_change" && ask.detail.itemId !== "";
+}
 
 /** The thread changes that can move a card. Everything else — every streamed delta — cannot. */
 const PAGE_RELEVANT_CHANGES: ReadonlySet<string> = new Set([
@@ -3640,22 +3644,27 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   async function readPendingAsks(threadId: string): Promise<PendingAsk[]> {
-    let asks: PendingAsk[];
+    let raw: unknown[];
     try {
       const list: unknown = await bb.sdk.threads.interactions.list({ threadId });
-      asks = (Array.isArray(list) ? list : [])
-        .map(pendingAsk)
-        .filter((ask): ask is PendingAsk => ask !== null);
+      raw = Array.isArray(list) ? list : [];
     } catch (error) {
       bb.log.warn(`page: could not read ${threadId}'s pending asks: ${String(error)}`);
       return [];
     }
-    // A file change's approval names only the item; its diff is on the
-    // thread's item events, so the card can show what it would approve.
-    const changes = asks.filter(
-      (ask) => ask.kind === "approval" && ask.detail.kind === "file_change" && ask.detail.itemId !== "",
-    );
-    if (changes.length === 0) return asks;
+    const asks = raw.map((interaction) => pendingAsk(interaction));
+    const events = asks.some(namesFileChange) ? await readFileChanges(threadId) : undefined;
+    return raw
+      .map((interaction) => pendingAsk(interaction, events))
+      .filter((ask): ask is PendingAsk => ask !== null);
+  }
+
+  /**
+   * A file change's approval names only the item; its diff is on the
+   * thread's started items. Undefined when they can't be read, which holds
+   * the approval for the thread rather than answer it unseen.
+   */
+  async function readFileChanges(threadId: string): Promise<unknown[] | undefined> {
     try {
       const events: unknown = await bb.sdk.threads.events.list({
         threadId,
@@ -3663,15 +3672,10 @@ export default async function plugin(bb: BbPluginApi) {
         limit: FILE_CHANGE_EVENTS,
         types: ["item/started"],
       });
-      const list = Array.isArray(events) ? events : [];
-      return asks.map((ask) => {
-        if (ask.kind !== "approval" || ask.detail.kind !== "file_change") return ask;
-        const files = fileChangesFor(ask.detail.itemId, list);
-        return { ...ask, unseen: ask.unseen || files.some((file) => file.unseen), detail: { ...ask.detail, files } };
-      });
+      return Array.isArray(events) ? events : [];
     } catch (error) {
       bb.log.warn(`page: could not read ${threadId}'s file changes: ${String(error)}`);
-      return asks;
+      return undefined;
     }
   }
 
@@ -4440,7 +4444,10 @@ export default async function plugin(bb: BbPluginApi) {
         bb.log.error(`page: could not read ${interactionId} on ${threadId}: ${String(error)}`);
         return { outcome: "failed" as const, noted: null };
       }
-      const ask = pendingAsk(interaction);
+      // The same ask the card was built from, file change diff and all, so a
+      // choice the card couldn't offer is refused here too.
+      const first = pendingAsk(interaction);
+      const ask = namesFileChange(first) ? pendingAsk(interaction, await readFileChanges(threadId)) : first;
       if (ask === null || ask.kind !== "approval" || ask.interactionId !== interactionId) {
         return { outcome: "stale" as const, noted: null };
       }

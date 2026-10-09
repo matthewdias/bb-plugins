@@ -705,8 +705,39 @@ test("page: a file change's approval carries its diff from the thread's events",
     },
   });
   const page = await call("page_snapshot");
-  assert.deepEqual(page.cards[0].asks[0].detail.files, [{ path: "/repo/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false }]);
+  assert.deepEqual(page.cards[0].asks[0].detail.files, [{ path: "/repo/a.ts", change: "update", movedTo: null, patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false }]);
   assert.equal(page.cards[0].asks[0].unseen, false);
+  assert.deepEqual(page.cards[0].asks[0].decisions, ["allow_once", "allow_for_session", "deny"]);
+});
+
+test("page: a file change whose diff can't be read is held for the thread, and refused if answered anyway", async () => {
+  const { call, calls, harness } = await host({
+    threads: [threadRow("thr_edit", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_edit: [approvalInteraction("int_f", { kind: "file_change", itemId: "it_7", writeScope: "/repo", sessionGrant: null })] },
+  });
+  harness.sdk.stub("threads.events.list", () => {
+    throw new Error("events down");
+  });
+  const page = await call("page_snapshot");
+  assert.equal(page.cards[0].asks[0].held, "Its diff couldn't be read here.");
+  assert.deepEqual(page.cards[0].asks[0].decisions, []);
+  const result = await call("page_approve", { threadId: "thr_edit", interactionId: "int_f", decision: "allow_once" });
+  assert.deepEqual(result, { outcome: "refused", noted: null });
+  assert.equal(calls("threads.interactions.resolve").length, 0);
+});
+
+test("page: answering a file change reads its diff again, and answers it when it's whole", async () => {
+  const { call, calls } = await host({
+    threads: [threadRow("thr_edit", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_edit: [approvalInteraction("int_f", { kind: "file_change", itemId: "it_7", writeScope: "/repo", sessionGrant: null })] },
+    events: {
+      thr_edit: [{ type: "item/started", data: { item: { id: "it_7", type: "fileChange", changes: [{ path: "/repo/a.ts", kind: "update", diff: "+b" }] } } }],
+    },
+  });
+  const result = await call("page_approve", { threadId: "thr_edit", interactionId: "int_f", decision: "allow_once" });
+  assert.deepEqual(result, { outcome: "answered", noted: null });
+  assert.equal(calls("threads.events.list").length, 1);
+  assert.equal(calls("threads.interactions.resolve").length, 1);
 });
 
 test("page: a diff holding a character that doesn't draw warns on the whole approval", async () => {

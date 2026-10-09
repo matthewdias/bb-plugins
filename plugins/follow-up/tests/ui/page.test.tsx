@@ -328,6 +328,7 @@ const approval = (threadId: string, detail: Approval["detail"], extra: Partial<A
         reason: null,
         detail,
         unseen: false,
+        held: null,
         ...extra,
       },
     ],
@@ -347,7 +348,7 @@ describe("approvals", () => {
     expect(block.textContent).toBe("$ git push\n  --force");
     expect(slot.getByText("/repo")).toBeTruthy();
     expect(slot.getByText("· Reads a.ts")).toBeTruthy();
-    expect(slot.getByText("“To publish”")).toBeTruthy();
+    expect(slot.getByText("The agent says: “To publish”")).toBeTruthy();
     expect(slot.getByText("For session also allows: reads /repo; writes /repo/out; network")).toBeTruthy();
     expect(slot.getAllByRole("button").map((b) => b.textContent).filter((t) => /Allow|Deny/.test(t ?? ""))).toEqual([
       "Allow once",
@@ -368,11 +369,14 @@ describe("approvals", () => {
     expect(slot.queryByText(/For session also allows/)).toBeNull();
   });
 
-  it("sends an approval that offers no choice to the thread, with nothing to press here", async () => {
+  it("sends an approval the page holds to the thread, saying why, with nothing to press here", async () => {
     const slot = renderPage({
-      cards: [approval("thr_c", { kind: "command", command: "rm -rf build", cwd: null, actions: [], sessionGrant: null }, { decisions: [], summary: "rm -rf build" })],
+      cards: [
+        approval("thr_c", { kind: "command", command: "rm -rf build", cwd: null, actions: [], sessionGrant: null }, { decisions: [], summary: "rm -rf build", held: "It offers no choice the page can make." }),
+      ],
     });
-    fireEvent.click(await slot.findByRole("button", { name: /Answer in the thread/ }));
+    expect(await slot.findByText("It offers no choice the page can make.")).toBeTruthy();
+    fireEvent.click(slot.getByRole("button", { name: /Answer in the thread/ }));
     expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ threadId: "thr_c" });
     expect(slot.queryByRole("button", { name: "Allow once" })).toBeNull();
     expect(slot.queryByRole("button", { name: "Deny" })).toBeNull();
@@ -402,14 +406,16 @@ describe("approvals", () => {
     expect(calls(slot, "page_approve")[1]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "deny", note: "Split it in two." });
   });
 
-  it("folds a long plan behind Show whole plan", async () => {
-    const plan = Array.from({ length: 30 }, (_, i) => `${i + 1}. step`).join("\n");
+  it("shows a long plan whole, never folded beside Approve plan", async () => {
+    const plan = Array.from({ length: 60 }, (_, i) => `${i + 1}. step`).join("\n");
     const slot = renderPage({ cards: [approval("thr_p", { kind: "plan", plan, planFilePath: null }, { decisions: ["allow_once", "deny"] })] });
-    fireEvent.click(await slot.findByRole("button", { name: "Show whole plan" }));
-    expect(slot.getByRole("button", { name: "Fold the plan" })).toBeTruthy();
+    const shown = await slot.findByTestId("bb-markdown");
+    expect(shown.textContent).toBe(plan);
+    expect(shown.parentElement?.className).not.toMatch(/max-h|overflow-hidden/);
+    expect(slot.queryByRole("button", { name: /whole plan/i })).toBeNull();
   });
 
-  it("shows a file change's diff, one file open at a time", async () => {
+  it("shows every file's diff open, a rename with where it goes, and lets you close one", async () => {
     const slot = renderPage({
       cards: [
         approval("thr_f", {
@@ -418,31 +424,32 @@ describe("approvals", () => {
           writeScope: "/repo",
           sessionGrant: null,
           files: [
-            { path: "/repo/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false },
-            { path: "/repo/b.ts", change: "add", patch: "+new", cut: true, unseen: false },
+            { path: "/repo/a.ts", change: "update", movedTo: null, patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false },
+            { path: "/repo/b.ts", change: "add", movedTo: null, patch: "+new", cut: false, unseen: false },
+            { path: "/repo/old.ts", change: "update", movedTo: "/repo/new.ts", patch: "", cut: false, unseen: false },
           ],
         }),
       ],
     });
-    const diff = await slot.findByTestId("bb-diff");
-    expect(diff.getAttribute("data-path")).toBe("/repo/a.ts");
-    expect(diff.textContent).toBe("@@ -1 +1 @@\n-a\n+b");
-    fireEvent.click(slot.getByRole("button", { name: /\/repo\/b\.ts/ }));
+    const diffs = await slot.findAllByTestId("bb-diff");
+    expect(diffs.map((d) => [d.getAttribute("data-path"), d.textContent])).toEqual([
+      ["/repo/a.ts", "@@ -1 +1 @@\n-a\n+b"],
+      ["/repo/b.ts", "+new"],
+    ]);
+    const move = slot.getByRole("button", { name: /\/repo\/old\.ts/ });
+    expect(move.textContent).toContain("/repo/old.ts → /repo/new.ts");
+    expect(move.textContent).toContain("move");
+    fireEvent.click(slot.getByRole("button", { name: /\/repo\/a\.ts/ }));
     expect(slot.getAllByTestId("bb-diff").map((d) => d.getAttribute("data-path"))).toEqual(["/repo/b.ts"]);
-    expect(slot.getByText("The rest of this diff is in the thread.")).toBeTruthy();
-  });
-
-  it("says where a file change writes when its diff couldn't be read", async () => {
-    const slot = renderPage({ cards: [approval("thr_f", { kind: "file_change", itemId: "it", writeScope: "/repo", sessionGrant: null, files: [] })] });
-    expect((await slot.findByText(/couldn't be read here/)).textContent).toMatch(/Writes in \/repo/);
   });
 
   it("names the tool that runs beside its own title, and marks a destructive one", async () => {
     const slot = renderPage({
       cards: [approval("thr_t", { kind: "tool_use", tool: "Bash", title: "Tidy the cache", detail: "rm -rf .cache", destructive: true, badge: "Destructive" })],
     });
-    expect(await slot.findByText("Tidy the cache")).toBeTruthy();
-    expect(slot.getByText("Bash")).toBeTruthy();
+    const name = await slot.findByText("Bash");
+    const title = slot.getByText("Tidy the cache");
+    expect(name.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(slot.getByText("Destructive")).toBeTruthy();
     expect(slot.getByText("rm -rf .cache")).toBeTruthy();
   });

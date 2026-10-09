@@ -635,6 +635,7 @@ function OpenToAnswer({ card, ask }: { card: Card; ask: PendingAsk }) {
       <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/50 px-2.5 py-1.5 font-mono text-xs text-foreground">
         {what}
       </pre>
+      {ask.kind === "approval" && ask.held !== null && <p className="text-xs text-muted-foreground">{ask.held}</p>}
       <div>
         <Button size="sm" onClick={() => navigate.toThread(card.threadId)}>
           Answer in the thread
