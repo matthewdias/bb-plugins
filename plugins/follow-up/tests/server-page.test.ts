@@ -376,7 +376,7 @@ test("page: a new pending question signals open pages", async () => {
   assert.equal(signals(), 1);
 });
 
-test("page: a review thread starts unparented in the PR's worktree, and its card links it", async () => {
+test("page: a review thread starts as the author's child in the PR's worktree, and its card links it", async () => {
   const { call, calls } = await host({
     threads: [threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
     prs: { env_w: prResponse("ready_to_merge") },
@@ -386,7 +386,7 @@ test("page: a review thread starts unparented in the PR's worktree, and its card
   const spawn = calls("threads.spawn")[0];
   assert.equal(spawn.prompt, "Review PR #44.");
   assert.deepEqual(spawn.environment, { type: "reuse", environmentId: "env_w" });
-  assert.equal(spawn.parentThreadId, undefined);
+  assert.equal(spawn.parentThreadId, "thr_pr", "a child of the author's thread");
   await call("page_snapshot");
   await settle();
   const page = await call("page_snapshot");
@@ -399,9 +399,10 @@ test("page: the review thread, newer and busier in the same worktree, never take
     prs: { env_w: prResponse("ready_to_merge") },
   });
   await call("page_pr_review", { threadId: "thr_pr", prompt: "Review PR #44." });
-  // The host lists the reviewer it just spawned, in the author's worktree.
+  // The host lists the reviewer it just spawned: the author's child, in its worktree.
   w.threads.push(
     threadRow("thr_spawned1", {
+      parentThreadId: "thr_pr",
       environmentId: "env_w",
       environmentIsWorktree: true,
       createdAt: NOW,
@@ -415,10 +416,12 @@ test("page: the review thread, newer and busier in the same worktree, never take
   await settle();
   const page = await call("page_snapshot");
   const author = page.cards.find((c: any) => c.threadId === "thr_pr");
-  const reviewer = page.cards.find((c: any) => c.threadId === "thr_spawned1");
   assert.equal(author?.pr?.action, "merge", "the PR stays on the author's card");
   assert.equal(author?.reviewThreadId, "thr_spawned1", "with its Review thread link");
-  assert.equal(reviewer?.pr ?? null, null, "the reviewer's card has no PR to merge or fix");
+  const reviewer = author?.workers.find((w: any) => w.threadId === "thr_spawned1");
+  assert.ok(reviewer, "the finished review sits in the author's card as a worker");
+  assert.equal(reviewer.pr, null, "with no PR of its own to merge or fix");
+  assert.equal(page.cards.filter((c: any) => c.threadId === "thr_spawned1").length, 0, "and no card of its own");
 });
 
 test("page: handing off from the lane spawns a thread and closes the row", async () => {

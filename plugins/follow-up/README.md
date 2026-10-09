@@ -227,9 +227,11 @@ GitHub.
   message first, prefilled with the failing checks or the base branch, and
   what's in the box when you press send is exactly what goes.
 - *Start a review thread* opens a new thread in the same worktree with a
-  review prompt naming the pull request, also shown in a box first. The new
-  thread isn't a child, so archiving the author's thread doesn't take the
-  review with it. Once it starts, the card links to it.
+  review prompt naming the pull request, also shown in a box first. It is a
+  child of the author's thread: it reports back there, sits in the author's
+  card as one of its workers, and findings it records as follow-ups carry up
+  to the author. Archiving the author's thread archives the review with it.
+  Once it starts, the card links to it.
 
 Beside the cards, **In motion** lists what is running now: each thread, what
 it's doing ("Running npm test", "Editing app.tsx"), how long the turn has been

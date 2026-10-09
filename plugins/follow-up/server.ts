@@ -846,8 +846,10 @@ export const rpcContract = defineRpcContract({
   },
   /**
    * Start a review thread for this thread's pull request, in the same
-   * worktree, with the prompt the card showed you. Unparented: archiving the
-   * author's thread must not take the review with it.
+   * worktree, with the prompt the card showed you. A child of the author's
+   * thread: the review is the author's delegated work, so it reports back
+   * there, folds into the author's card on the page, and its findings, if
+   * recorded as follow-ups, carry up to the author.
    */
   page_pr_review: {
     input: z
@@ -4431,7 +4433,7 @@ export default async function plugin(bb: BbPluginApi) {
             environment: { type: "reuse", environmentId: thread.environmentId },
             prompt,
           },
-          null,
+          threadId,
         );
         if (pr !== null) {
           await bb.storage.kv.set(reviewKey(threadId), { prNumber: pr.number, threadId: spawned.id });
