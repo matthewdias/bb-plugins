@@ -127,7 +127,15 @@ async function host(world: Partial<World> = {}) {
     assert.ok(onChange !== null, "the server subscribed to thread changes");
     onChange({ changes });
   };
-  return { w, harness, call, calls, signals, record, change, unsubscribed: () => unsubscribed };
+  // Every kv key the plugin reads from here on, to check what a call costs.
+  const reads: string[] = [];
+  const kv = bb.storage.kv as unknown as { get: (key: string) => Promise<unknown> };
+  const get = kv.get.bind(kv);
+  kv.get = (key: string) => {
+    reads.push(key);
+    return get(key);
+  };
+  return { w, harness, call, calls, signals, record, change, unsubscribed: () => unsubscribed, reads };
 }
 
 /** Long enough for the page signal's debounce and any background lookup. */
@@ -538,4 +546,27 @@ test("page: a PR card carries the thread's open follow-ups for the close-out", a
     page.cards[0].followUps.map((r: any) => [r.text, r.lead]),
     [["Split the worker", "handoff"]],
   );
+});
+
+test("page: the sidebar's summary reads follow-ups only for threads where they can matter", async () => {
+  const { call, record, harness, reads } = await host({
+    threads: [
+      threadRow("thr_quiet1"),
+      threadRow("thr_quiet2"),
+      threadRow("thr_unread", { latestAttentionAt: 300, lastReadAt: 100 }),
+      threadRow("thr_goal"),
+    ],
+    outputs: { thr_unread: "Done.", thr_goal: "Shipped." },
+  });
+  for (const id of ["thr_quiet1", "thr_quiet2", "thr_unread", "thr_goal"]) await record(id, `Row on ${id}`);
+  await harness.callAgentTool("offer_next_steps", { steps: [], goal_met: true }, { threadId: "thr_goal" });
+  reads.length = 0;
+  const summary = await call("page_summary");
+  const itemReads = reads.filter((key) => key.startsWith("items:")).sort();
+  assert.deepEqual(itemReads, ["items:thr_goal", "items:thr_unread"], "not the quiet threads' rows");
+  const byId = new Map(summary.top.map((c: any) => [c.threadId, c]));
+  assert.equal((byId.get("thr_goal") as any)?.lead, "wrap-up", "a met goal still finds its open rows");
+  const page = await call("page_snapshot");
+  const finished = page.cards.find((c: any) => c.threadId === "thr_unread");
+  assert.deepEqual(finished?.followUps.map((r: any) => r.text), ["Row on thr_unread"], "a card still lists its rows");
 });

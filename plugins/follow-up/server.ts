@@ -3778,14 +3778,13 @@ export default async function plugin(bb: BbPluginApi) {
           const asks = asksFor(thread, thread.hasPendingInteraction ? await readPendingAsks(thread.id) : []);
           const busy = isBusy(thread.status);
           if (asks.length === 0 && busy) return null;
-          const [offer, wrapRecord, hiddenAt, review, { rows }] = await Promise.all([
+          const [offer, wrapRecord, hiddenAt, review] = await Promise.all([
             current.offerNextSteps && withOffer.has(thread.id) ? readOffer(thread.id) : null,
             withWrapUp.has(thread.id) ? readWrapUp(thread.id) : null,
             withHidden.has(thread.id) ? bb.storage.kv.get<number>(hiddenKey(thread.id)) : undefined,
             withReview.has(thread.id)
               ? bb.storage.kv.get<{ prNumber: number; threadId: string }>(reviewKey(thread.id))
               : undefined,
-            rowsOf(thread.id),
           ]);
           const environmentId = environmentOf.get(thread.id);
           const pr = environmentId === undefined || busy ? null : (pullRequests.get(environmentId)?.pr ?? null);
@@ -3799,12 +3798,10 @@ export default async function plugin(bb: BbPluginApi) {
               thread.status === "error" ||
               (pr !== null && prAction(pr) !== null));
           const reply = wantsReply ? await readLastReply(thread) : null;
-          return cardFor({
+          const inputs = {
             thread,
             asks,
             offer,
-            openFollowUps: rows.length,
-            rows,
             wrapUp: wrapRecord === null ? null : { held: wrapRecord.held, running: wrapRecord.held === null },
             pr,
             reply,
@@ -3812,7 +3809,16 @@ export default async function plugin(bb: BbPluginApi) {
             parentTitle:
               thread.parentThreadId === null ? null : (byId.get(thread.parentThreadId)?.title ?? null),
             review: review ?? null,
-          });
+          };
+          // A thread's rows are read only where they can matter: on a card it
+          // gets anyway, where they are listed for its close-out, or when its
+          // goal is met, where open rows make it a wrap-up. Most open threads
+          // are neither, and the sidebar count asks on every change; reading
+          // every one's rows was two kv reads per open thread per refresh.
+          const card = cardFor({ ...inputs, openFollowUps: 0, rows: [] });
+          if (!withItems.has(thread.id) || (card === null && offer?.goalMet !== true)) return card;
+          const { rows } = await rowsOf(thread.id);
+          return cardFor({ ...inputs, openFollowUps: rows.length, rows });
         }),
       )
     ).filter((card) => card !== null);
