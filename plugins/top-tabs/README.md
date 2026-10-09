@@ -41,7 +41,8 @@ header, the strip keeps working from the last list it saw.
   See [The sidebar](#the-sidebar).
 - **Pin a tab** from its context menu, or with the pin on its row in the
   **+** menu, to keep it. See [Pinned tabs](#pinned-tabs).
-- **Close a tab** with the × that replaces its icon on hover, a middle-click,
+- **Close a tab** with the × that replaces its icon on hover (on a touch
+  screen, the selected tab's × is always there), a middle-click,
   its context menu, or bb's own Close at the top right of the page. Pinned
   tabs don't close; bb's Close and **Top Tabs: Close tab** reset one instead. Closing the
   tab in view moves to its right-hand neighbour, then its left, then
@@ -282,6 +283,14 @@ drag-to-split all work as they do without Top Tabs, and the strip follows:
 Below bb's `md` breakpoint the sidebar is a drawer again and the strip steps
 aside. bb's navigation in the drawer has every destination: visible ones as
 rows, hidden ones behind **More**.
+
+### On an iPad
+
+Wide enough for bb's desktop layout, an iPad gets the strip too: in
+landscape, or in portrait on the larger ones. On a touch screen the strip is
+taller, for bigger targets, and starts below the status bar. The selected tab
+keeps its × in place of its icon, as Safari's tabs do; any other tab is a tap
+to select. A long press opens a tab's context menu, which closes any tab.
 
 ## Settings
 

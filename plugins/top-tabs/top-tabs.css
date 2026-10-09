@@ -16,6 +16,18 @@
 
 html.bb-top-tabs-on {
   --bb-top-tabs-height: 40px;
+  /* All the room the strip takes: its row, and above the row whatever bb's
+     home-screen app on iPad draws under the status bar. The inset is 0
+     everywhere else. */
+  --bb-top-tabs-room: calc(var(--bb-top-tabs-height) + env(safe-area-inset-top, 0px));
+}
+
+/* A finger needs a taller row than a pointer: 36px tabs in a 48px strip,
+   Safari's own on iPad. */
+@media (pointer: coarse) {
+  html.bb-top-tabs-on {
+    --bb-top-tabs-height: 48px;
+  }
 }
 
 /* bb's desktop app on macOS draws traffic lights over the top-left corner,
@@ -27,18 +39,27 @@ html.bb-top-tabs-traffic-lights {
 
 html.bb-top-tabs-on #root {
   box-sizing: border-box;
-  padding-top: var(--bb-top-tabs-height);
+  padding-top: var(--bb-top-tabs-room);
+}
+
+/* bb's home-screen app on iPad draws edge to edge under a translucent status
+   bar, and pads its content and sidebar down by the safe area to clear the
+   clock. The strip's room already includes it, so below the strip that
+   padding would only be an empty band. */
+html.bb-top-tabs-on [data-app-content-shell],
+html.bb-top-tabs-on [data-sidebar="panel"] [data-sidebar="sidebar"] {
+  padding-top: 0;
 }
 
 /* The sidebar panel is fixed to the viewport, so #root's padding misses it. */
 html.bb-top-tabs-on [data-sidebar="panel"] {
-  top: var(--bb-top-tabs-height);
-  height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-height));
+  top: var(--bb-top-tabs-room);
+  height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room));
 }
 
 /* So is the sidebar toggle bb floats over the corner. */
 html.bb-top-tabs-on [data-testid="app-sidebar-trigger-overlay"] {
-  top: var(--bb-top-tabs-height);
+  top: var(--bb-top-tabs-room);
 }
 
 /* The desktop app has its own toggle, pinned to the window's top edge and
@@ -46,7 +67,7 @@ html.bb-top-tabs-on [data-testid="app-sidebar-trigger-overlay"] {
    below it the toggle takes the position bb gives it when there are no
    lights to clear (`left-0 pl-[12px]`). */
 html.bb-top-tabs-on [data-testid="app-desktop-sidebar-trigger"] {
-  top: var(--bb-top-tabs-height);
+  top: var(--bb-top-tabs-room);
   left: 0;
   padding-left: 12px;
 }
@@ -103,8 +124,15 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
   /* The list pads itself by 1px (below), so the strip's own gap and edges
      give up that pixel and every gap still measures the same. */
   gap: calc(var(--bb-top-tabs-spacing) - 1px);
-  height: var(--bb-top-tabs-height, 40px);
-  padding: 0 calc(var(--bb-top-tabs-spacing) - 1px) 0 calc(var(--bb-top-tabs-start) - 1px);
+  /* The row starts below the status bar, whose touches iOS keeps for itself;
+     the strip's background fills in behind the clock, as bb's sidebar does.
+     The side insets clear a landscape iPhone's notch. */
+  height: var(--bb-top-tabs-room, 40px);
+  padding:
+    env(safe-area-inset-top, 0px)
+    calc(var(--bb-top-tabs-spacing) - 1px + env(safe-area-inset-right, 0px))
+    0
+    calc(var(--bb-top-tabs-start) - 1px + env(safe-area-inset-left, 0px));
   border-bottom: 1px solid var(--border-seam, var(--border));
   background: var(--sidebar);
   color: var(--sidebar-foreground, var(--foreground));
@@ -179,9 +207,13 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
     box-shadow 120ms ease;
 }
 
-.bb-top-tab:hover {
-  background: var(--state-hover, var(--sidebar-accent));
-  color: var(--foreground);
+/* Only where something can hover: on a touch screen, :hover sticks to
+   whatever was tapped last. */
+@media (hover: hover) {
+  .bb-top-tab:hover {
+    background: var(--state-hover, var(--sidebar-accent));
+    color: var(--foreground);
+  }
 }
 
 .bb-top-tab[data-active] {
@@ -371,7 +403,8 @@ svg.bb-top-tab-icon,
 }
 
 /* The close button takes the icon's place on hover, as Safari's tabs do: no
-   width is set aside for it, so nothing moves when it appears. */
+   width is set aside for it, so nothing moves when it appears. Hidden, it
+   lets presses through to the tab, so a tap on the icon never closes one. */
 .bb-top-tab-close {
   all: unset;
   position: absolute;
@@ -385,6 +418,7 @@ svg.bb-top-tab-icon,
   border-radius: 5px;
   color: var(--muted-foreground);
   opacity: 0;
+  pointer-events: none;
   translate: 0 -50%;
   transition: opacity 120ms ease;
 }
@@ -393,23 +427,49 @@ svg.bb-top-tab-icon,
   transition: opacity 120ms ease;
 }
 
-.bb-top-tab:hover .bb-top-tab-close,
 .bb-top-tab-close:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 
-.bb-top-tab:has(.bb-top-tab-close):hover .bb-top-tab-icon,
 .bb-top-tab:has(.bb-top-tab-close:focus-visible) .bb-top-tab-icon {
   opacity: 0;
+}
+
+@media (hover: hover) {
+  .bb-top-tab:hover .bb-top-tab-close {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .bb-top-tab:has(.bb-top-tab-close):hover .bb-top-tab-icon {
+    opacity: 0;
+  }
+}
+
+/* With nothing to hover, the selected tab shows its close button all the
+   time, as Safari's tabs do on iPad. The others are a tap to select; a long
+   press opens the menu, which can close any of them. */
+@media (hover: none) {
+  .bb-top-tab[data-active] .bb-top-tab-close {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .bb-top-tab[data-active]:has(.bb-top-tab-close) .bb-top-tab-icon {
+    opacity: 0;
+  }
 }
 
 .bb-top-tabs[data-dragging] .bb-top-tab-close {
   opacity: 0;
 }
 
-.bb-top-tab-close:hover {
-  background: var(--state-active, var(--accent));
-  color: var(--foreground);
+@media (hover: hover) {
+  .bb-top-tab-close:hover {
+    background: var(--state-active, var(--accent));
+    color: var(--foreground);
+  }
 }
 
 .bb-top-tab-close:focus-visible {
@@ -435,6 +495,34 @@ svg.bb-top-tab-icon,
 
 .bb-top-tab[data-icon-only] .bb-top-tab-close {
   left: 4px;
+}
+
+/* Bigger targets for a finger: the tab fills most of the taller row,
+   and the close button most of the tab, still centred on the icon it
+   replaces. The glyphs keep their size. */
+@media (pointer: coarse) {
+  .bb-top-tab {
+    height: 36px;
+  }
+
+  .bb-top-tab-main {
+    padding: 0 12px 0 11px;
+  }
+
+  .bb-top-tab[data-icon-only] .bb-top-tab-main {
+    padding: 0 10px;
+  }
+
+  .bb-top-tab-close {
+    left: 3px;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+  }
+
+  .bb-top-tab[data-icon-only] .bb-top-tab-close {
+    left: 2px;
+  }
 }
 
 /* A pinned icon showing its badge keeps it close, as Threads keeps its
@@ -500,10 +588,16 @@ svg.bb-top-tab-icon,
   color: var(--muted-foreground);
 }
 
-.bb-top-tabs-add:hover,
 .bb-top-tabs-add[data-state="open"] {
   background: var(--state-hover, var(--sidebar-accent));
   color: var(--foreground);
+}
+
+@media (hover: hover) {
+  .bb-top-tabs-add:hover {
+    background: var(--state-hover, var(--sidebar-accent));
+    color: var(--foreground);
+  }
 }
 
 .bb-top-tabs-add:focus-visible {
@@ -514,6 +608,13 @@ svg.bb-top-tab-icon,
 .bb-top-tabs-add svg {
   width: 16px;
   height: 16px;
+}
+
+@media (pointer: coarse) {
+  .bb-top-tabs-add {
+    width: 36px;
+    height: 36px;
+  }
 }
 
 /* ---------------------------------------------------------------- menus */

@@ -15,7 +15,9 @@ each.
 
 **Destinations open beside it.** Open plugin panels, Plugins and Skills from
 the + button, or reach one any other way and it gets a tab. Drag to reorder,
-middle-click to close, Ctrl+Shift+T to reopen.
+middle-click to close, Ctrl+Shift+T to reopen. On an iPad the strip sits
+below the status bar, with tabs sized for a finger and a × on the selected
+one.
 
 **Each tab returns to where you left it.** Each tab remembers the exact page
 it was on: the pull request inside GitHub, not just GitHub.
