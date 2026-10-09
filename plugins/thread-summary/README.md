@@ -29,8 +29,9 @@ and `bb plugin update` follows it.
 ![The same card in bb's dark theme](screenshots/desktop-card-dark.jpg)
 
 The `screenshots/` directory holds the frames for a store listing, taken from a
-live bb 0.45 window: the desktop card in light and dark, the phone header with
-its dot in place of chips, and the phone drawer.
+live bb 0.45 window: the desktop card in light and dark, with the header's
+chips stepped aside; the header with chips set to Icons only; the phone header
+with its dot in place of chips; and the phone drawer.
 
 ### The card
 
