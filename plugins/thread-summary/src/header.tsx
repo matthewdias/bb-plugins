@@ -116,8 +116,15 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
     setShown(true);
   };
   const hide = () => setShown(false);
-  const shownChips = useMemo(() => (showChips ? chips(entries) : []), [entries, showChips]);
-  const dot = showChips ? null : worstTone(entries);
+  // While the card shows on a desktop, it says everything the chips would,
+  // just below them: the header draws neither chips nor a dot, and the
+  // button's pressed state is enough. A phone keeps its dot.
+  const cardShowing = open && !isCompactViewport;
+  const shownChips = useMemo(
+    () => (showChips && !cardShowing ? chips(entries) : []),
+    [entries, showChips, cardShowing],
+  );
+  const dot = showChips || cardShowing ? null : worstTone(entries);
   const body = <CardBody entries={entries} environmentId={environmentId} />;
 
   return (

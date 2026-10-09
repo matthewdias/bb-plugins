@@ -390,6 +390,40 @@ describe("the card", () => {
   });
 });
 
+describe("the header while the card shows", () => {
+  it("draws no chips while the card shows, and brings them back when it hides", async () => {
+    const { slot, threadId } = render();
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toHaveLength(3));
+    fireEvent.click(button(slot));
+    expect(card()).not.toBeNull();
+    expect(chipIds()).toEqual([]);
+    expect(document.querySelector("[data-thread-summary-dot]")).toBeNull();
+    fireEvent.click(button(slot));
+    await waitFor(() => expect(chipIds()).toEqual([PULL_REQUEST_ID, GIT_ID, "follow-up/progress"]));
+  });
+
+  it("draws no dot either while the card shows with chips off, and brings it back when it hides", async () => {
+    const { slot, threadId } = render({ showChips: false });
+    seed(threadId);
+    await waitFor(() => expect(document.querySelector("[data-thread-summary-dot]")).not.toBeNull());
+    fireEvent.click(button(slot));
+    expect(document.querySelector("[data-thread-summary-dot]")).toBeNull();
+    fireEvent.click(button(slot));
+    expect(document.querySelector("[data-thread-summary-dot]")?.getAttribute("data-thread-summary-dot")).toBe("error");
+  });
+
+  it("keeps the dot on a phone while the drawer is open", async () => {
+    const { slot, threadId } = render({ compact: true });
+    seed(threadId);
+    await waitFor(() => expect(document.querySelector("[data-thread-summary-dot]")).not.toBeNull());
+    fireEvent.click(button(slot));
+    expect(document.querySelector("[data-thread-summary-drawer]")).not.toBeNull();
+    expect(document.querySelector("[data-thread-summary-dot]")?.getAttribute("data-thread-summary-dot")).toBe("error");
+    expect(chipIds()).toEqual([]);
+  });
+});
+
 describe("showing and hiding", () => {
   it("toggles from the button, and says which it is", () => {
     const { slot } = render();
