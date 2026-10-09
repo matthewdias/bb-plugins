@@ -171,7 +171,9 @@ which of three tiers it sits in:
   options, several at once when it allows that, an *Other* field when it takes
   free text, and every question of a multi-question form, sent together. If it
   was answered somewhere else in the meantime, the card says so and sends
-  nothing. Approvals and plugin forms show what they ask and open the thread.
+  nothing. An approval is answered on the card too, with the choices bb's own
+  approval card offers and in its words (below). A plugin form opens the
+  thread.
 - **Your turn**: the turn ended with something for you, newest first. The
   agent's next steps work the way the Next row's do: press to send, ⌥-click to
   edit first, or keep one for later. Wrap up is the same sheet as in the
@@ -181,6 +183,24 @@ which of three tiers it sits in:
 - **Finished**: the turn ended without asking anything and you haven't read
   it. The end of the reply, with *Reply…*, *Mark read* and *Archive*. Newest
   first, up to 20; beyond that, the sidebar's unread dots have them.
+
+An approval card shows what answering allows, whole. A command shows the
+whole command, where it runs and what it reads or searches. A file change
+shows each file's diff, open, and where a renamed file goes. A permission
+shows the paths it reads and writes and whether it uses the network. A tool
+shows the tool's name, then its own title and detail, in red when bb marks it
+destructive. A plan is rendered as it is in chat, never folded. *Allow for
+session* says what else it allows. Answering does exactly what bb's card does,
+so *Keep planning* sends the plan back with no message, and the agent then
+asks what to change: that question gets its own card.
+
+The page answers only an approval its card can show whole, and sends anything
+else to the thread, saying why: a file change too big to show (more than ten
+files, or a diff past 40,000 characters), one whose diff can't be read, or a
+grant holding anything the card can't list. Any character that draws nothing
+or reorders the text around it is shown as its code, like ⟦U+202E⟧, and the
+card warns, so a command can't look like something other than what runs.
+Approvals are click only: no key or swipe answers one.
 
 A thread's workers, the child threads it spawned (at any depth), fold into
 its card as a **Workers** list, so an orchestrator and the six workers it ran
@@ -207,6 +227,16 @@ puts the parent and its workers away together. The toast right after has
 cards, out of the count, each with *Bring back*. A blocked card has
 no *Not now*: the agent is stopped, and putting it off would leave a thread
 nobody comes back to.
+
+**Focus** deals the threads that need you one at a time, full size: blocked
+first, then your turn, in the page's order. Open it with the *Focus* button in
+the page's header, and leave with *All of them*, Escape, or Back. It stays
+live: a card answered anywhere leaves, and a new ask joins. Number keys pick a
+question's option or a next step, and Enter sends it. J or → skips, K or ←
+goes back, S or ↑ puts a card away (*Not now*), Z undoes a skip or a put-away,
+and Esc leaves. Approvals, merges and wrap-ups have no key: they're click
+only. On a phone, swipe left to skip and up to put away, with the same feel
+and haptics as Plugin Triage's deck; a swipe never answers anything.
 
 A pull request gets a card when bb's roll-up of its checks, review and
 mergeability says it wants you: ready to merge, review requested, changes

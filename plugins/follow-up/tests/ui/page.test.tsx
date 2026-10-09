@@ -89,19 +89,22 @@ function renderPage({
   running = [],
   followUps = [],
   handlers = {},
+  subPath = "",
 }: {
-  cards?: Card[];
+  cards?: Card[] | (() => Card[]);
   putAway?: Card[];
   running?: Running[];
   followUps?: LaneGroup[];
   handlers?: Record<string, (input: any) => Promise<unknown>>;
+  subPath?: string;
 }) {
+  const current = () => (typeof cards === "function" ? cards() : cards);
   const rpc = {
     page_snapshot: async () => ({
-      cards,
+      cards: current(),
       putAway,
       moreFinished: 0,
-      count: cards.filter((c) => c.tier !== "finished").length,
+      count: current().filter((c) => c.tier !== "finished").length,
       running,
       followUps,
       projects: [{ id: "prj_1", name: "bb-plugins" }],
@@ -114,7 +117,7 @@ function renderPage({
     followups_next_take: async () => ({ outcome: "sent" }),
     ...handlers,
   };
-  return renderSlot({ component: FollowUpPage }, { subPath: "" }, { rpc: rpc as never });
+  return renderSlot({ component: FollowUpPage }, { subPath }, { rpc: rpc as never });
 }
 
 type Slot = ReturnType<typeof renderPage>;
@@ -307,6 +310,387 @@ describe("the page", () => {
     const lane = slot.getByRole("region", { name: "Follow-ups" });
     expect(within(lane).getByText("archived")).toBeTruthy();
     expect(within(lane).getByRole("button", { name: "Hand off" })).toBeTruthy();
+  });
+});
+
+type Approval = Extract<Card["asks"][number], { kind: "approval" }>;
+
+const approval = (threadId: string, detail: Approval["detail"], extra: Partial<Approval> = {}): Card =>
+  card(threadId, {
+    tier: "blocked",
+    lead: "approval",
+    status: "active",
+    asks: [
+      {
+        kind: "approval",
+        interactionId: "int_a",
+        createdAt: NOW - 60_000,
+        subject: detail.kind,
+        summary: "summary",
+        decisions: ["allow_once", "allow_for_session", "deny"],
+        reason: null,
+        detail,
+        unseen: false,
+        held: null,
+        ...extra,
+      },
+    ],
+  });
+
+const grant = { read: ["/repo"], write: ["/repo/out"], network: true };
+
+describe("approvals", () => {
+  it("shows a command whole, with where it runs, and answers with the choice pressed", async () => {
+    const slot = renderPage({
+      cards: [
+        approval("thr_c", { kind: "command", command: "git push\n  --force", cwd: "/repo", actions: ["Reads a.ts"], sessionGrant: grant }, { reason: "To publish" }),
+      ],
+      handlers: { page_approve: async () => ({ outcome: "answered" }) },
+    });
+    const block = await slot.findByText(/git push/);
+    expect(block.textContent).toBe("$ git push\n  --force");
+    expect(slot.getByText("/repo")).toBeTruthy();
+    expect(slot.getByText("· Reads a.ts")).toBeTruthy();
+    expect(slot.getByText("The agent says: “To publish”")).toBeTruthy();
+    expect(slot.getByText("For session also allows: reads /repo; writes /repo/out; network")).toBeTruthy();
+    expect(slot.getAllByRole("button").map((b) => b.textContent).filter((t) => /Allow|Deny/.test(t ?? ""))).toEqual([
+      "Allow once",
+      "Allow for session",
+      "Deny",
+    ]);
+    fireEvent.click(slot.getByRole("button", { name: "Allow for session" }));
+    await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(1));
+    expect(calls(slot, "page_approve")[0]).toEqual({ threadId: "thr_c", interactionId: "int_a", decision: "allow_for_session" });
+  });
+
+  it("offers only the choices the approval lists, and no session line without Allow for session", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_c", { kind: "command", command: "ls", cwd: null, actions: [], sessionGrant: grant }, { decisions: ["allow_once", "deny"] })],
+    });
+    await slot.findByRole("button", { name: "Allow once" });
+    expect(slot.queryByRole("button", { name: "Allow for session" })).toBeNull();
+    expect(slot.queryByText(/For session also allows/)).toBeNull();
+  });
+
+  it("sends an approval the page holds to the thread, saying why, with nothing to press here", async () => {
+    const slot = renderPage({
+      cards: [
+        approval("thr_c", { kind: "command", command: "rm -rf build", cwd: null, actions: [], sessionGrant: null }, { decisions: [], summary: "rm -rf build", held: "It offers no choice the page can make." }),
+      ],
+    });
+    expect(await slot.findByText("It offers no choice the page can make.")).toBeTruthy();
+    fireEvent.click(slot.getByRole("button", { name: /Answer in the thread/ }));
+    expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ threadId: "thr_c" });
+    expect(slot.queryByRole("button", { name: "Allow once" })).toBeNull();
+    expect(slot.queryByRole("button", { name: "Deny" })).toBeNull();
+  });
+
+  it("warns when what it shows held characters that don't draw", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_c", { kind: "command", command: "ls ⟦U+202E⟧hs.gpj", cwd: null, actions: [], sessionGrant: null }, { unseen: true })],
+    });
+    expect((await slot.findByRole("alert")).textContent).toMatch(/characters that don't show/);
+    expect(slot.getByText(/hs\.gpj/).textContent).toContain("⟦U+202E⟧");
+  });
+
+  it("calls a plan's choices Approve plan and Keep planning, and says the agent will ask what to change", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_p", { kind: "plan", plan: "## Offline queue\n1. Store", planFilePath: "/plans/q.md" }, { decisions: ["allow_once", "deny"] })],
+      handlers: { page_approve: async () => ({ outcome: "answered" }) },
+    });
+    expect((await slot.findByTestId("bb-markdown")).textContent).toBe("## Offline queue\n1. Store");
+    expect(slot.getByText("/plans/q.md")).toBeTruthy();
+    expect(slot.queryByRole("textbox")).toBeNull();
+    expect(slot.getByText(/the agent asks what to change/)).toBeTruthy();
+    fireEvent.click(slot.getByRole("button", { name: "Approve plan" }));
+    await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(1));
+    expect(calls(slot, "page_approve")[0]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "allow_once" });
+    fireEvent.click(slot.getByRole("button", { name: "Keep planning" }));
+    await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(2));
+    expect(calls(slot, "page_approve")[1]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "deny" });
+  });
+
+  it("shows a long plan whole, never folded beside Approve plan", async () => {
+    const plan = Array.from({ length: 60 }, (_, i) => `${i + 1}. step`).join("\n");
+    const slot = renderPage({ cards: [approval("thr_p", { kind: "plan", plan, planFilePath: null }, { decisions: ["allow_once", "deny"] })] });
+    const shown = await slot.findByTestId("bb-markdown");
+    expect(shown.textContent).toBe(plan);
+    expect(shown.parentElement?.className).not.toMatch(/max-h|overflow-hidden/);
+    expect(slot.queryByRole("button", { name: /whole plan/i })).toBeNull();
+  });
+
+  it("shows every file's diff open, a rename with where it goes, and lets you close one", async () => {
+    const slot = renderPage({
+      cards: [
+        approval("thr_f", {
+          kind: "file_change",
+          itemId: "it",
+          writeScope: "/repo",
+          sessionGrant: null,
+          files: [
+            { path: "/repo/a.ts", change: "update", movedTo: null, patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false },
+            { path: "/repo/b.ts", change: "add", movedTo: null, patch: "+new", cut: false, unseen: false },
+            { path: "/repo/old.ts", change: "update", movedTo: "/repo/new.ts", patch: "", cut: false, unseen: false },
+          ],
+        }),
+      ],
+    });
+    const diffs = await slot.findAllByTestId("bb-diff");
+    expect(diffs.map((d) => [d.getAttribute("data-path"), d.textContent])).toEqual([
+      ["/repo/a.ts", "@@ -1 +1 @@\n-a\n+b"],
+      ["/repo/b.ts", "+new"],
+    ]);
+    const move = slot.getByRole("button", { name: /\/repo\/old\.ts/ });
+    expect(move.textContent).toContain("/repo/old.ts → /repo/new.ts");
+    expect(move.textContent).toContain("move");
+    fireEvent.click(slot.getByRole("button", { name: /\/repo\/a\.ts/ }));
+    expect(slot.getAllByTestId("bb-diff").map((d) => d.getAttribute("data-path"))).toEqual(["/repo/b.ts"]);
+  });
+
+  it("names the tool that runs beside its own title, and marks a destructive one", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_t", { kind: "tool_use", tool: "Bash", title: "Tidy the cache", detail: "rm -rf .cache", destructive: true, badge: "Destructive" })],
+    });
+    const name = await slot.findByText("Bash");
+    const title = slot.getByText("Tidy the cache");
+    expect(name.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(slot.getByText("Destructive")).toBeTruthy();
+    expect(slot.getByText("rm -rf .cache")).toBeTruthy();
+  });
+
+  it("lists what a permission asks for", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_g", { kind: "permission_grant", toolName: "Bash", asked: { read: ["/notes"], write: [], network: false } })],
+    });
+    expect(await slot.findByText("/notes")).toBeTruthy();
+    expect(slot.getByText("nothing")).toBeTruthy();
+    expect(slot.getByText("no")).toBeTruthy();
+  });
+
+  it("says so when the approval was already answered", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_c", { kind: "command", command: "ls", cwd: null, actions: [], sessionGrant: null })],
+      handlers: { page_approve: async () => ({ outcome: "stale" }) },
+    });
+    fireEvent.click(await slot.findByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("That approval was already answered, or withdrawn."));
+  });
+});
+
+const turn = (threadId: string, steps = ["Open a PR", "Delete the branch"]): Card =>
+  card(threadId, { tier: "turn", lead: "next", offer: { steps, goalMet: false, offeredAt: `at-${threadId}` } });
+
+const key = (k: string) => fireEvent.keyDown(window, { key: k });
+
+describe("Focus", () => {
+  it("opens from the page's header, with the count", async () => {
+    const slot = renderPage({ cards: [question("thr_q"), turn("thr_t"), card("thr_done")] });
+    fireEvent.click(await slot.findByRole("button", { name: "Focus: 2 one at a time" }));
+    expect(slot.inspection.navigateCalls.at(-1)).toEqual({ method: "toPluginPanel", path: "page", options: { subPath: "focus" } });
+  });
+
+  it("has no Focus button when nothing needs you", async () => {
+    const slot = renderPage({ cards: [card("thr_done")] });
+    await slot.findByText("Thread thr_done");
+    expect(slot.queryByRole("button", { name: /^Focus/ })).toBeNull();
+  });
+
+  it("deals blocked then your-turn cards one at a time, and never a finished one", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [question("thr_q"), turn("thr_t"), card("thr_done")] });
+    expect(await slot.findByText("1 of 2")).toBeTruthy();
+    expect(slot.getByRole("article").getAttribute("aria-label")).toBe("Question: Thread thr_q");
+    expect(slot.getByText("Thread thr_t", { selector: "span" })).toBeTruthy();
+    key("j");
+    expect(slot.getByText("2 of 2")).toBeTruthy();
+    expect(slot.getByRole("article").getAttribute("aria-label")).toMatch(/Thread thr_t$/);
+    key("ArrowLeft");
+    expect(slot.getByRole("article").getAttribute("aria-label")).toMatch(/Thread thr_q$/);
+    key("ArrowRight");
+    key("J");
+    expect(await slot.findByText("That's all of them.")).toBeTruthy();
+    expect(slot.queryByText("Thread thr_done")).toBeNull();
+    fireEvent.click(slot.getByRole("button", { name: "Start over" }));
+    expect(slot.getByText("1 of 2")).toBeTruthy();
+  });
+
+  it("answers a question with a number and Enter", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [question("thr_q")] });
+    await slot.findByText("1 of 1");
+    key("2");
+    expect(slot.getByRole("radio", { name: /Foreground tab/ }).getAttribute("aria-checked")).toBe("true");
+    key("2");
+    // A key picks; pressed again it never unpicks.
+    expect(slot.getByRole("radio", { name: /Foreground tab/ }).getAttribute("aria-checked")).toBe("true");
+    key("Enter");
+    await waitFor(() => expect(calls(slot, "page_answer")).toHaveLength(1));
+    expect(calls(slot, "page_answer")[0]).toMatchObject({ answers: { q1: { selected: ["fg"] } } });
+  });
+
+  it("picks a next step with its number and sends it with Enter, only once picked", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [turn("thr_t")] });
+    await slot.findByText("1 of 1");
+    key("Enter");
+    expect(calls(slot, "followups_next_take")).toHaveLength(0);
+    key("2");
+    expect(slot.getByRole("button", { name: 'Send "Delete the branch"' }).closest("[data-chosen]")).not.toBeNull();
+    key("Enter");
+    await waitFor(() => expect(calls(slot, "followups_next_take")).toHaveLength(1));
+    expect(calls(slot, "followups_next_take")[0]).toEqual({ threadId: "thr_t", offeredAt: "at-thr_t", index: 1 });
+  });
+
+  it("never answers an approval by key", async () => {
+    const slot = renderPage({
+      subPath: "focus",
+      cards: [approval("thr_a", { kind: "command", command: "ls", cwd: null, actions: [], sessionGrant: null })],
+      handlers: { page_approve: async () => ({ outcome: "answered" }) },
+    });
+    await slot.findByText("1 of 1");
+    for (const k of ["1", "2", "3", "Enter"]) key(k);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls(slot, "page_approve")).toHaveLength(0);
+    expect(slot.queryByText("1", { selector: "kbd" })).toBeNull();
+  });
+
+  it("leaves keys typed into a field to the field", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [question("thr_q"), turn("thr_t")] });
+    const field = await slot.findByLabelText(/Your own answer to/);
+    fireEvent.keyDown(field, { key: "j" });
+    fireEvent.keyDown(field, { key: "2" });
+    expect(slot.getByText("1 of 2")).toBeTruthy();
+    expect(slot.getByRole("radio", { name: /Foreground tab/ }).getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("puts a your-turn card away with S, and Z brings it back", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [turn("thr_a"), turn("thr_b")] });
+    await slot.findByText("1 of 2");
+    key("s");
+    await waitFor(() => expect(calls(slot, "page_hide")).toHaveLength(1));
+    expect(calls(slot, "page_hide")[0]).toMatchObject({ threadId: "thr_a" });
+    expect(slot.getByRole("article").getAttribute("aria-label")).toMatch(/Thread thr_b$/);
+    expect(slot.getByText("1 of 1")).toBeTruthy();
+    key("z");
+    await waitFor(() => expect(calls(slot, "page_unhide")).toHaveLength(1));
+    expect(calls(slot, "page_unhide")[0]).toEqual({ threadIds: ["thr_a"] });
+    await waitFor(() => expect(slot.getByRole("article").getAttribute("aria-label")).toMatch(/Thread thr_a$/));
+  });
+
+  it("Z undoes a skip too", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [turn("thr_a"), turn("thr_b")] });
+    await slot.findByText("1 of 2");
+    key("j");
+    key("z");
+    expect(slot.getByText("1 of 2")).toBeTruthy();
+    expect(calls(slot, "page_unhide")).toHaveLength(0);
+  });
+
+  it("won't put a blocked card away, and says to skip it", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [question("thr_q")] });
+    await slot.findByText("1 of 1");
+    key("s");
+    expect(toast).toHaveBeenCalledWith("A blocked thread waits on its answer. Skip it instead.");
+    expect(calls(slot, "page_hide")).toHaveLength(0);
+    expect((slot.getByRole("button", { name: "Put away (S)" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("moves on when the card shown is answered somewhere else, and takes in a new one", async () => {
+    let cards = [question("thr_q"), turn("thr_t")];
+    const slot = renderPage({ subPath: "focus", cards: () => cards });
+    await slot.findByText("1 of 2");
+    cards = [turn("thr_t")];
+    await slot.emitRealtime("followups-page-changed", {});
+    await waitFor(() => expect(slot.getByRole("article").getAttribute("aria-label")).toMatch(/Thread thr_t$/));
+    expect(slot.getByText("1 of 1")).toBeTruthy();
+    cards = [turn("thr_t"), turn("thr_new")];
+    await slot.emitRealtime("followups-page-changed", {});
+    await waitFor(() => expect(slot.getByText("1 of 2")).toBeTruthy());
+  });
+
+  it("leaves with Escape, replacing its own place in history", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [turn("thr_t")] });
+    await slot.findByText("1 of 1");
+    key("Escape");
+    expect(slot.inspection.navigateCalls.at(-1)).toEqual({ method: "toPluginPanel", path: "page", options: { replace: true } });
+  });
+
+  it("lets a card it put away come back into the deck when something new happens", async () => {
+    let cards = [turn("thr_a"), turn("thr_b")];
+    const slot = renderPage({ subPath: "focus", cards: () => cards });
+    await slot.findByText("1 of 2");
+    key("s");
+    await waitFor(() => expect(calls(slot, "page_hide")).toHaveLength(1));
+    // A snapshot from before the server caught up still lists it, unchanged: it stays out.
+    const fetched = calls(slot, "page_snapshot").length;
+    await slot.emitRealtime("followups-page-changed", {});
+    await waitFor(() => expect(calls(slot, "page_snapshot").length).toBe(fetched + 1));
+    expect(slot.getByText("1 of 1")).toBeTruthy();
+    // Something new on it, before or after the server dropped it: it's back.
+    cards = [card("thr_a", { tier: "turn", lead: "next", attentionAt: NOW, since: NOW, offer: { steps: ["Again"], goalMet: false, offeredAt: "at-2" } }), turn("thr_b")];
+    await slot.emitRealtime("followups-page-changed", {});
+    await waitFor(() => expect(slot.getByText("2 of 2")).toBeTruthy());
+  });
+
+  it("shows a card brought back from the page's fold, even unchanged", async () => {
+    let cards = [turn("thr_a"), turn("thr_b")];
+    const slot = renderPage({ subPath: "focus", cards: () => cards });
+    await slot.findByText("1 of 2");
+    key("s");
+    await waitFor(() => expect(calls(slot, "page_hide")).toHaveLength(1));
+    cards = [turn("thr_b")];
+    const fetched = calls(slot, "page_snapshot").length;
+    await slot.emitRealtime("followups-page-changed", {});
+    await waitFor(() => expect(calls(slot, "page_snapshot").length).toBe(fetched + 1));
+    cards = [turn("thr_a"), turn("thr_b")];
+    await slot.emitRealtime("followups-page-changed", {});
+    await waitFor(() => expect(slot.getByText("2 of 2")).toBeTruthy());
+  });
+
+  it("moves on at once when the card's own Not now is pressed", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [turn("thr_a"), turn("thr_b")] });
+    await slot.findByText("1 of 2");
+    fireEvent.click(within(slot.getByRole("article")).getByRole("button", { name: /Not now/ }));
+    await waitFor(() => expect(calls(slot, "page_hide")).toHaveLength(1));
+    expect(slot.getByRole("article").getAttribute("aria-label")).toMatch(/Thread thr_b$/);
+  });
+
+  it("gives the keys to the card's own ask, never to a worker's form", async () => {
+    const { workers: _none, ...asking } = question("thr_w");
+    const parent = approval("thr_p", { kind: "command", command: "ls", cwd: null, actions: [], sessionGrant: null }, {});
+    const slot = renderPage({ subPath: "focus", cards: [{ ...parent, workers: [{ ...asking, title: "Worker", parentThreadId: "thr_p" }] }] });
+    const section = await slot.findByRole("region", { name: "Workers" });
+    fireEvent.click(within(section).getByRole("button", { name: /Worker/ }));
+    const radio = within(section).getByRole("radio", { name: /Foreground tab/ });
+    key("2");
+    expect(radio.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("forgets a picked step when a new offer replaces it", async () => {
+    let cards = [turn("thr_t")];
+    const slot = renderPage({ subPath: "focus", cards: () => cards });
+    await slot.findByText("1 of 1");
+    key("2");
+    cards = [card("thr_t", { tier: "turn", lead: "next", offer: { steps: ["Ship it", "Wait"], goalMet: false, offeredAt: "at-new" } })];
+    await slot.emitRealtime("followups-page-changed", {});
+    await slot.findByRole("button", { name: 'Send "Wait"' });
+    key("Enter");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls(slot, "followups_next_take")).toHaveLength(0);
+  });
+
+  it("skips on a leftward swipe of a finger, never on a mouse drag", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [turn("thr_a"), turn("thr_b")] });
+    await slot.findByText("1 of 2");
+    const swipe = (pointerType: string) => {
+      const target = slot.getByTestId("focus-card");
+      fireEvent.pointerDown(target, { pointerId: 1, pointerType, button: 0, clientX: 300, clientY: 300 });
+      fireEvent.pointerMove(target, { pointerId: 1, pointerType, clientX: 250, clientY: 300 });
+      fireEvent.pointerMove(target, { pointerId: 1, pointerType, clientX: 100, clientY: 300 });
+      fireEvent.pointerUp(target, { pointerId: 1, pointerType, clientX: 100, clientY: 300 });
+    };
+    swipe("mouse");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(slot.getByText("1 of 2")).toBeTruthy();
+    swipe("touch");
+    await waitFor(() => expect(slot.getByText("2 of 2")).toBeTruthy());
   });
 });
 

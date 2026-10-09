@@ -106,12 +106,14 @@ import {
 } from "./lib/wrap-up.ts";
 import {
   activityLabel,
+  approvalResolution,
   asksFor,
   capFinished,
   cardFor,
   cardSchema,
   combineFamilies,
   countOf,
+  DECISIONS,
   familyOf,
   foldRunning,
   groupFollowUps,
@@ -777,6 +779,26 @@ export const rpcContract = defineRpcContract({
     output: z.object({ outcome: z.enum(["answered", "stale", "failed"]) }).strict(),
   },
   /**
+   * Answer an approval from its card, exactly as bb's own approval card does
+   * (approvalResolution). Refused as `stale` once it is no longer pending, and
+   * as `refused` for a choice the approval does not offer.
+   *
+   * "Keep planning" carries no note, as bb's own card doesn't: a deny can't
+   * hold a message, bb holds anything sent while an approval is pending, and
+   * bb's rejection tells the agent to ask what to change. That question is
+   * where the change is said, on its own card.
+   */
+  page_approve: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        interactionId: z.string().min(1).max(200),
+        decision: z.enum(DECISIONS),
+      })
+      .strict(),
+    output: z.object({ outcome: z.enum(["answered", "stale", "refused", "failed"]) }).strict(),
+  },
+  /**
    * Send a message into a thread as you: a card's reply box, an edited next
    * step, or a pull request's prefilled message. The text is exactly what the
    * box showed when you pressed send.
@@ -1044,6 +1066,13 @@ const PR_TTL_MS = 5 * 60 * 1000;
 const PR_CONCURRENCY = 4;
 /** Events read to say what a running thread is doing. */
 const ACTIVITY_EVENTS = "60";
+/** Started items read to find a file change an approval is about. */
+const FILE_CHANGE_EVENTS = "200";
+
+/** An approval of a file change, whose diff is read from the thread's events. */
+function namesFileChange(ask: PendingAsk | null): boolean {
+  return ask?.kind === "approval" && ask.detail.kind === "file_change" && ask.detail.itemId !== "";
+}
 
 /** The thread changes that can move a card. Everything else — every streamed delta — cannot. */
 const PAGE_RELEVANT_CHANGES: ReadonlySet<string> = new Set([
@@ -3611,14 +3640,38 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   async function readPendingAsks(threadId: string): Promise<PendingAsk[]> {
+    let raw: unknown[];
     try {
       const list: unknown = await bb.sdk.threads.interactions.list({ threadId });
-      return (Array.isArray(list) ? list : [])
-        .map(pendingAsk)
-        .filter((ask): ask is PendingAsk => ask !== null);
+      raw = Array.isArray(list) ? list : [];
     } catch (error) {
       bb.log.warn(`page: could not read ${threadId}'s pending asks: ${String(error)}`);
       return [];
+    }
+    const asks = raw.map((interaction) => pendingAsk(interaction));
+    const events = asks.some(namesFileChange) ? await readFileChanges(threadId) : undefined;
+    return raw
+      .map((interaction) => pendingAsk(interaction, events))
+      .filter((ask): ask is PendingAsk => ask !== null);
+  }
+
+  /**
+   * A file change's approval names only the item; its diff is on the
+   * thread's started items. Undefined when they can't be read, which holds
+   * the approval for the thread rather than answer it unseen.
+   */
+  async function readFileChanges(threadId: string): Promise<unknown[] | undefined> {
+    try {
+      const events: unknown = await bb.sdk.threads.events.list({
+        threadId,
+        order: "desc",
+        limit: FILE_CHANGE_EVENTS,
+        types: ["item/started"],
+      });
+      return Array.isArray(events) ? events : [];
+    } catch (error) {
+      bb.log.warn(`page: could not read ${threadId}'s file changes: ${String(error)}`);
+      return undefined;
     }
   }
 
@@ -4378,6 +4431,36 @@ export default async function plugin(bb: BbPluginApi) {
         bb.log.error(`page: answer failed on ${threadId}: ${String(error)}`);
         return { outcome: "failed" as const };
       }
+    },
+    page_approve: async ({ threadId, interactionId, decision }) => {
+      let interaction: unknown;
+      try {
+        interaction = await bb.sdk.threads.interactions.get({ threadId, interactionId });
+      } catch (error) {
+        bb.log.error(`page: could not read ${interactionId} on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+      // The same ask the card was built from, file change diff and all, so a
+      // choice the card couldn't offer is refused here too.
+      const first = pendingAsk(interaction);
+      const ask = namesFileChange(first) ? pendingAsk(interaction, await readFileChanges(threadId)) : first;
+      if (ask === null || ask.kind !== "approval" || ask.interactionId !== interactionId) {
+        return { outcome: "stale" as const };
+      }
+      if (!ask.decisions.includes(decision)) return { outcome: "refused" as const };
+      try {
+        await bb.sdk.threads.interactions.resolve({
+          threadId,
+          interactionId,
+          resolution: approvalResolution(interaction, decision) as never,
+        });
+      } catch (error) {
+        bb.log.error(`page: approval ${interactionId} failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+      bb.log.info(`page: ${decision} on ${interactionId} (${ask.subject}) on ${threadId}`);
+      pageChanged();
+      return { outcome: "answered" as const };
     },
     page_reply: async ({ threadId, text }) => {
       try {

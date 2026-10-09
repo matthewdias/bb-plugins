@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { ago, bringBack, PageCard, wantsLabel } from "./cards.tsx";
+import { Focus, FOCUS_SUBPATH } from "./focus.tsx";
 import { FollowUpsLane, InMotion } from "./lanes.tsx";
 import { usePage, usePageSummary, type PageSnapshot } from "./use-page.ts";
 
@@ -38,11 +39,12 @@ const TIERS: Array<{ tier: Card["tier"]; title: string; note: string }> = [
 
 type Tab = "asks" | "running" | "followups";
 
-export function FollowUpPage(_props: PluginNavPanelProps) {
+export function FollowUpPage({ subPath }: PluginNavPanelProps) {
   const { snapshot, failed, reload } = usePage();
   const compact = useIsCompactViewport();
   const [tab, setTab] = useState<Tab>("asks");
   const now = useNow();
+  const navigate = useBbNavigate();
 
   if (snapshot === null) {
     return (
@@ -61,6 +63,11 @@ export function FollowUpPage(_props: PluginNavPanelProps) {
     );
   }
 
+  if (subPath === FOCUS_SUBPATH) {
+    // Leaving replaces Focus's entry, so Back from the page doesn't reopen it.
+    return <Focus snapshot={snapshot} now={now} onLeave={() => navigate.toPluginPanel(PAGE_PATH, { replace: true })} />;
+  }
+
   const openRows = snapshot.followUps.reduce(
     (sum, group) => sum + group.threads.reduce((inner, thread) => inner + thread.rows.length, 0),
     0,
@@ -70,6 +77,19 @@ export function FollowUpPage(_props: PluginNavPanelProps) {
     <div className="relative flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-3 sm:px-6">
         <Summary snapshot={snapshot} openRows={openRows} />
+        {snapshot.count > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto h-7 gap-1.5 px-2.5 text-xs"
+            onClick={() => navigate.toPluginPanel(PAGE_PATH, { subPath: FOCUS_SUBPATH })}
+            aria-label={`Focus: ${snapshot.count} one at a time`}
+          >
+            <Icon name="Target" className="size-3.5" aria-hidden />
+            Focus
+            <span className="tabular-nums text-muted-foreground">{snapshot.count}</span>
+          </Button>
+        )}
         {compact && (
           <nav className="flex w-full rounded-lg border border-border p-0.5 text-xs" aria-label="Sections">
             {(

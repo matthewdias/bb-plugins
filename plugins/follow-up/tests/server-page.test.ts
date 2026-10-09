@@ -615,3 +615,133 @@ test("page: a message queued on a running thread waits for the turn instead of s
   assert.equal(result.outcome, "queued");
   assert.equal(calls("threads.send")[0]?.mode, "queue-if-active", "auto would steer the running turn");
 });
+
+// --- approvals in place ------------------------------------------------------
+
+const approvalInteraction = (id: string, subject: Row, extra: Row = {}): Row => ({
+  id,
+  status: "pending",
+  createdAt: 40,
+  payload: { kind: "approval", availableDecisions: ["allow_once", "allow_for_session", "deny"], reason: null, subject, ...extra },
+});
+
+const grant = { fileSystem: { read: ["/repo"], write: ["/repo"] }, network: { enabled: true } };
+
+test("page: an approval is answered exactly as bb's card would answer it", async () => {
+  const { call, calls } = await host({
+    threads: [threadRow("thr_cmd", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_cmd: [approvalInteraction("int_c", { kind: "command", itemId: "x", command: "git push", cwd: "/repo", actions: [], sessionGrant: grant })] },
+  });
+  const page = await call("page_snapshot");
+  assert.deepEqual([page.cards[0].lead, page.cards[0].asks[0].detail.command], ["approval", "git push"]);
+  const result = await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision: "allow_for_session" });
+  assert.deepEqual(result, { outcome: "answered" });
+  assert.deepEqual(calls("threads.interactions.resolve")[0], {
+    threadId: "thr_cmd",
+    interactionId: "int_c",
+    resolution: { decision: "allow_for_session", grantedPermissions: grant },
+  });
+});
+
+test("page: an approval no longer pending is stale, and a choice it doesn't offer is refused", async () => {
+  const { call, calls, w } = await host({
+    threads: [threadRow("thr_cmd", { hasPendingInteraction: true })],
+    interactions: { thr_cmd: [approvalInteraction("int_c", { kind: "plan", itemId: "x", plan: "## P", planFilePath: null }, { availableDecisions: ["allow_once", "deny"] })] },
+  });
+  const refused = await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision: "allow_for_session" });
+  assert.equal(refused.outcome, "refused");
+  w.interactions.thr_cmd = [{ ...approvalInteraction("int_c", { kind: "plan", itemId: "x", plan: "## P", planFilePath: null }), status: "resolved" }];
+  const stale = await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision: "allow_once" });
+  assert.equal(stale.outcome, "stale");
+  assert.equal(calls("threads.interactions.resolve").length, 0);
+});
+
+test("page: an answer goes only to the approval it was given for, whatever bb hands back", async () => {
+  const { call, calls, harness } = await host({ threads: [threadRow("thr_cmd", { hasPendingInteraction: true })] });
+  harness.sdk.stub("threads.interactions.get", () => approvalInteraction("int_other", { kind: "command", command: "rm -rf /" }));
+  const result = await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision: "allow_once" });
+  assert.equal(result.outcome, "stale");
+  assert.equal(calls("threads.interactions.resolve").length, 0);
+});
+
+test("page: Keep planning only denies the plan, as bb's card does, and sends nothing", async () => {
+  const { call, calls } = await host({
+    threads: [threadRow("thr_plan", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_plan: [approvalInteraction("int_p", { kind: "plan", itemId: "x", plan: "## P", planFilePath: null }, { availableDecisions: ["allow_once", "deny"] })] },
+  });
+  assert.deepEqual(await call("page_approve", { threadId: "thr_plan", interactionId: "int_p", decision: "deny" }), { outcome: "answered" });
+  assert.deepEqual(calls("threads.interactions.resolve")[0]?.resolution, { decision: "deny" });
+  assert.equal(calls("threads.send").length, 0);
+  await assert.rejects(
+    () => call("page_approve", { threadId: "thr_plan", interactionId: "int_p", decision: "deny", note: "Split #183." }),
+    "a note is no longer accepted",
+  );
+});
+
+test("page: a file change's approval carries its diff from the thread's events", async () => {
+  const { call } = await host({
+    threads: [threadRow("thr_edit", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_edit: [approvalInteraction("int_f", { kind: "file_change", itemId: "it_7", writeScope: "/repo", sessionGrant: null })] },
+    events: {
+      thr_edit: [{ type: "item/started", data: { item: { id: "it_7", type: "fileChange", changes: [{ path: "/repo/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }] } } }],
+    },
+  });
+  const page = await call("page_snapshot");
+  assert.deepEqual(page.cards[0].asks[0].detail.files, [{ path: "/repo/a.ts", change: "update", movedTo: null, patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false }]);
+  assert.equal(page.cards[0].asks[0].unseen, false);
+  assert.deepEqual(page.cards[0].asks[0].decisions, ["allow_once", "allow_for_session", "deny"]);
+});
+
+test("page: a file change whose diff can't be read is held for the thread, and refused if answered anyway", async () => {
+  const { call, calls, harness } = await host({
+    threads: [threadRow("thr_edit", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_edit: [approvalInteraction("int_f", { kind: "file_change", itemId: "it_7", writeScope: "/repo", sessionGrant: null })] },
+  });
+  harness.sdk.stub("threads.events.list", () => {
+    throw new Error("events down");
+  });
+  const page = await call("page_snapshot");
+  assert.equal(page.cards[0].asks[0].held, "Its diff couldn't be read here.");
+  assert.deepEqual(page.cards[0].asks[0].decisions, []);
+  const result = await call("page_approve", { threadId: "thr_edit", interactionId: "int_f", decision: "allow_once" });
+  assert.deepEqual(result, { outcome: "refused" });
+  assert.equal(calls("threads.interactions.resolve").length, 0);
+});
+
+test("page: answering a file change reads its diff again, and answers it when it's whole", async () => {
+  const { call, calls } = await host({
+    threads: [threadRow("thr_edit", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_edit: [approvalInteraction("int_f", { kind: "file_change", itemId: "it_7", writeScope: "/repo", sessionGrant: null })] },
+    events: {
+      thr_edit: [{ type: "item/started", data: { item: { id: "it_7", type: "fileChange", changes: [{ path: "/repo/a.ts", kind: "update", diff: "+b" }] } } }],
+    },
+  });
+  const result = await call("page_approve", { threadId: "thr_edit", interactionId: "int_f", decision: "allow_once" });
+  assert.deepEqual(result, { outcome: "answered" });
+  assert.equal(calls("threads.events.list").length, 1);
+  assert.equal(calls("threads.interactions.resolve").length, 1);
+});
+
+test("page: a diff holding a character that doesn't draw warns on the whole approval", async () => {
+  const { call } = await host({
+    threads: [threadRow("thr_edit", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_edit: [approvalInteraction("int_f", { kind: "file_change", itemId: "it_7", writeScope: "/repo", sessionGrant: null })] },
+    events: {
+      thr_edit: [{ type: "item/started", data: { item: { id: "it_7", type: "fileChange", changes: [{ path: "/repo/a.ts", kind: "update", diff: "+if (admin\u202E) {" }] } } }],
+    },
+  });
+  const page = await call("page_snapshot");
+  assert.equal(page.cards[0].asks[0].unseen, true);
+  assert.equal(page.cards[0].asks[0].detail.files[0].patch, "+if (admin⟦U+202E⟧) {");
+});
+
+test("page: an approval that offers no choice can't be answered from the page", async () => {
+  const { call, calls } = await host({
+    threads: [threadRow("thr_cmd", { hasPendingInteraction: true })],
+    interactions: { thr_cmd: [approvalInteraction("int_c", { kind: "command", command: "rm -rf build" }, { availableDecisions: [] })] },
+  });
+  for (const decision of ["allow_once", "deny"] as const) {
+    assert.deepEqual(await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision }), { outcome: "refused" });
+  }
+  assert.equal(calls("threads.interactions.resolve").length, 0);
+});

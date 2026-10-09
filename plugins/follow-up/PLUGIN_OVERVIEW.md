@@ -57,7 +57,9 @@ goal is met.
 
 The Follow Up page, from its own item in bb's sidebar, lists every thread
 that needs you, one card per thread, and lets you answer it there: a
-question's options, the agent's next steps, Wrap up, a retry, a reply. A pull
+question's options, an approval (a command, a file change, a permission, a
+tool or a plan, shown whole), the agent's next steps, Wrap up, a retry, a
+reply. A pull
 request one of your threads opened can be merged, sent back to its thread to
 fix or rebase, or given a review thread. Every message the page sends for you
 is shown first, exactly as it will go. Beside the cards are the threads still
@@ -65,7 +67,8 @@ working, with what each is doing, and every open follow-up by project,
 archived threads included. A thread's workers fold into its card,
 except one that is blocked, and merged workers can be archived together. The
 sidebar item counts the threads that want something from you, and the
-new-thread page shows the first three.
+new-thread page shows the first three. Focus deals them one at a time, answered
+by keys and taps, with swipes on a phone to skip or put one away.
 
 ## How it works
 

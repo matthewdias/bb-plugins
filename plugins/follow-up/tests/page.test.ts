@@ -5,6 +5,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activityLabel,
+  approvalDetail,
+  approvalResolution,
+  fileChangesFor,
+  hasUnseen,
+  PATCH_FILES_MAX,
+  PATCH_MAX,
   asksFor,
   parsePutAway,
   prKey,
@@ -27,6 +33,7 @@ import {
   prRebaseMessage,
   prSummary,
   rank,
+  reveal,
   reviewPrompt,
   threadFacts,
   type Card,
@@ -223,6 +230,11 @@ test("pendingAsk: approvals say what is being approved", () => {
     createdAt: 1,
     subject: "command",
     summary: "git push --force",
+    decisions: [],
+    reason: null,
+    detail: { kind: "command", command: "git push\n  --force", cwd: null, actions: [], sessionGrant: null },
+    unseen: false,
+    held: "It offers no choice the page can make.",
   });
   const plan = pendingAsk({
     id: "i",
@@ -230,6 +242,233 @@ test("pendingAsk: approvals say what is being approved", () => {
     payload: { kind: "approval", subject: { kind: "plan", plan: "\n## Offline queue\n1. Store" } },
   });
   assert.equal(plan?.kind === "approval" ? plan.summary : null, "Offline queue");
+});
+
+// --- approvals in place ------------------------------------------------------
+
+const approval = (subject: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+  id: "int_a",
+  status: "pending",
+  createdAt: 5,
+  payload: { kind: "approval", availableDecisions: ["allow_once", "allow_for_session", "deny"], reason: null, subject, ...extra },
+});
+
+const sessionGrant = { fileSystem: { read: ["/repo"], write: ["/repo"] }, network: { enabled: true } };
+
+test("pendingAsk: an approval carries its choices, in bb's order, and why the agent asked", () => {
+  const ask = pendingAsk(approval({ kind: "command", command: "npm test" }, { availableDecisions: ["deny", "allow_once"], reason: " Run the suite " }));
+  assert.equal(ask?.kind, "approval");
+  if (ask?.kind !== "approval") return;
+  assert.deepEqual(ask.decisions, ["allow_once", "deny"]);
+  assert.equal(ask.reason, "Run the suite");
+});
+
+test("pendingAsk: an approval offers only the choices bb lists, so one listing none offers none", () => {
+  for (const availableDecisions of [undefined, [], ["approve", "allow_always"]]) {
+    const ask = pendingAsk(approval({ kind: "command", command: "rm -rf build" }, { availableDecisions }));
+    assert.deepEqual(ask?.kind === "approval" ? ask.decisions : null, [], JSON.stringify(availableDecisions));
+  }
+});
+
+test("reveal: a character that draws nothing is shown as its code; newlines, tabs and emoji are kept", () => {
+  assert.equal(reveal("echo \u202Etxt.exe"), "echo ⟦U+202E⟧txt.exe");
+  assert.equal(reveal("rm -rf /tmp/a\u200B /"), "rm -rf /tmp/a⟦U+200B⟧ /");
+  assert.equal(reveal("cat \u2066x\u2069"), "cat ⟦U+2066⟧x⟦U+2069⟧");
+  assert.equal(reveal("a\u0007b"), "a⟦U+0007⟧b");
+  assert.equal(reveal("one\n\ttwo"), "one\n\ttwo");
+  assert.equal(reveal("⚠️ 👨‍👩‍👧 ❤️‍🔥"), "⚠️ 👨‍👩‍👧 ❤️‍🔥");
+  // A selector or joiner with no emoji to belong to is shown.
+  assert.equal(reveal("rm\uFE0F x\u200Dy"), "rm⟦U+FE0F⟧ x⟦U+200D⟧y");
+  assert.equal(hasUnseen({ a: [{ b: "ok" }, "fine ⚠️"] }), false);
+  assert.equal(hasUnseen({ a: [{ b: "x\u202Ey" }] }), true);
+});
+
+test("pendingAsk: what an approval shows can't hide behind characters that don't draw", () => {
+  const hidden = "\u202E";
+  const ask = pendingAsk(
+    approval(
+      { kind: "command", command: `ls ${hidden}gpj.sh`, cwd: `/repo${hidden}`, actions: [{ type: "read", name: `a${hidden}.ts`, path: "/a.ts" }], sessionGrant: { fileSystem: { read: [`/r${hidden}`], write: [] }, network: null } },
+      { reason: `fine${hidden}` },
+    ),
+  );
+  assert.equal(ask?.kind, "approval");
+  if (ask?.kind !== "approval" || ask.detail.kind !== "command") return;
+  assert.equal(ask.unseen, true);
+  assert.equal(ask.summary, "ls ⟦U+202E⟧gpj.sh");
+  assert.equal(ask.reason, "fine⟦U+202E⟧");
+  assert.equal(ask.detail.command, "ls ⟦U+202E⟧gpj.sh");
+  assert.equal(ask.detail.cwd, "/repo⟦U+202E⟧");
+  assert.deepEqual(ask.detail.actions, ["Reads a⟦U+202E⟧.ts"]);
+  assert.deepEqual(ask.detail.sessionGrant?.read, ["/r⟦U+202E⟧"]);
+  // The subject alone is enough to warn, and so is the reason alone.
+  const what = pendingAsk(approval({ kind: "tool_use", tool: "Bash", presentation: { title: `Tidy${hidden}` } }));
+  assert.equal(what?.kind === "approval" ? what.unseen : null, true);
+  const why = pendingAsk(approval({ kind: "command", command: "ls" }, { reason: `a\u200Bb` }));
+  assert.equal(why?.kind === "approval" ? why.unseen : null, true);
+  const clean = pendingAsk(approval({ kind: "plan", plan: "## Plan ✅\n- ship ⚠️" }));
+  assert.equal(clean?.kind === "approval" ? clean.unseen : null, false);
+  // What is granted is still exactly what bb asked for, never the shown form.
+  assert.deepEqual(approvalResolution(approval({ kind: "command", command: "x", sessionGrant: { fileSystem: { read: [`/r${hidden}`], write: [] }, network: null } }), "allow_for_session"), {
+    decision: "allow_for_session",
+    grantedPermissions: { fileSystem: { read: [`/r${hidden}`], write: [] }, network: null },
+  });
+});
+
+test("approvalDetail: a tool, a permission and a plan show unseen characters too", () => {
+  const z = "\u200B";
+  assert.deepEqual(
+    approvalDetail({ kind: "tool_use", tool: `rm${z}`, presentation: { title: `Tidy${z}`, detail: `rm -rf ${z}/`, badge: { tone: "neutral", label: `Safe${z}` } } }),
+    { kind: "tool_use", tool: "rm⟦U+200B⟧", title: "Tidy⟦U+200B⟧", detail: "rm -rf ⟦U+200B⟧/", destructive: false, badge: "Safe⟦U+200B⟧" },
+  );
+  assert.deepEqual(
+    approvalDetail({ kind: "permission_grant", toolName: `Bash${z}`, permissions: { fileSystem: { read: [], write: [`/etc${z}`] }, network: null } }),
+    { kind: "permission_grant", toolName: "Bash⟦U+200B⟧", asked: { read: [], write: ["/etc⟦U+200B⟧"], network: false } },
+  );
+  assert.deepEqual(approvalDetail({ kind: "plan", plan: `Step${z}`, planFilePath: `/p${z}.md` }), { kind: "plan", plan: "Step⟦U+200B⟧", planFilePath: "/p⟦U+200B⟧.md" });
+});
+
+test("approvalDetail: each kind shows what bb's card shows", () => {
+  assert.deepEqual(
+    approvalDetail({
+      kind: "command",
+      command: "rg TODO src",
+      cwd: "/repo",
+      actions: [{ type: "search", query: "TODO", path: "src", command: "rg" }, { type: "read", name: "a.ts", path: "/a.ts", command: "cat" }, { type: "unknown", command: "x" }],
+      sessionGrant,
+    }),
+    { kind: "command", command: "rg TODO src", cwd: "/repo", actions: ['Searches for "TODO" in src', "Reads a.ts"], sessionGrant: { read: ["/repo"], write: ["/repo"], network: true } },
+  );
+  assert.deepEqual(
+    approvalDetail({ kind: "permission_grant", toolName: "Bash", permissions: { fileSystem: { read: ["/notes"], write: [] }, network: null } }),
+    { kind: "permission_grant", toolName: "Bash", asked: { read: ["/notes"], write: [], network: false } },
+  );
+  assert.deepEqual(approvalDetail({ kind: "plan", plan: "## Plan", planFilePath: null }), { kind: "plan", plan: "## Plan", planFilePath: null });
+  assert.deepEqual(
+    approvalDetail({ kind: "tool_use", tool: "rm", presentation: { title: "Delete cache", detail: "rm -rf .cache", badge: { tone: "destructive", label: "Destructive" } } }),
+    { kind: "tool_use", tool: "rm", title: "Delete cache", detail: "rm -rf .cache", destructive: true, badge: "Destructive" },
+  );
+  assert.equal(approvalDetail({ kind: "file_change", itemId: "it_1", writeScope: "/repo", sessionGrant: null }).kind, "file_change");
+});
+
+test("approvalResolution: deny sends only the decision", () => {
+  assert.deepEqual(approvalResolution(approval({ kind: "command", command: "x", sessionGrant }), "deny"), { decision: "deny" });
+});
+
+test("approvalResolution: a command sends its session grant only for Allow for session", () => {
+  const command = approval({ kind: "command", command: "x", sessionGrant });
+  assert.deepEqual(approvalResolution(command, "allow_once"), { decision: "allow_once", grantedPermissions: null });
+  assert.deepEqual(approvalResolution(command, "allow_for_session"), { decision: "allow_for_session", grantedPermissions: sessionGrant });
+  const change = approval({ kind: "file_change", itemId: "i", writeScope: null, sessionGrant });
+  assert.deepEqual(approvalResolution(change, "allow_for_session"), { decision: "allow_for_session", grantedPermissions: sessionGrant });
+});
+
+test("approvalResolution: a permission grant sends its own permissions, normalized, either way", () => {
+  const grant = approval({ kind: "permission_grant", toolName: null, permissions: { fileSystem: { read: ["/a"], write: ["/b"] }, network: { enabled: false } } });
+  const expected = { network: null, fileSystem: { read: ["/a"], write: ["/b"] } };
+  assert.deepEqual(approvalResolution(grant, "allow_once"), { decision: "allow_once", grantedPermissions: expected });
+  assert.deepEqual(approvalResolution(grant, "allow_for_session"), { decision: "allow_for_session", grantedPermissions: expected });
+  const network = approval({ kind: "permission_grant", toolName: null, permissions: { fileSystem: null, network: { enabled: true } } });
+  assert.deepEqual(approvalResolution(network, "allow_once"), { decision: "allow_once", grantedPermissions: { network: { enabled: true }, fileSystem: null } });
+});
+
+test("approvalResolution: a plan or a tool sends no grant", () => {
+  assert.deepEqual(approvalResolution(approval({ kind: "plan", plan: "p" }), "allow_once"), { decision: "allow_once", grantedPermissions: null });
+  assert.deepEqual(approvalResolution(approval({ kind: "tool_use", tool: "t" }), "allow_for_session"), { decision: "allow_for_session", grantedPermissions: null });
+});
+
+const started = (id: string, changes: unknown[]) => ({ type: "item/started", data: { item: { id, type: "fileChange", changes } } });
+
+test("fileChangesFor: finds the approval's item among the thread's events, whole", () => {
+  const events = [started("other", [{ path: "/x", kind: "add", diff: "+x" }]), started("it_1", [{ path: "/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }, { path: "/gone.ts", kind: "delete" }, { path: "/b.ts", kind: "update", movePath: "/c.ts", diff: "" }])];
+  assert.deepEqual(fileChangesFor("it_1", events), {
+    files: [
+      { path: "/a.ts", change: "update", movedTo: null, patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false },
+      { path: "/gone.ts", change: "delete", movedTo: null, patch: "", cut: false, unseen: false },
+      { path: "/b.ts", change: "update", movedTo: "/c.ts", patch: "", cut: false, unseen: false },
+    ],
+    whole: true,
+  });
+  assert.equal(fileChangesFor("missing", events), null);
+});
+
+test("fileChangesFor: anything it can't carry whole says so", () => {
+  const whole = (changes: unknown[]) => fileChangesFor("it", [started("it", changes)])?.whole;
+  const file = (n: number) => ({ path: `/f${n}.ts`, kind: "add", diff: "+x" });
+  assert.equal(whole(Array.from({ length: PATCH_FILES_MAX }, (_, n) => file(n))), true);
+  assert.equal(whole(Array.from({ length: PATCH_FILES_MAX + 1 }, (_, n) => file(n))), false, "more files than it carries");
+  assert.equal(whole([{ path: "/big.ts", kind: "add", diff: "x".repeat(PATCH_MAX + 1) }]), false, "a diff past the limit");
+  assert.equal(whole([file(1), { kind: "add", diff: "+x" }]), false, "a file with no path");
+  assert.equal(whole([{ path: "/a.ts", diff: "+x" }]), false, "a change of no kind");
+  assert.equal(whole([{ path: "/a.ts", kind: "update" }]), false, "an edit without its diff");
+  assert.equal(whole([{ path: "/a.ts", kind: "update", diff: "", movePath: 7 }]), false, "a move to somewhere unreadable");
+  assert.equal(whole([]), false, "nothing to show");
+  const big = fileChangesFor("it", [started("it", [{ path: "/big.ts", kind: "add", diff: "x".repeat(PATCH_MAX + 5) }])]);
+  assert.equal(big?.files[0]?.patch.length, PATCH_MAX);
+  assert.equal(big?.files[0]?.cut, true);
+  const sly = fileChangesFor("it_2", [started("it_2", [{ path: "/a\u202E.ts", kind: "update", diff: "+ok" }, { path: "/b.ts", kind: "add", diff: "+x\u200By" }, { path: "/c.ts", kind: "update", diff: "", movePath: "/d\u2066.ts" }])]);
+  assert.deepEqual(
+    sly?.files.map(({ path, movedTo, patch, unseen }) => ({ path, movedTo, patch, unseen })),
+    [
+      { path: "/a⟦U+202E⟧.ts", movedTo: null, patch: "+ok", unseen: true },
+      { path: "/b.ts", movedTo: null, patch: "+x⟦U+200B⟧y", unseen: true },
+      { path: "/c.ts", movedTo: "/d⟦U+2066⟧.ts", patch: "", unseen: true },
+    ],
+  );
+});
+
+test("pendingAsk: a file change is answerable only with its whole diff in hand", () => {
+  const change = approval({ kind: "file_change", itemId: "it", writeScope: "/repo", sessionGrant: null });
+  const held = (ask: PendingAsk | null) => (ask?.kind === "approval" ? { held: ask.held, decisions: ask.decisions } : null);
+  assert.deepEqual(held(pendingAsk(change)), { held: "Its diff couldn't be read here.", decisions: [] }, "no events read");
+  assert.deepEqual(held(pendingAsk(change, [])), { held: "Its diff couldn't be read here.", decisions: [] }, "its item not among them");
+  assert.deepEqual(held(pendingAsk(change, [started("it", [{ path: "/a", kind: "add", diff: "x".repeat(PATCH_MAX + 1) }])])), {
+    held: "Its change is too big to show whole here.",
+    decisions: [],
+  });
+  const ok = pendingAsk(change, [started("it", [{ path: "/a", kind: "add", diff: "+a\u200B" }])]);
+  assert.deepEqual(held(ok), { held: null, decisions: ["allow_once", "allow_for_session", "deny"] });
+  assert.equal(ok?.kind === "approval" && ok.detail.kind === "file_change" ? ok.detail.files.length : null, 1);
+  assert.equal(ok?.kind === "approval" ? ok.unseen : null, true, "an unseen character in the diff warns");
+});
+
+test("pendingAsk: an approval whose card would show nothing to approve is held", () => {
+  const heldOf = (subject: Record<string, unknown>) => {
+    const ask = pendingAsk(approval(subject));
+    return ask?.kind === "approval" ? [ask.held, ask.decisions.length] : null;
+  };
+  assert.deepEqual(heldOf({ kind: "command", command: "  " }), ["Its command couldn't be read here.", 0]);
+  assert.deepEqual(heldOf({ kind: "command", command: ["rm", "-rf", "/"] }), ["Its command couldn't be read here.", 0]);
+  assert.deepEqual(heldOf({ kind: "plan", plan: "" }), ["Its plan couldn't be read here.", 0]);
+  assert.deepEqual(heldOf({ kind: "tool_use", presentation: { title: "Harmless" } }), ["Its tool couldn't be read here.", 0]);
+  assert.deepEqual(heldOf({ kind: "command", command: "ls" }), [null, 3]);
+});
+
+test("pendingAsk: a grant the card can't list whole is never sent from the page", () => {
+  const real = { network: { enabled: null }, fileSystem: { read: ["/repo"], write: [] } };
+  const decisions = (subject: Record<string, unknown>) => {
+    const ask = pendingAsk(approval(subject));
+    return ask?.kind === "approval" ? ask.decisions : null;
+  };
+  // bb's own shape is listed whole, so every choice stays.
+  assert.deepEqual(decisions({ kind: "command", command: "ls", sessionGrant: real }), ["allow_once", "allow_for_session", "deny"]);
+  assert.deepEqual(decisions({ kind: "permission_grant", toolName: null, permissions: real }), ["allow_once", "allow_for_session", "deny"]);
+  assert.deepEqual(decisions({ kind: "permission_grant", toolName: null, permissions: null }), ["allow_once", "allow_for_session", "deny"]);
+  // Anything more: a session grant loses Allow for session; a permission
+  // grant, which sends its permissions with any allow, goes to the thread.
+  for (const unlisted of [
+    { ...real, macos: { accessibility: true } },
+    { network: { enabled: true, proxy: "x" }, fileSystem: null },
+    { network: { enabled: "yes" }, fileSystem: null },
+    { network: null, fileSystem: { read: ["/repo", { path: "/" }], write: [] } },
+    { network: null, fileSystem: { read: [], write: "/" } },
+    { network: null, fileSystem: { read: [], write: [], execute: ["/"] } },
+    "everything",
+  ]) {
+    assert.deepEqual(decisions({ kind: "command", command: "ls", sessionGrant: unlisted }), ["allow_once", "deny"], JSON.stringify(unlisted));
+    assert.deepEqual(decisions({ kind: "permission_grant", toolName: null, permissions: unlisted }), [], JSON.stringify(unlisted));
+  }
+  const held = pendingAsk(approval({ kind: "permission_grant", toolName: null, permissions: { ...real, extra: 1 } }));
+  assert.equal(held?.kind === "approval" ? held.held : null, "It asks for more than the page can list.");
 });
 
 test("pendingAsk: a kind it cannot read is a form, so the thread still shows as blocked", () => {
