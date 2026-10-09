@@ -479,6 +479,31 @@ export const offerSchema = z.object({
   offeredAt: z.string(),
 });
 
+export const laneRowSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  reason: z.enum(REASONS).nullable(),
+  /** The row's lead action on the page: send it to its thread, or hand it off. */
+  lead: z.enum(["do", "handoff"]),
+  inProgress: z.boolean(),
+});
+export type LaneRow = z.infer<typeof laneRowSchema>;
+
+/**
+ * One open follow-up as the page shows it. An archived thread has no turn to
+ * send a row into, so its rows lead with a hand-off; so does an out-of-scope
+ * row anywhere.
+ */
+export function laneRow(row: FollowUp, archived: boolean): LaneRow {
+  return {
+    id: row.id,
+    text: row.text,
+    reason: row.reason,
+    lead: archived || mainActionFor(row.reason as Reason | null) === "handoff" ? "handoff" : "do",
+    inProgress: row.sentAt != null,
+  };
+}
+
 /** One thread's card, as it stands before families are combined. */
 export const baseCardSchema = z.object({
   threadId: z.string(),
@@ -499,6 +524,11 @@ export const baseCardSchema = z.object({
   asks: z.array(pendingAskSchema),
   offer: offerSchema.nullable(),
   openFollowUps: z.number(),
+  /**
+   * The thread's open follow-ups, so a card offering to close the thread out —
+   * merge its PR, archive it — shows what would be left behind.
+   */
+  followUps: z.array(laneRowSchema),
   wrapUp: z.object({ held: z.string().nullable(), running: z.boolean() }).nullable(),
   pr: prSummarySchema.extend({ action: z.enum(PR_ACTIONS) }).nullable(),
   pageUrl: z.string().nullable(),
@@ -528,6 +558,8 @@ export interface ThreadInputs {
   /** Null when there is none, or offers are switched off. */
   offer: { steps: string[]; goalMet: boolean; offeredAt: string } | null;
   openFollowUps: number;
+  /** The open rows themselves, in the thread's own order. */
+  rows?: readonly FollowUp[];
   wrapUp: { held: string | null; running: boolean } | null;
   pr: PrSummary | null;
   /** The thread's last reply, from `threads.output`. */
@@ -598,6 +630,7 @@ export function cardFor(input: ThreadInputs): Card | null {
     asks: [...input.asks].sort((a, b) => a.createdAt - b.createdAt),
     offer,
     openFollowUps: input.openFollowUps,
+    followUps: (input.rows ?? []).map((row) => laneRow(row, false)),
     wrapUp: input.wrapUp,
     pr,
     pageUrl,
@@ -709,6 +742,7 @@ export function combineFamilies(cards: readonly Card[], threads: readonly Thread
       asks: [],
       offer: null,
       openFollowUps: 0,
+      followUps: [],
       wrapUp: null,
       pr: null,
       pageUrl: null,
@@ -861,15 +895,6 @@ export function activityLabel(item: unknown): string {
 // ---------------------------------------------------------------------------
 // Follow-ups lane
 
-export const laneRowSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-  reason: z.enum(REASONS).nullable(),
-  /** The row's lead action on the page: send it to its thread, or hand it off. */
-  lead: z.enum(["do", "handoff"]),
-  inProgress: z.boolean(),
-});
-
 export const laneThreadSchema = z.object({
   threadId: z.string(),
   title: z.string(),
@@ -923,18 +948,7 @@ export function groupFollowUps(
           threadId: thread.threadId,
           title: thread.title,
           archived: thread.archived,
-          rows: thread.rows.map((row) => ({
-            id: row.id,
-            text: row.text,
-            reason: row.reason,
-            // An archived thread has no turn to send a row into, so its rows go
-            // to a thread of their own.
-            lead:
-              thread.archived || mainActionFor(row.reason as Reason | null) === "handoff"
-                ? ("handoff" as const)
-                : ("do" as const),
-            inProgress: row.sentAt != null,
-          })),
+          rows: thread.rows.map((row) => laneRow(row, thread.archived)),
         })),
     }))
     .sort((a, b) => a.projectName.localeCompare(b.projectName));

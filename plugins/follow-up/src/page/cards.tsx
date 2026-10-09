@@ -32,6 +32,7 @@ import { SEND_FAILED, takeStep } from "../use-next-steps.ts";
 import { WrapUp } from "../wrap-up.tsx";
 import { setRows } from "../store.ts";
 import { isChangeSignal } from "../use-follow-ups.ts";
+import { StillOpen } from "./rows.tsx";
 import type { FollowUpRpc } from "../rpc.ts";
 import {
   DropdownMenu,
@@ -57,6 +58,24 @@ const LEAD: Record<Card["lead"], { label: string; icon: IconName }> = {
   finished: { label: "Finished", icon: "Check" },
   workers: { label: "Workers", icon: "Workflow" },
 };
+
+/** Beside a close-out action, what it does to the thread's open follow-ups. */
+const MERGE_NOTE = "Merging doesn't close these.";
+const ARCHIVE_NOTE = "Archiving leaves these open. Wrap up decides each one first.";
+const WORKERS_NOTE = "Archiving the merged workers leaves these open.";
+
+/**
+ * Whether the card offers to close its thread out — merge its PR, archive it —
+ * with follow-ups still open, so it lists them beside the action and the
+ * footer need not count them as well.
+ */
+function closesOutWithRows(card: Card): boolean {
+  return (
+    card.tier !== "blocked" &&
+    card.followUps.length > 0 &&
+    (card.lead === "finished" || card.pr?.action === "merge" || card.pr?.action === "merged")
+  );
+}
 
 /** What a worker wants, in a few words, for its line in a family card. */
 export function wantsLabel(card: { lead: Card["lead"]; pr: Card["pr"] }): string {
@@ -167,7 +186,7 @@ export function PageCard({
         {card.workers.length > 0 && <Workers card={card} rpc={rpc} />}
       </div>
       <footer className="mt-2 flex flex-wrap items-center gap-1 text-xs">
-        {card.openFollowUps > 0 && card.lead !== "wrap-up" && (
+        {card.openFollowUps > 0 && card.lead !== "wrap-up" && !closesOutWithRows(card) && (
           <span className="mr-1 text-muted-foreground">
             {card.openFollowUps === 1 ? "1 follow-up open" : `${card.openFollowUps} follow-ups open`}
           </span>
@@ -342,6 +361,12 @@ function Workers({ card, rpc }: { card: Card; rpc: Rpc }) {
           );
         })}
       </ul>
+      {merged.length > 0 && (
+        <StillOpen
+          groups={merged.map((worker) => ({ threadId: worker.threadId, title: worker.title, rows: worker.followUps }))}
+          note={WORKERS_NOTE}
+        />
+      )}
       {merged.length > 0 && (
         <div>
           <Button size="sm" variant={card.tier === "finished" ? "default" : "outline"} disabled={busy} onClick={() => void archiveMerged()}>
@@ -728,7 +753,7 @@ function NextStepsRow({ card, rpc }: { card: Card; rpc: Rpc }) {
  * the store the banner fills, so the card fills it for this thread instead —
  * there is no banner here.
  */
-function WrapUpInline({ card, rpc }: { card: Card; rpc: Rpc }) {
+function WrapUpInline({ card, rpc, onClose }: { card: Card; rpc: Rpc; onClose?: () => void }) {
   const threadId = card.threadId;
   const load = useCallback(async () => {
     try {
@@ -746,7 +771,14 @@ function WrapUpInline({ card, rpc }: { card: Card; rpc: Rpc }) {
   });
   return (
     <div className="overflow-hidden rounded-md border border-border bg-background">
-      <WrapUp threadId={threadId} running={false} onClose={() => void load()} />
+      <WrapUp
+        threadId={threadId}
+        running={false}
+        onClose={() => {
+          void load();
+          onClose?.();
+        }}
+      />
     </div>
   );
 }
@@ -764,6 +796,7 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
   const pr = card.pr;
   const [box, setBox] = useState<{ kind: "message" | "review"; text: string; label: string } | null>(null);
   const [askMethod, setAskMethod] = useState(false);
+  const [wrapping, setWrapping] = useState(false);
   // On by default: the thread that opened the PR is usually waiting to hear.
   const [tell, setTell] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -836,7 +869,15 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
           </span>
         )}
       </div>
-      {box !== null ? (
+      {(pr.action === "merge" || pr.action === "merged") && card.tier !== "blocked" && !wrapping && (
+        <StillOpen
+          groups={[{ threadId: card.threadId, title: null, rows: card.followUps }]}
+          note={pr.action === "merge" ? MERGE_NOTE : ARCHIVE_NOTE}
+        />
+      )}
+      {wrapping ? (
+        <WrapUpInline card={card} rpc={rpc} onClose={() => setWrapping(false)} />
+      ) : box !== null ? (
         <MessageBox
           initial={box.text}
           sendLabel={box.label}
@@ -911,7 +952,7 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
               >
                 Tell the thread it merged
               </Button>
-              <MergedActions card={card} rpc={rpc} />
+              <MergedActions card={card} rpc={rpc} onWrapUp={() => setWrapping(true)} />
             </>
           )}
           <span className="flex-1" />
@@ -939,7 +980,7 @@ function TellToggle({ pr, on, onChange }: { pr: PrSummary; on: boolean; onChange
   );
 }
 
-function MergedActions({ card, rpc }: { card: Card; rpc: Rpc }) {
+function MergedActions({ card, rpc, onWrapUp }: { card: Card; rpc: Rpc; onWrapUp: () => void }) {
   const [busy, setBusy] = useState(false);
   const archive = async () => {
     setBusy(true);
@@ -953,10 +994,17 @@ function MergedActions({ card, rpc }: { card: Card; rpc: Rpc }) {
     }
   };
   return (
-    <Button size="sm" variant="outline" disabled={busy} onClick={() => void archive()}>
-      <Icon name="Archive" aria-hidden />
-      Archive thread
-    </Button>
+    <>
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => void archive()}>
+        <Icon name="Archive" aria-hidden />
+        Archive thread
+      </Button>
+      {card.followUps.length > 0 && (
+        <Button size="sm" variant="outline" disabled={busy} onClick={onWrapUp}>
+          Wrap up instead
+        </Button>
+      )}
+    </>
   );
 }
 
@@ -964,6 +1012,7 @@ function MergedActions({ card, rpc }: { card: Card; rpc: Rpc }) {
 
 function Finished({ card, rpc }: { card: Card; rpc: Rpc }) {
   const [replying, setReplying] = useState(false);
+  const [wrapping, setWrapping] = useState(false);
   const [busy, setBusy] = useState(false);
   const run = async (method: "page_mark_read" | "page_archive", failure: string) => {
     setBusy(true);
@@ -987,7 +1036,12 @@ function Finished({ card, rpc }: { card: Card; rpc: Rpc }) {
       />
     );
   }
+  if (wrapping) return <WrapUpInline card={card} rpc={rpc} onClose={() => setWrapping(false)} />;
   return (
+    <>
+    {card.tier !== "blocked" && (
+      <StillOpen groups={[{ threadId: card.threadId, title: null, rows: card.followUps }]} note={ARCHIVE_NOTE} />
+    )}
     <div className="flex flex-wrap gap-1.5">
       <Button size="sm" variant="outline" onClick={() => setReplying(true)}>
         Reply…
@@ -1000,6 +1054,12 @@ function Finished({ card, rpc }: { card: Card; rpc: Rpc }) {
         <Icon name="Archive" aria-hidden />
         Archive
       </Button>
+      {card.followUps.length > 0 && (
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => setWrapping(true)}>
+          Wrap up instead
+        </Button>
+      )}
     </div>
+    </>
   );
 }

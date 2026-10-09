@@ -28,6 +28,7 @@ const card = (threadId: string, extra: Partial<Card> = {}): Card => ({
   asks: [],
   offer: null,
   openFollowUps: 0,
+  followUps: [],
   wrapUp: null,
   pr: null,
   pageUrl: null,
@@ -374,6 +375,56 @@ describe("families", () => {
     fireEvent.click(within(motion).getByRole("button", { name: "Show actions" }));
     expect(within(motion).getByText("Editing app.tsx")).toBeTruthy();
     expect(within(motion).queryByRole("button", { name: /Stop/ })).toBeNull();
+  });
+});
+
+describe("close-out shows what is still open", () => {
+  const rows = [
+    { id: "r1", text: "Fix the flaky auth test", reason: "risk" as const, lead: "do" as const, inProgress: false },
+    { id: "r2", text: "Split the worker", reason: "out-of-scope" as const, lead: "handoff" as const, inProgress: false },
+  ];
+
+  it("lists the thread's open follow-ups beside Merge, with their own buttons", async () => {
+    const slot = renderPage({
+      cards: [card("thr_pr", { tier: "turn", lead: "pr", openFollowUps: 2, followUps: rows, pr: { ...pr("ready_to_merge"), action: "merge" } })],
+    });
+    const open = await slot.findByRole("region", { name: "Still open" });
+    expect(within(open).getByText("Merging doesn't close these.")).toBeTruthy();
+    expect(within(open).getByText("Fix the flaky auth test")).toBeTruthy();
+    expect(within(open).getByRole("button", { name: "Hand off" })).toBeTruthy();
+    expect(slot.queryByText("2 follow-ups open"), "not counted twice").toBeNull();
+  });
+
+  it("lists them beside Archive on a finished card, and offers Wrap up instead", async () => {
+    const slot = renderPage({
+      cards: [card("thr_done", { openFollowUps: 2, followUps: rows, excerpt: "Done." })],
+      handlers: {
+        followups_list: async () => ({ followUps: [], done: [], everRecorded: true }),
+        followups_destinations: async () => ({ destinations: [], defaultId: null }),
+        followups_wrap_up_get: async () => ({ state: null, newWorktree: false, children: { open: 0, running: 0 } }),
+      },
+    });
+    const open = await slot.findByRole("region", { name: "Still open" });
+    expect(within(open).getByText(/Archiving leaves these open/)).toBeTruthy();
+    fireEvent.click(slot.getByRole("button", { name: "Wrap up instead" }));
+    expect(await slot.findByText("Wrap up this thread")).toBeTruthy();
+  });
+
+  it("lists the merged workers' open follow-ups beside the bulk archive", async () => {
+    const merged = { ...pr("merged", { state: "merged" }), action: "merged" as const };
+    const { workers: _none, ...worker } = card("thr_w", { title: "#12 co-leads", lead: "pr", pr: merged, followUps: [rows[0]!] });
+    const slot = renderPage({ cards: [card("thr_dev6", { title: "Dev #6", lead: "workers", workers: [worker] })] });
+    const open = await slot.findByRole("region", { name: "Still open" });
+    expect(within(open).getByText("#12 co-leads")).toBeTruthy();
+    expect(within(open).getByText("Fix the flaky auth test")).toBeTruthy();
+    expect(within(open).getByText("Archiving the merged workers leaves these open.")).toBeTruthy();
+  });
+
+  it("says nothing when nothing is left open", async () => {
+    const slot = renderPage({ cards: [card("thr_pr", { tier: "turn", lead: "pr", pr: { ...pr("ready_to_merge"), action: "merge" } })] });
+    await slot.findByRole("button", { name: /^Merge$/ });
+    expect(slot.queryByRole("region", { name: "Still open" })).toBeNull();
+    expect(slot.queryByRole("button", { name: "Wrap up instead" })).toBeNull();
   });
 });
 

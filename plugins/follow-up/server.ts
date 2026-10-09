@@ -3804,6 +3804,7 @@ export default async function plugin(bb: BbPluginApi) {
             asks,
             offer,
             openFollowUps: rows.length,
+            rows,
             wrapUp: wrapRecord === null ? null : { held: wrapRecord.held, running: wrapRecord.held === null },
             pr,
             reply,

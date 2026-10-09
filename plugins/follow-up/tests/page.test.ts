@@ -341,6 +341,16 @@ test("cardFor: Not now cannot hide a blocked thread", () => {
   assert.equal(card?.tier, "blocked");
 });
 
+test("cardFor: a card carries its thread's open follow-ups, with their lead actions", () => {
+  const c = must(
+    cardFor(inputs({ pr: pr("ready_to_merge"), openFollowUps: 2, rows: [row("a", "risk"), row("b", "out-of-scope", { sentAt: "x" })] })),
+  );
+  assert.deepEqual(c.followUps, [
+    { id: "a", text: "Row a", reason: "risk", lead: "do", inProgress: false },
+    { id: "b", text: "Row b", reason: "out-of-scope", lead: "handoff", inProgress: true },
+  ]);
+});
+
 test("cardFor: the lead order is stopped, wrap-up, next, page, pull request", () => {
   const page = "https://h/api/v1/plugins/thread-pages/http/page?session=thr_a";
   const all: Partial<ThreadInputs> = {

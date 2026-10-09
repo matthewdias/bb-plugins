@@ -193,6 +193,13 @@ in a list. A worker whose parent is archived stands alone. *Archive the N
 merged workers* archives, in one press, the workers the card lists whose pull
 request merged, and leaves any that moved on in the meantime.
 
+Wherever the page offers to close a thread out (*Merge*, *Archive*,
+*Archive the N merged workers*), it lists that thread's open follow-ups right
+there, each with its own buttons, so you can hand one off, file it or close it
+before the thread goes. Merging doesn't close them, and archiving leaves them
+open, so beside *Archive* there's also *Wrap up instead*, which decides each
+row first and then archives.
+
 *Not now* puts a card away until something new happens on its thread, and a
 family's card puts the parent and its workers away together. A blocked card has
 no *Not now*: the agent is stopped, and putting it off would leave a thread

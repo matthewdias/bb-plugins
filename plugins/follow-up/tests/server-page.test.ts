@@ -524,3 +524,18 @@ test("page: archived threads in the follow-ups lane are looked up at once, not o
   assert.equal(page.followUps[0]?.threads.length, 4);
   assert.ok(most > 1, `lookups overlapped (at most ${most} at once)`);
 });
+
+test("page: a PR card carries the thread's open follow-ups for the close-out", async () => {
+  const { call, record } = await host({
+    threads: [threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
+    prs: { env_w: prResponse("ready_to_merge") },
+  });
+  await record("thr_pr", "Split the worker", "out-of-scope");
+  await call("page_snapshot");
+  await settle();
+  const page = await call("page_snapshot");
+  assert.deepEqual(
+    page.cards[0].followUps.map((r: any) => [r.text, r.lead]),
+    [["Split the worker", "handoff"]],
+  );
+});
