@@ -161,6 +161,12 @@ describe("the page", () => {
     await waitFor(() => expect(calls(slot, "page_hide")).toEqual([{ threadId: "thr_done", at: 12345 }]));
   });
 
+  it("says how long ago in words that read: just now, not now ago", async () => {
+    const slot = renderPage({ cards: [card("thr_new", { since: Date.now() }), card("thr_old", { since: Date.now() - 3 * 3_600_000 })] });
+    expect(await slot.findByText("just now")).toBeTruthy();
+    expect(slot.getByText("3h ago")).toBeTruthy();
+  });
+
   it("a blocked card cannot be put off", async () => {
     const slot = renderPage({ cards: [question("thr_q")] });
     await slot.findByRole("button", { name: "Send answer" });

@@ -83,8 +83,11 @@ export function PageCard({
   const navigate = useBbNavigate();
   const rpc = useRpc<typeof rpcContract>();
   const lead = LEAD[card.lead];
+  const age = ago(card.since, now);
   const when =
-    card.tier === "blocked" ? `waiting ${ago(card.since, now)}` : `${ago(card.since, now)} ago`;
+    card.tier === "blocked"
+      ? age === "now" ? "just asked" : `waiting ${age}`
+      : age === "now" ? "just now" : `${age} ago`;
 
   const hide = async () => {
     try {
