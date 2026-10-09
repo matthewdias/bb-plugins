@@ -5,6 +5,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activityLabel,
+  approvalDetail,
+  approvalResolution,
+  fileChangesFor,
+  PATCH_MAX,
   asksFor,
   parsePutAway,
   prKey,
@@ -223,6 +227,9 @@ test("pendingAsk: approvals say what is being approved", () => {
     createdAt: 1,
     subject: "command",
     summary: "git push --force",
+    decisions: ["allow_once", "deny"],
+    reason: null,
+    detail: { kind: "command", command: "git push\n  --force", cwd: null, actions: [], sessionGrant: null },
   });
   const plan = pendingAsk({
     id: "i",
@@ -230,6 +237,86 @@ test("pendingAsk: approvals say what is being approved", () => {
     payload: { kind: "approval", subject: { kind: "plan", plan: "\n## Offline queue\n1. Store" } },
   });
   assert.equal(plan?.kind === "approval" ? plan.summary : null, "Offline queue");
+});
+
+// --- approvals in place ------------------------------------------------------
+
+const approval = (subject: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+  id: "int_a",
+  status: "pending",
+  createdAt: 5,
+  payload: { kind: "approval", availableDecisions: ["allow_once", "allow_for_session", "deny"], reason: null, subject, ...extra },
+});
+
+const sessionGrant = { fileSystem: { read: ["/repo"], write: ["/repo"] }, network: { enabled: true } };
+
+test("pendingAsk: an approval carries its choices, in bb's order, and why the agent asked", () => {
+  const ask = pendingAsk(approval({ kind: "command", command: "npm test" }, { availableDecisions: ["deny", "allow_once"], reason: " Run the suite " }));
+  assert.equal(ask?.kind, "approval");
+  if (ask?.kind !== "approval") return;
+  assert.deepEqual(ask.decisions, ["allow_once", "deny"]);
+  assert.equal(ask.reason, "Run the suite");
+});
+
+test("approvalDetail: each kind shows what bb's card shows", () => {
+  assert.deepEqual(
+    approvalDetail({
+      kind: "command",
+      command: "rg TODO src",
+      cwd: "/repo",
+      actions: [{ type: "search", query: "TODO", path: "src", command: "rg" }, { type: "read", name: "a.ts", path: "/a.ts", command: "cat" }, { type: "unknown", command: "x" }],
+      sessionGrant,
+    }),
+    { kind: "command", command: "rg TODO src", cwd: "/repo", actions: ['Searches for "TODO" in src', "Reads a.ts"], sessionGrant: { read: ["/repo"], write: ["/repo"], network: true } },
+  );
+  assert.deepEqual(
+    approvalDetail({ kind: "permission_grant", toolName: "Bash", permissions: { fileSystem: { read: ["/notes"], write: [] }, network: null } }),
+    { kind: "permission_grant", toolName: "Bash", asked: { read: ["/notes"], write: [], network: false } },
+  );
+  assert.deepEqual(approvalDetail({ kind: "plan", plan: "## Plan", planFilePath: null }), { kind: "plan", plan: "## Plan", planFilePath: null });
+  assert.deepEqual(
+    approvalDetail({ kind: "tool_use", tool: "rm", presentation: { title: "Delete cache", detail: "rm -rf .cache", badge: { tone: "destructive", label: "Destructive" } } }),
+    { kind: "tool_use", tool: "rm", title: "Delete cache", detail: "rm -rf .cache", destructive: true, badge: "Destructive" },
+  );
+  assert.equal(approvalDetail({ kind: "file_change", itemId: "it_1", writeScope: "/repo", sessionGrant: null }).kind, "file_change");
+});
+
+test("approvalResolution: deny sends only the decision", () => {
+  assert.deepEqual(approvalResolution(approval({ kind: "command", command: "x", sessionGrant }), "deny"), { decision: "deny" });
+});
+
+test("approvalResolution: a command sends its session grant only for Allow for session", () => {
+  const command = approval({ kind: "command", command: "x", sessionGrant });
+  assert.deepEqual(approvalResolution(command, "allow_once"), { decision: "allow_once", grantedPermissions: null });
+  assert.deepEqual(approvalResolution(command, "allow_for_session"), { decision: "allow_for_session", grantedPermissions: sessionGrant });
+  const change = approval({ kind: "file_change", itemId: "i", writeScope: null, sessionGrant });
+  assert.deepEqual(approvalResolution(change, "allow_for_session"), { decision: "allow_for_session", grantedPermissions: sessionGrant });
+});
+
+test("approvalResolution: a permission grant sends its own permissions, normalized, either way", () => {
+  const grant = approval({ kind: "permission_grant", toolName: null, permissions: { fileSystem: { read: ["/a"], write: ["/b"] }, network: { enabled: false } } });
+  const expected = { network: null, fileSystem: { read: ["/a"], write: ["/b"] } };
+  assert.deepEqual(approvalResolution(grant, "allow_once"), { decision: "allow_once", grantedPermissions: expected });
+  assert.deepEqual(approvalResolution(grant, "allow_for_session"), { decision: "allow_for_session", grantedPermissions: expected });
+  const network = approval({ kind: "permission_grant", toolName: null, permissions: { fileSystem: null, network: { enabled: true } } });
+  assert.deepEqual(approvalResolution(network, "allow_once"), { decision: "allow_once", grantedPermissions: { network: { enabled: true }, fileSystem: null } });
+});
+
+test("approvalResolution: a plan or a tool sends no grant", () => {
+  assert.deepEqual(approvalResolution(approval({ kind: "plan", plan: "p" }), "allow_once"), { decision: "allow_once", grantedPermissions: null });
+  assert.deepEqual(approvalResolution(approval({ kind: "tool_use", tool: "t" }), "allow_for_session"), { decision: "allow_for_session", grantedPermissions: null });
+});
+
+test("fileChangesFor: finds the approval's item among the thread's events, and cuts a long patch", () => {
+  const events = [
+    { type: "item/started", data: { item: { id: "other", type: "fileChange", changes: [{ path: "/x", kind: "add", diff: "+x" }] } } },
+    { type: "item/started", data: { item: { id: "it_1", type: "fileChange", changes: [{ path: "/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }, { path: "/big.ts", kind: "add", diff: "x".repeat(PATCH_MAX + 5) }] } } },
+  ];
+  const files = fileChangesFor("it_1", events);
+  assert.deepEqual(files[0], { path: "/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false });
+  assert.equal(files[1]?.patch.length, PATCH_MAX);
+  assert.equal(files[1]?.cut, true);
+  assert.deepEqual(fileChangesFor("missing", events), []);
 });
 
 test("pendingAsk: a kind it cannot read is a form, so the thread still shows as blocked", () => {

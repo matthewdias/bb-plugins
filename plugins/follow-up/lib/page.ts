@@ -147,6 +147,66 @@ export const APPROVAL_SUBJECTS = [
   "tool_use",
 ] as const;
 
+export const DECISIONS = ["allow_once", "allow_for_session", "deny"] as const;
+export type Decision = (typeof DECISIONS)[number];
+
+/** What an approval would let the agent touch: paths it reads and writes, and the network. */
+const grantSchema = z.object({
+  read: z.array(z.string()),
+  write: z.array(z.string()),
+  network: z.boolean(),
+});
+export type Grant = z.infer<typeof grantSchema>;
+
+/** Most of a file change's diff a card carries; the thread has the rest. */
+export const PATCH_MAX = 40_000;
+export const PATCH_FILES_MAX = 10;
+
+/**
+ * Everything an approval card shows, by kind: what bb's own approval card
+ * shows, so answering from the page is answering the same question.
+ */
+export const approvalDetailSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("command"),
+    command: z.string(),
+    cwd: z.string().nullable(),
+    /** What the command reads, lists or searches, when bb could tell. */
+    actions: z.array(z.string()),
+    /** What "Allow for session" would also allow, when it is on offer. */
+    sessionGrant: grantSchema.nullable(),
+  }),
+  z.object({
+    kind: z.literal("file_change"),
+    itemId: z.string(),
+    writeScope: z.string().nullable(),
+    sessionGrant: grantSchema.nullable(),
+    /** The change itself, looked up from the thread's events; empty when it could not be. */
+    files: z.array(z.object({ path: z.string(), change: z.string(), patch: z.string(), cut: z.boolean() })),
+  }),
+  z.object({
+    kind: z.literal("permission_grant"),
+    toolName: z.string().nullable(),
+    asked: grantSchema,
+  }),
+  z.object({
+    kind: z.literal("plan"),
+    plan: z.string(),
+    planFilePath: z.string().nullable(),
+  }),
+  z.object({
+    kind: z.literal("tool_use"),
+    tool: z.string(),
+    title: z.string().nullable(),
+    detail: z.string().nullable(),
+    /** bb marks some tools destructive; the card says so in red. */
+    destructive: z.boolean(),
+    badge: z.string().nullable(),
+  }),
+]);
+export type ApprovalDetail = z.infer<typeof approvalDetailSchema>;
+export type ChangedFile = Extract<ApprovalDetail, { kind: "file_change" }>["files"][number];
+
 export const pendingAskSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("question"),
@@ -161,6 +221,11 @@ export const pendingAskSchema = z.discriminatedUnion("kind", [
     subject: z.enum(APPROVAL_SUBJECTS),
     /** One line saying what is being approved: the command, the path, the tool. */
     summary: z.string(),
+    /** The choices this approval offers, in bb's order. */
+    decisions: z.array(z.enum(DECISIONS)),
+    /** Why the agent asked, when it said. */
+    reason: z.string().nullable(),
+    detail: approvalDetailSchema,
   }),
   z.object({
     kind: z.literal("form"),
@@ -234,12 +299,18 @@ export function pendingAsk(interaction: unknown): PendingAsk | null {
     const subject = record(payload?.subject);
     const subjectKind = subject?.kind;
     if (typeof subjectKind === "string" && (APPROVAL_SUBJECTS as readonly string[]).includes(subjectKind)) {
+      const offered = Array.isArray(payload?.availableDecisions) ? payload.availableDecisions : [];
+      const decisions = DECISIONS.filter((decision) => offered.includes(decision));
       return {
         kind: "approval",
         interactionId,
         createdAt,
         subject: subjectKind as (typeof APPROVAL_SUBJECTS)[number],
         summary: approvalSummary(subject ?? {}),
+        // An approval that names no choices still has the two every one has.
+        decisions: decisions.length > 0 ? decisions : ["allow_once", "deny"],
+        reason: typeof payload?.reason === "string" && payload.reason.trim() !== "" ? payload.reason.trim() : null,
+        detail: approvalDetail(subject ?? {}),
       };
     }
   }
@@ -288,6 +359,142 @@ function approvalSummary(subject: Record<string, unknown>): string {
     default:
       return "Approve";
   }
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+/** A permission object (`{ fileSystem: { read, write }, network: { enabled } }`) as a card shows it. */
+function grantOf(value: unknown): Grant | null {
+  const permissions = record(value);
+  if (permissions === null) return null;
+  const fileSystem = record(permissions.fileSystem);
+  return {
+    read: strings(fileSystem?.read),
+    write: strings(fileSystem?.write),
+    network: record(permissions.network)?.enabled === true,
+  };
+}
+
+function actionLabel(action: unknown): string | null {
+  const row = record(action);
+  switch (row?.type) {
+    case "read":
+      return typeof row.name === "string" || typeof row.path === "string"
+        ? `Reads ${String(row.name ?? row.path)}`
+        : null;
+    case "listFiles":
+      return typeof row.path === "string" ? `Lists ${row.path}` : "Lists files";
+    case "search": {
+      const query = typeof row.query === "string" ? ` for "${row.query}"` : "";
+      const where = typeof row.path === "string" ? ` in ${row.path}` : "";
+      return `Searches${query}${where}`;
+    }
+    default:
+      return null;
+  }
+}
+
+/** An approval subject's detail, read defensively like everything from the host. */
+export function approvalDetail(subject: Record<string, unknown>): ApprovalDetail {
+  const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : null);
+  switch (subject.kind) {
+    case "command":
+      return {
+        kind: "command",
+        command: text(subject.command) ?? "",
+        cwd: text(subject.cwd),
+        actions: (Array.isArray(subject.actions) ? subject.actions : [])
+          .map(actionLabel)
+          .filter((label): label is string => label !== null),
+        sessionGrant: grantOf(subject.sessionGrant),
+      };
+    case "file_change":
+      return {
+        kind: "file_change",
+        itemId: text(subject.itemId) ?? "",
+        writeScope: text(subject.writeScope),
+        sessionGrant: grantOf(subject.sessionGrant),
+        files: [],
+      };
+    case "permission_grant":
+      return {
+        kind: "permission_grant",
+        toolName: text(subject.toolName),
+        asked: grantOf(subject.permissions) ?? { read: [], write: [], network: false },
+      };
+    case "plan":
+      return { kind: "plan", plan: text(subject.plan) ?? "", planFilePath: text(subject.planFilePath) };
+    default: {
+      const presentation = record(subject.presentation);
+      const badge = record(presentation?.badge);
+      return {
+        kind: "tool_use",
+        tool: text(subject.tool) ?? "a tool",
+        title: text(presentation?.title),
+        detail: text(presentation?.detail),
+        destructive: badge?.tone === "destructive",
+        badge: text(badge?.label),
+      };
+    }
+  }
+}
+
+/**
+ * A file change's diff, from the thread's started items: the one whose id the
+ * approval names. Each file's patch is cut past PATCH_MAX, and at most
+ * PATCH_FILES_MAX files are carried; the thread has the whole change.
+ */
+export function fileChangesFor(itemId: string, events: readonly unknown[]): ChangedFile[] {
+  for (const event of events) {
+    const item = record(record(record(event)?.data)?.item);
+    if (item === null || item.id !== itemId || item.type !== "fileChange") continue;
+    const changes = Array.isArray(item.changes) ? item.changes : [];
+    return changes.slice(0, PATCH_FILES_MAX).flatMap((raw): ChangedFile[] => {
+      const change = record(raw);
+      if (change === null || typeof change.path !== "string") return [];
+      const patch = typeof change.diff === "string" ? change.diff : "";
+      return [
+        {
+          path: change.path,
+          change: typeof change.kind === "string" ? change.kind : "update",
+          patch: patch.length > PATCH_MAX ? patch.slice(0, PATCH_MAX) : patch,
+          cut: patch.length > PATCH_MAX,
+        },
+      ];
+    });
+  }
+  return [];
+}
+
+/**
+ * What answering an approval sends, exactly as bb's own approval card builds
+ * it (the app's resolution helpers, read from bb 0.45): a deny sends only the
+ * decision. Otherwise the grant goes with it — a permission grant's own
+ * permissions, normalized; for "Allow for session" on a command or a file
+ * change, that subject's session grant; and nothing for anything else.
+ */
+export function approvalResolution(
+  interaction: unknown,
+  decision: Decision,
+):
+  | { decision: "deny" }
+  | { decision: "allow_once" | "allow_for_session"; grantedPermissions: Record<string, unknown> | null } {
+  if (decision === "deny") return { decision };
+  const subject = record(record(record(interaction)?.payload)?.subject);
+  let grantedPermissions: Record<string, unknown> | null = null;
+  if (subject?.kind === "permission_grant") {
+    const permissions = record(subject.permissions) ?? {};
+    const fileSystem = record(permissions.fileSystem);
+    grantedPermissions = {
+      network: record(permissions.network)?.enabled === true ? { enabled: true } : null,
+      fileSystem: fileSystem === null ? null : { read: fileSystem.read, write: fileSystem.write },
+    };
+  } else if (decision === "allow_for_session" && (subject?.kind === "command" || subject?.kind === "file_change")) {
+    grantedPermissions = record(subject.sessionGrant);
+  }
+  return { decision, grantedPermissions };
 }
 
 function firstLine(text: string): string {
