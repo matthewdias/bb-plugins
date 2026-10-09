@@ -16,11 +16,13 @@ import type { rpcContract } from "../../server";
 import {
   MERGE_METHODS,
   prFixMessage,
+  prMergedMessage,
   prRebaseMessage,
   reviewPrompt,
   type Card,
   type MergeMethod,
   type PendingAsk,
+  type PrSummary,
   type Question,
 } from "../../lib/page.ts";
 import { REFUSAL_DETAIL } from "../record-draft.ts";
@@ -229,13 +231,14 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
 
 /** The thread's Thread Page, which its last reply pointed to. */
 function PageLink({ url, primary }: { url: string; primary: boolean }) {
+  const navigate = useBbNavigate();
   return (
     <div>
-      <Button asChild size="sm" variant={primary ? "default" : "outline"}>
-        <a href={url} target="_blank" rel="noreferrer">
-          Open its Thread Page
-          <Icon name="ArrowUpRight" aria-hidden />
-        </a>
+      {/* Through bb rather than a plain link, so it opens where your browser
+          preference says. A plain link is routed into bb's own browser. */}
+      <Button size="sm" variant={primary ? "default" : "outline"} onClick={() => navigate.openUrl(url)}>
+        Open its Thread Page
+        <Icon name="ArrowUpRight" aria-hidden />
       </Button>
     </div>
   );
@@ -622,17 +625,24 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
   const pr = card.pr;
   const [box, setBox] = useState<{ kind: "message" | "review"; text: string; label: string } | null>(null);
   const [askMethod, setAskMethod] = useState(false);
+  // On by default: the thread that opened the PR is usually waiting to hear.
+  const [tell, setTell] = useState(true);
   const [busy, setBusy] = useState(false);
   if (pr === null) return null;
 
   const merge = async (method?: MergeMethod) => {
     setBusy(true);
     try {
-      const result = await rpc.call("page_pr_merge", { threadId: card.threadId, ...(method ? { method } : {}) });
+      const result = await rpc.call("page_pr_merge", {
+        threadId: card.threadId,
+        ...(method ? { method } : {}),
+        ...(tell ? { tell: prMergedMessage(pr) } : {}),
+      });
       if (result.outcome === "needs-method") setAskMethod(true);
       else if (result.outcome === "merged") {
         setAskMethod(false);
-        toast.success(`Merged #${pr.number}.`);
+        if (result.told === "failed") toast.error(`Merged #${pr.number}, but the thread could not be told. Tell it yourself.`);
+        else toast.success(result.told === null ? `Merged #${pr.number}.` : `Merged #${pr.number} and told the thread.`);
       } else toast.error(result.message ?? "It could not be merged. Try again.");
     } catch {
       toast.error("It could not be merged. Try again.");
@@ -709,6 +719,7 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
               Cancel
             </Button>
           </div>
+          <TellToggle pr={pr} on={tell} onChange={setTell} />
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -752,17 +763,40 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
                 Start a review thread
               </Button>
             ))}
-          {pr.action === "merged" && <MergedActions card={card} rpc={rpc} />}
+          {pr.action === "merged" && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setBox({ kind: "message", text: prMergedMessage(pr), label: "Send to the thread" })}
+              >
+                Tell the thread it merged
+              </Button>
+              <MergedActions card={card} rpc={rpc} />
+            </>
+          )}
           <span className="flex-1" />
-          <Button asChild size="sm" variant="ghost" className="text-muted-foreground">
-            <a href={pr.url} target="_blank" rel="noreferrer">
-              GitHub
-              <Icon name="ArrowUpRight" aria-hidden />
-            </a>
+          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => navigate.openUrl(pr.url)}>
+            GitHub
+            <Icon name="ArrowUpRight" aria-hidden />
           </Button>
+          {pr.action === "merge" && <TellToggle pr={pr} on={tell} onChange={setTell} />}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Whether Merge also tells the thread, with the words it will send in view:
+ * pressing Merge sends nothing you could not read beside it.
+ */
+function TellToggle({ pr, on, onChange }: { pr: PrSummary; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className="flex w-full cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+      <input type="checkbox" checked={on} onChange={(event) => onChange(event.target.checked)} className="accent-current" />
+      Then tell the thread: “{prMergedMessage(pr)}”
+    </label>
   );
 }
 

@@ -816,12 +816,18 @@ export const rpcContract = defineRpcContract({
    * Merge the pull request on this thread's worktree. The first merge in a
    * project has no method yet and answers `needs-method`; the method it is
    * then called with becomes that project's, and later merges use it.
+   *
+   * `tell` is the message the card showed beside the button, sent to the
+   * thread once the merge lands: an agent that opened a pull request is often
+   * waiting to hear it merged before it goes on. Not sent when the merge does
+   * not happen.
    */
   page_pr_merge: {
     input: z
       .object({
         threadId: z.string().min(1).max(200),
         method: z.enum(MERGE_METHODS).optional(),
+        tell: z.string().trim().min(1).max(REPLY_MAX).optional(),
       })
       .strict(),
     output: z
@@ -829,6 +835,8 @@ export const rpcContract = defineRpcContract({
         outcome: z.enum(["merged", "needs-method", "not-ready", "failed"]),
         method: z.enum(MERGE_METHODS).nullable(),
         message: z.string().nullable(),
+        /** Whether the thread was told, when it was asked to be. */
+        told: z.enum(["sent", "queued", "failed"]).nullable(),
       })
       .strict(),
   },
@@ -3836,18 +3844,20 @@ export default async function plugin(bb: BbPluginApi) {
   async function mergeFromPage(
     threadId: string,
     asked: MergeMethod | undefined,
+    tell: string | undefined,
   ): Promise<{
     outcome: "merged" | "needs-method" | "not-ready" | "failed";
     method: MergeMethod | null;
     message: string | null;
+    told: "sent" | "queued" | "failed" | null;
   }> {
     const thread = await bb.sdk.threads.get({ threadId });
     if (thread.environmentId === null) {
-      return { outcome: "not-ready", method: null, message: "This thread has no worktree to merge from." };
+      return { outcome: "not-ready", method: null, message: "This thread has no worktree to merge from.", told: null };
     }
     const remembered = await bb.storage.kv.get<MergeMethod>(mergeMethodKey(thread.projectId));
     const method = asked ?? remembered ?? null;
-    if (method === null) return { outcome: "needs-method", method: null, message: null };
+    if (method === null) return { outcome: "needs-method", method: null, message: null, told: null };
     // Looked up again rather than trusting the card: checks can fail, or a
     // conflict land, between the card drawing and the press.
     const pr = prSummary(await bb.sdk.environments.pullRequest({ environmentId: thread.environmentId }));
@@ -3856,20 +3866,30 @@ export default async function plugin(bb: BbPluginApi) {
         outcome: "not-ready",
         method,
         message: pr === null ? "There is no pull request on this thread's branch." : "This pull request is no longer ready to merge.",
+        told: null,
       };
     }
     try {
       await bb.sdk.environments.mergePullRequest({ environmentId: thread.environmentId, method });
     } catch (error) {
       bb.log.error(`page: merge failed on ${threadId}: ${String(error)}`);
-      return { outcome: "failed", method, message: String(error instanceof Error ? error.message : error) };
+      return { outcome: "failed", method, message: String(error instanceof Error ? error.message : error), told: null };
     }
     if (asked !== undefined && asked !== remembered) {
       await bb.storage.kv.set(mergeMethodKey(thread.projectId), asked);
     }
     queuePullRequest(thread.environmentId, true);
     bb.log.info(`page: merged #${pr.number} on ${threadId} (${method})`);
-    return { outcome: "merged", method, message: null };
+    let told: "sent" | "queued" | "failed" | null = null;
+    if (tell !== undefined) {
+      try {
+        told = await sendAsUser(threadId, [{ text: tell }]);
+      } catch (error) {
+        bb.log.error(`page: merged #${pr.number} but could not tell ${threadId}: ${String(error)}`);
+        told = "failed";
+      }
+    }
+    return { outcome: "merged", method, message: null, told };
   }
 
   // Host changes that can move a card. The subscription is the server's own,
@@ -4326,12 +4346,12 @@ export default async function plugin(bb: BbPluginApi) {
         return { outcome: "failed" as const };
       }
     },
-    page_pr_merge: async ({ threadId, method }) => {
+    page_pr_merge: async ({ threadId, method, tell }) => {
       try {
-        return await mergeFromPage(threadId, method);
+        return await mergeFromPage(threadId, method, tell);
       } catch (error) {
         bb.log.error(`page: merge failed on ${threadId}: ${String(error)}`);
-        return { outcome: "failed" as const, method: method ?? null, message: null };
+        return { outcome: "failed" as const, method: method ?? null, message: null, told: null };
       }
     },
     page_pr_review: async ({ threadId, prompt }) => {

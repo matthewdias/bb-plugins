@@ -188,7 +188,60 @@ describe("the page", () => {
     });
     fireEvent.click(await slot.findByRole("button", { name: /^Merge$/ }));
     fireEvent.click(await slot.findByRole("button", { name: "Squash" }));
-    await waitFor(() => expect(merges).toEqual([{ threadId: "thr_pr" }, { threadId: "thr_pr", method: "squash" }]));
+    const tell = "I merged PR #44.";
+    await waitFor(() =>
+      expect(merges).toEqual([
+        { threadId: "thr_pr", tell },
+        { threadId: "thr_pr", method: "squash", tell },
+      ]),
+    );
+  });
+
+  it("tells the thread it merged unless you untick it, and shows the words it sends", async () => {
+    const merges: unknown[] = [];
+    const slot = renderPage({
+      cards: [card("thr_pr", { tier: "turn", lead: "pr", pr: { ...pr("ready_to_merge"), action: "merge" } })],
+      handlers: {
+        page_pr_merge: async (input: unknown) => {
+          merges.push(input);
+          return { outcome: "merged", method: "merge", message: null, told: null };
+        },
+      },
+    });
+    const toggle = await slot.findByRole("checkbox", { name: /Then tell the thread: “I merged PR #44\.”/ });
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+    fireEvent.click(slot.getByRole("button", { name: /^Merge$/ }));
+    await waitFor(() => expect(merges).toEqual([{ threadId: "thr_pr" }]));
+  });
+
+  it("offers to tell the thread about a PR merged somewhere else", async () => {
+    const slot = renderPage({
+      cards: [card("thr_pr", { lead: "pr", pr: { ...pr("merged", { state: "merged" }), action: "merged" } })],
+    });
+    fireEvent.click(await slot.findByRole("button", { name: "Tell the thread it merged" }));
+    expect((slot.getByRole("textbox") as HTMLTextAreaElement).value).toBe("I merged PR #44.");
+    fireEvent.click(slot.getByRole("button", { name: "Send to the thread" }));
+    await waitFor(() => expect(calls(slot, "page_reply")).toEqual([{ threadId: "thr_pr", text: "I merged PR #44." }]));
+  });
+
+  it("opens links through bb, so they follow your browser preference", async () => {
+    const slot = renderPage({
+      cards: [
+        card("thr_pr", {
+          tier: "turn",
+          lead: "page",
+          pageUrl: "https://h/api/v1/plugins/thread-pages/http/page?session=thr_pr",
+          pr: { ...pr("ready_to_merge"), action: "merge" },
+        }),
+      ],
+    });
+    fireEvent.click(await slot.findByRole("button", { name: /Open its Thread Page/ }));
+    fireEvent.click(slot.getByRole("button", { name: /GitHub/ }));
+    expect(slot.inspection.navigateCalls).toEqual([
+      { method: "openUrl", url: "https://h/api/v1/plugins/thread-pages/http/page?session=thr_pr" },
+      { method: "openUrl", url: "https://github.com/o/r/pull/44" },
+    ]);
   });
 
   it("shows a pull request's fix message before sending it, and sends what the box holds", async () => {

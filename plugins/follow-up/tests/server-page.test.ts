@@ -287,6 +287,29 @@ test("page: merge asks for a method once per project, then uses it", async () =>
   assert.equal(calls("environments.mergePullRequest").length, 2);
 });
 
+test("page: a merge tells the thread only once it has merged", async () => {
+  const { call, calls, w } = await host({
+    threads: [threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
+    prs: { env_w: prResponse("ready_to_merge") },
+  });
+  const merged = await call("page_pr_merge", { threadId: "thr_pr", method: "merge", tell: "I merged PR #44." });
+  assert.deepEqual([merged.outcome, merged.told], ["merged", "sent"]);
+  const sent = calls("threads.send");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.threadId, "thr_pr");
+  assert.equal((sent[0]?.input as Row[])[0]?.text, "I merged PR #44.");
+
+  w.prs.env_w = prResponse("checks_failed");
+  const refused = await call("page_pr_merge", { threadId: "thr_pr", tell: "I merged PR #44." });
+  assert.deepEqual([refused.outcome, refused.told], ["not-ready", null]);
+  assert.equal(calls("threads.send").length, 1, "nothing is said about a merge that did not happen");
+
+  w.prs.env_w = prResponse("ready_to_merge");
+  const quiet = await call("page_pr_merge", { threadId: "thr_pr" });
+  assert.deepEqual([quiet.outcome, quiet.told], ["merged", null]);
+  assert.equal(calls("threads.send").length, 1, "no message unless one was asked for");
+});
+
 test("page: Not now hides a card until the thread's attention moves", async () => {
   const { call, w } = await host({
     threads: [threadRow("thr_done", { latestAttentionAt: 300, lastReadAt: 100 })],

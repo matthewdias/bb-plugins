@@ -758,6 +758,15 @@ export function prRebaseMessage(pr: PrSummary): string {
   return `PR #${pr.number} has conflicts with ${base}. Rebase onto the latest ${base}, resolve them, and push.`;
 }
 
+/**
+ * What a merge from the page tells the thread that opened the pull request.
+ * Shown beside the Merge button, so pressing it sends nothing unseen. An agent
+ * that opened a pull request is often waiting to hear it merged.
+ */
+export function prMergedMessage(pr: PrSummary): string {
+  return `I merged PR #${pr.number}.`;
+}
+
 /** The prompt a review thread starts with, also shown for editing first. */
 export function reviewPrompt(pr: PrSummary): string {
   return [

@@ -198,7 +198,10 @@ GitHub.
 - *Merge* uses the project's merge method. The first merge in a project asks
   which method it uses, and every later merge there uses the same one. The
   pull request is checked again when you press, so one that stopped being
-  ready in between is refused rather than merged.
+  ready in between is refused rather than merged. Once it merges, the thread
+  that opened it is told, since its agent is often waiting to hear: the words
+  ("I merged PR #44.") are beside the button, with a box to untick. A pull
+  request merged somewhere else gets *Tell the thread it merged* instead.
 - *Ask the thread to fix*, *Ask the thread to rebase* and *Request changes…*
   send a message to the thread that opened the pull request. A box shows the
   message first, prefilled with the failing checks or the base branch, and
@@ -219,7 +222,8 @@ about its follow-ups. Each row leads with *Do*, or with *Hand off* for an
 out-of-scope row or one on an archived thread, and its ⋯ menu files it, marks
 it done or dismisses it.
 
-On a phone, the cards, In motion and Follow-ups are three tabs. The page
+A Thread Page or GitHub link opens wherever your bb browser preference sends
+links. On a phone, the cards, In motion and Follow-ups are three tabs. The page
 updates itself whenever a question arrives, a turn ends, a thread is read or
 archived, or a follow-up changes, without polling.
 
