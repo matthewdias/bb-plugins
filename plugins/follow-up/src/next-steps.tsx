@@ -126,7 +126,7 @@ function useHold(onHold: () => void) {
   };
 }
 
-function Chip({
+export function Chip({
   label,
   hint,
   ariaLabel,
