@@ -121,6 +121,7 @@ import {
   laneGroupSchema,
   MERGE_METHODS,
   PAGE_CHANGED,
+  parsePutAway,
   pendingAsk,
   prAction,
   prOwners,
@@ -732,6 +733,8 @@ export const rpcContract = defineRpcContract({
     output: z
       .object({
         cards: z.array(cardSchema),
+        /** Cards put away with "Not now", for the Put away fold. */
+        putAway: z.array(cardSchema),
         moreFinished: z.number().int(),
         count: z.number().int(),
         running: z.array(runningSchema),
@@ -796,14 +799,24 @@ export const rpcContract = defineRpcContract({
     output: z.object({ outcome: z.enum(["done", "failed"]) }).strict(),
   },
   /**
-   * "Not now": keep this card away until something new happens on its thread.
-   * `at` is the attention mark the card was showing, so a press that lands
-   * after the thread moved on hides nothing newer than what you saw.
+   * "Not now": put this card away until something new happens on its thread,
+   * or its pull request changes. `at` is the attention mark the card was
+   * showing, so a press that lands after the thread moved on hides nothing
+   * newer than what you saw; `pr` is the PR state it showed (`prKey`).
    */
   page_hide: {
     input: z
-      .object({ threadId: z.string().min(1).max(200), at: z.number().int().min(0) })
+      .object({
+        threadId: z.string().min(1).max(200),
+        at: z.number().int().min(0),
+        pr: z.string().max(200).nullable().optional(),
+      })
       .strict(),
+    output: z.object({ outcome: z.enum(["done"]) }).strict(),
+  },
+  /** Bring put-away cards back: "Undo" after Not now, and the Put away fold. */
+  page_unhide: {
+    input: z.object({ threadIds: z.array(z.string().min(1).max(200)).min(1).max(100) }).strict(),
     output: z.object({ outcome: z.enum(["done"]) }).strict(),
   },
   /** Re-run a failed turn with bb's own retry. */
@@ -3785,7 +3798,7 @@ export default async function plugin(bb: BbPluginApi) {
           const [offer, wrapRecord, hiddenAt, review] = await Promise.all([
             current.offerNextSteps && withOffer.has(thread.id) ? readOffer(thread.id) : null,
             withWrapUp.has(thread.id) ? readWrapUp(thread.id) : null,
-            withHidden.has(thread.id) ? bb.storage.kv.get<number>(hiddenKey(thread.id)) : undefined,
+            withHidden.has(thread.id) ? bb.storage.kv.get<unknown>(hiddenKey(thread.id)) : undefined,
             withReview.has(thread.id)
               ? bb.storage.kv.get<{ prNumber: number; threadId: string }>(reviewKey(thread.id))
               : undefined,
@@ -3809,7 +3822,7 @@ export default async function plugin(bb: BbPluginApi) {
             wrapUp: wrapRecord === null ? null : { held: wrapRecord.held, running: wrapRecord.held === null },
             pr,
             reply,
-            hiddenAt: typeof hiddenAt === "number" ? hiddenAt : null,
+            hidden: parsePutAway(hiddenAt),
             parentTitle:
               thread.parentThreadId === null ? null : (byId.get(thread.parentThreadId)?.title ?? null),
             review: review ?? null,
@@ -3828,10 +3841,13 @@ export default async function plugin(bb: BbPluginApi) {
     ).filter((card) => card !== null);
 
     // One card per family: workers fold into their parent's (lib/page.ts).
-    const ranked = rank(combineFamilies(cards, threads));
+    // Cards put away with "Not now" are kept apart: not counted, and listed
+    // in the page's Put away fold, families combined the same way.
+    const ranked = rank(combineFamilies(cards.filter((card) => !card.putAway), threads));
+    const putAway = rank(combineFamilies(cards.filter((card) => card.putAway), threads));
     const count = countOf(ranked);
     if (!withLanes) {
-      return { count, ranked, running: [], followUps: [], projectNames: new Map<string, string>() };
+      return { count, ranked, putAway, running: [], followUps: [], projectNames: new Map<string, string>() };
     }
 
     const running = foldRunning(
@@ -3887,6 +3903,7 @@ export default async function plugin(bb: BbPluginApi) {
     return {
       count,
       ranked,
+      putAway,
       running,
       followUps: groupFollowUps(laneInputs, projectNames),
       projectNames,
@@ -4331,6 +4348,7 @@ export default async function plugin(bb: BbPluginApi) {
       const { cards, moreFinished } = capFinished(page.ranked);
       return {
         cards,
+        putAway: page.putAway,
         moreFinished,
         count: page.count,
         running: page.running,
@@ -4391,8 +4409,13 @@ export default async function plugin(bb: BbPluginApi) {
         return { outcome: "failed" as const };
       }
     },
-    page_hide: async ({ threadId, at }) => {
-      await bb.storage.kv.set(hiddenKey(threadId), at);
+    page_hide: async ({ threadId, at, pr }) => {
+      await bb.storage.kv.set(hiddenKey(threadId), pr === undefined ? { at } : { at, pr });
+      pageChanged();
+      return { outcome: "done" as const };
+    },
+    page_unhide: async ({ threadIds }) => {
+      await Promise.all([...new Set(threadIds)].map((threadId) => bb.storage.kv.delete(hiddenKey(threadId))));
       pageChanged();
       return { outcome: "done" as const };
     },

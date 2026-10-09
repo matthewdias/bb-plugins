@@ -36,6 +36,8 @@ const card = (threadId: string, extra: Partial<Card> = {}): Card => ({
   unread: true,
   status: "idle",
   reviewThreadId: null,
+  putAway: false,
+  prKey: null,
   workers: [],
   ...extra,
 });
@@ -83,11 +85,13 @@ const pr = (attention: string, extra: Partial<PrSummary> = {}) => ({
 
 function renderPage({
   cards = [],
+  putAway = [],
   running = [],
   followUps = [],
   handlers = {},
 }: {
   cards?: Card[];
+  putAway?: Card[];
   running?: Running[];
   followUps?: LaneGroup[];
   handlers?: Record<string, (input: any) => Promise<unknown>>;
@@ -95,6 +99,7 @@ function renderPage({
   const rpc = {
     page_snapshot: async () => ({
       cards,
+      putAway,
       moreFinished: 0,
       count: cards.filter((c) => c.tier !== "finished").length,
       running,
@@ -103,6 +108,7 @@ function renderPage({
     }),
     page_answer: async () => ({ outcome: "answered" }),
     page_hide: async () => ({ outcome: "done" }),
+    page_unhide: async () => ({ outcome: "done" }),
     page_reply: async () => ({ outcome: "sent" }),
     page_mark_read: async () => ({ outcome: "done" }),
     followups_next_take: async () => ({ outcome: "sent" }),
@@ -162,7 +168,7 @@ describe("the page", () => {
     const done = card("thr_done", { since: 12345, attentionAt: 12345 });
     const slot = renderPage({ cards: [done] });
     fireEvent.click(await slot.findByRole("button", { name: /Not now/ }));
-    await waitFor(() => expect(calls(slot, "page_hide")).toEqual([{ threadId: "thr_done", at: 12345 }]));
+    await waitFor(() => expect(calls(slot, "page_hide")).toEqual([{ threadId: "thr_done", at: 12345, pr: null }]));
   });
 
   it("says how long ago in words that read: just now, not now ago", async () => {
@@ -347,7 +353,7 @@ describe("families", () => {
     const slot = renderPage({ cards: [{ ...family, since: 200, attentionAt: 300 }] });
     fireEvent.click(await slot.findByRole("button", { name: /Not now/ }));
     await waitFor(() => expect(calls(slot, "page_hide")).toHaveLength(4));
-    expect(calls(slot, "page_hide").find((input: any) => input.threadId === "thr_dev6")).toEqual({ threadId: "thr_dev6", at: 300 });
+    expect(calls(slot, "page_hide").find((input: any) => input.threadId === "thr_dev6")).toEqual({ threadId: "thr_dev6", at: 300, pr: null });
   });
 
   it("Not now puts the whole family away", async () => {
@@ -426,6 +432,51 @@ describe("close-out shows what is still open", () => {
     await slot.findByRole("button", { name: /^Merge$/ });
     expect(slot.queryByRole("region", { name: "Still open" })).toBeNull();
     expect(slot.queryByRole("button", { name: "Wrap up instead" })).toBeNull();
+  });
+});
+
+describe("Not now and the Put away fold", () => {
+  it("records the PR state it was showing, so a change to it brings the card back", async () => {
+    const slot = renderPage({ cards: [card("thr_pr", { tier: "turn", lead: "pr", prKey: "44:review_requested", pr: { ...pr("review_requested"), action: "review" } })] });
+    fireEvent.click(await slot.findByRole("button", { name: /Not now/ }));
+    await waitFor(() => expect(calls(slot, "page_hide")[0]).toMatchObject({ threadId: "thr_pr", pr: "44:review_requested" }));
+  });
+
+  it("offers Undo right after, which brings it back", async () => {
+    vi.mocked(toast).mockClear();
+    const slot = renderPage({ cards: [card("thr_done")] });
+    fireEvent.click(await slot.findByRole("button", { name: /Not now/ }));
+    await waitFor(() => expect(vi.mocked(toast)).toHaveBeenCalled());
+    const options = vi.mocked(toast).mock.calls.at(-1)?.[1] as { action: { label: string; onClick: () => void } };
+    expect(options.action.label).toBe("Undo");
+    options.action.onClick();
+    await waitFor(() => expect(calls(slot, "page_unhide")).toEqual([{ threadIds: ["thr_done"] }]));
+  });
+
+  it("lists put-away cards in a fold, each with Bring back, the whole family at once", async () => {
+    const { workers: _none, ...worker } = card("thr_w", { title: "#12 co-leads", putAway: true });
+    const slot = renderPage({
+      cards: [card("thr_visible")],
+      putAway: [
+        card("thr_away", { title: "Dev #314", tier: "turn", lead: "pr", putAway: true, pr: { ...pr("review_requested"), action: "review" } }),
+        card("thr_dev6", { title: "Dev #6", lead: "workers", putAway: true, workers: [worker] }),
+      ],
+    });
+    const fold = await slot.findByRole("region", { name: "Put away" });
+    const toggle = within(fold).getByRole("button", { name: /Put away/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(fold).queryByText("Dev #314"), "folded until opened").toBeNull();
+    fireEvent.click(toggle);
+    expect(within(fold).getByText("Dev #314")).toBeTruthy();
+    expect(within(fold).getByText(/wants review/)).toBeTruthy();
+    fireEvent.click(within(fold).getAllByRole("button", { name: "Bring back" })[1]!);
+    await waitFor(() => expect(calls(slot, "page_unhide")).toEqual([{ threadIds: ["thr_dev6", "thr_w"] }]));
+  });
+
+  it("shows the fold even when nothing else is waiting", async () => {
+    const slot = renderPage({ putAway: [card("thr_away", { putAway: true })] });
+    expect(await slot.findByText("No thread is waiting on you.")).toBeTruthy();
+    expect(slot.getByRole("region", { name: "Put away" })).toBeTruthy();
   });
 });
 

@@ -322,16 +322,50 @@ test("page: a merge tells the thread only once it has merged", async () => {
   assert.equal(calls("threads.send").length, 1, "no message unless one was asked for");
 });
 
-test("page: Not now hides a card until the thread's attention moves", async () => {
+test("page: Not now moves a card to Put away, out of the count, until the thread's attention moves", async () => {
   const { call, w } = await host({
     threads: [threadRow("thr_done", { latestAttentionAt: 300, lastReadAt: 100 })],
     outputs: { thr_done: "Done." },
   });
   assert.equal((await call("page_snapshot")).cards.length, 1);
-  await call("page_hide", { threadId: "thr_done", at: 300 });
-  assert.equal((await call("page_snapshot")).cards.length, 0);
+  await call("page_hide", { threadId: "thr_done", at: 300, pr: null });
+  const away = await call("page_snapshot");
+  assert.deepEqual([away.cards.length, away.putAway.map((c: any) => c.threadId)], [0, ["thr_done"]]);
+  assert.deepEqual((await call("page_summary")).top, [], "not on the strip either");
   w.threads = [threadRow("thr_done", { latestAttentionAt: 400, lastReadAt: 100 })];
-  assert.equal((await call("page_snapshot")).cards.length, 1);
+  const back = await call("page_snapshot");
+  assert.deepEqual([back.cards.length, back.putAway.length], [1, 0]);
+});
+
+test("page: Bring back and Undo take a card out of Put away", async () => {
+  const { call } = await host({
+    threads: [threadRow("thr_done", { latestAttentionAt: 300, lastReadAt: 100 })],
+    outputs: { thr_done: "Done." },
+  });
+  await call("page_hide", { threadId: "thr_done", at: 300, pr: null });
+  assert.equal((await call("page_snapshot")).putAway.length, 1);
+  await call("page_unhide", { threadIds: ["thr_done"] });
+  const back = await call("page_snapshot");
+  assert.deepEqual([back.cards.length, back.putAway.length], [1, 0]);
+});
+
+test("page: a put-away PR card comes back when its PR changes", async () => {
+  const { call, w, harness } = await host({
+    threads: [threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
+    prs: { env_w: prResponse("review_requested") },
+  });
+  await call("page_snapshot");
+  await settle();
+  const card = (await call("page_snapshot")).cards[0];
+  assert.equal(card.prKey, "44:review_requested");
+  await call("page_hide", { threadId: "thr_pr", at: card.attentionAt, pr: card.prKey });
+  assert.equal((await call("page_snapshot")).putAway.length, 1);
+  // Checks fail; a turn ending is what refreshes a PR, and nothing new was said.
+  w.prs.env_w = prResponse("checks_failed");
+  await harness.emitThreadEvent("thread.idle", { thread: { id: "thr_pr", environmentId: "env_w" } } as never);
+  await settle();
+  const back = await call("page_snapshot");
+  assert.deepEqual([back.cards.map((c: any) => c.threadId), back.putAway.length], [["thr_pr"], 0]);
 });
 
 test("page: thread changes that can move a card signal once per burst; streamed deltas do not", async () => {

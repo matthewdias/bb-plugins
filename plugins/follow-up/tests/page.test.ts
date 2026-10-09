@@ -6,6 +6,8 @@ import test from "node:test";
 import {
   activityLabel,
   asksFor,
+  parsePutAway,
+  prKey,
   capFinished,
   cardFor,
   combineFamilies,
@@ -62,7 +64,7 @@ const inputs = (extra: Partial<ThreadInputs> = {}): ThreadInputs => ({
   wrapUp: null,
   pr: null,
   reply: null,
-  hiddenAt: null,
+  hidden: null,
   parentTitle: null,
   review: null,
   ...extra,
@@ -330,15 +332,40 @@ test("cardFor: an unread finished turn is finished; a read one with nothing aske
   assert.equal(cardFor(inputs({ reply: "Done." })), null);
 });
 
-test("cardFor: Not now hides a card until something new happens on the thread", () => {
+test("cardFor: Not now puts a card away until something new happens on the thread", () => {
   const base = { offer: { steps: ["Go"], goalMet: false, offeredAt: "x" } };
-  assert.equal(cardFor(inputs({ ...base, hiddenAt: 100 })), null);
-  assert.ok(cardFor(inputs({ ...base, hiddenAt: 99 })) !== null, "newer attention brings it back");
+  assert.equal(cardFor(inputs({ ...base, hidden: { at: 100, pr: null } }))?.putAway, true);
+  assert.equal(cardFor(inputs({ ...base, hidden: { at: 99, pr: null } }))?.putAway, false, "newer attention brings it back");
+  assert.equal(cardFor(inputs(base))?.putAway, false);
 });
 
-test("cardFor: Not now cannot hide a blocked thread", () => {
-  const card = cardFor(inputs({ asks: [question(1)], hiddenAt: 1_000 }));
+test("cardFor: Not now cannot put away a blocked thread", () => {
+  const card = cardFor(inputs({ asks: [question(1)], hidden: { at: 1_000 } }));
   assert.equal(card?.tier, "blocked");
+  assert.equal(card?.putAway, false);
+});
+
+test("cardFor: a change to the thread's PR brings a put-away card back", () => {
+  const at = { at: 100, pr: "44:ready_to_merge" };
+  assert.equal(cardFor(inputs({ pr: pr("ready_to_merge"), hidden: at }))?.putAway, true, "same PR state: still away");
+  assert.equal(cardFor(inputs({ pr: pr("checks_failed"), hidden: at }))?.putAway, false, "checks failed: back");
+  assert.equal(cardFor(inputs({ pr: pr("merged"), hidden: at }))?.putAway, false, "merged: back");
+  const finished = { thread: thread({ latestAttentionAt: 100, lastReadAt: 0 }), reply: "Done." };
+  assert.equal(cardFor(inputs({ ...finished, hidden: { at: 100, pr: null } }))?.putAway, true);
+  assert.equal(cardFor(inputs({ ...finished, pr: pr("review_requested"), hidden: { at: 100, pr: null } }))?.putAway, false, "a PR appearing: back");
+});
+
+test("cardFor: a record from before PR changes counted only ends with new attention", () => {
+  assert.equal(cardFor(inputs({ pr: pr("checks_failed"), hidden: { at: 100 } }))?.putAway, true);
+});
+
+test("parsePutAway and prKey: both record forms, and the PR state compared", () => {
+  assert.deepEqual(parsePutAway(300), { at: 300 });
+  assert.deepEqual(parsePutAway({ at: 300, pr: "44:merged" }), { at: 300, pr: "44:merged" });
+  assert.deepEqual(parsePutAway({ at: 300, pr: null }), { at: 300, pr: null });
+  assert.equal(parsePutAway("nonsense"), null);
+  assert.equal(prKey(pr("checks_failed")), "44:checks_failed");
+  assert.equal(prKey(null), null);
 });
 
 test("cardFor: a card carries its thread's open follow-ups, with their lead actions", () => {

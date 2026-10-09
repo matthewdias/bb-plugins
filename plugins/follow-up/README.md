@@ -200,8 +200,11 @@ before the thread goes. Merging doesn't close them, and archiving leaves them
 open, so beside *Archive* there's also *Wrap up instead*, which decides each
 row first and then archives.
 
-*Not now* puts a card away until something new happens on its thread, and a
-family's card puts the parent and its workers away together. A blocked card has
+*Not now* puts a card away until something new happens on its thread or its
+pull request changes (checks fail, a review lands, it merges). A family's card
+puts the parent and its workers away together. The toast right after has
+*Undo*, and put-away cards wait in a **Put away** fold at the bottom of the
+cards, out of the count, each with *Bring back*. A blocked card has
 no *Not now*: the agent is stopped, and putting it off would leave a thread
 nobody comes back to.
 

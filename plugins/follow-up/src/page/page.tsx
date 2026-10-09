@@ -4,13 +4,14 @@
 // starts with what is waiting rather than its own name. Wide, the cards take
 // the left and the two lanes the right; on a phone, three tabs.
 import { useEffect, useMemo, useState } from "react";
-import { useBbNavigate, type PluginHomepageSectionProps, type PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
+import { useBbNavigate, useRpc, type PluginHomepageSectionProps, type PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
+import type { rpcContract } from "../../server";
 import type { Card } from "../../lib/page.ts";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { ago, PageCard } from "./cards.tsx";
+import { ago, bringBack, PageCard, wantsLabel } from "./cards.tsx";
 import { FollowUpsLane, InMotion } from "./lanes.tsx";
 import { usePage, usePageSummary, type PageSnapshot } from "./use-page.ts";
 
@@ -148,8 +149,11 @@ function Cards({ snapshot, now }: { snapshot: PageSnapshot; now: number }) {
   const names = useMemo(() => new Map(snapshot.projects.map((project) => [project.id, project.name])), [snapshot.projects]);
   if (snapshot.cards.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-        No thread is waiting on you.
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+          No thread is waiting on you.
+        </div>
+        <PutAwayFold cards={snapshot.putAway} names={names} now={now} />
       </div>
     );
   }
@@ -176,7 +180,68 @@ function Cards({ snapshot, now }: { snapshot: PageSnapshot; now: number }) {
           </section>
         );
       })}
+      <PutAwayFold cards={snapshot.putAway} names={names} now={now} />
     </div>
+  );
+}
+
+/**
+ * Cards put away with "Not now", folded at the bottom: each says what it was
+ * waiting on and can be brought back. A card also comes back by itself when
+ * something new happens on its thread or its pull request changes.
+ */
+function PutAwayFold({ cards, names, now }: { cards: Card[]; names: ReadonlyMap<string, string>; now: number }) {
+  const [open, setOpen] = useState(false);
+  const rpc = useRpc<typeof rpcContract>();
+  const navigate = useBbNavigate();
+  if (cards.length === 0) return null;
+  return (
+    <section aria-label="Put away" className="mt-2 flex flex-col gap-1.5">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 self-start text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+      >
+        <Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3" aria-hidden />
+        Put away
+        <span className="text-foreground">{cards.length}</span>
+        <span className="font-normal normal-case tracking-normal">· back when something new happens</span>
+      </button>
+      {open && (
+        <ul className="overflow-hidden rounded-lg border border-border">
+          {cards.map((card) => {
+            const project = names.get(card.projectId) ?? null;
+            const workers = card.workers.length;
+            return (
+              <li key={card.threadId} className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border px-3 py-2 text-[13px] first:border-t-0">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left font-medium text-foreground hover:underline"
+                  onClick={() => navigate.toThread(card.threadId)}
+                >
+                  {card.title}
+                </button>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {wantsLabel(card)}
+                  {workers > 0 && ` · ${workers === 1 ? "1 worker" : `${workers} workers`}`}
+                  {project !== null && ` · ${project}`}
+                  {` · ${ago(card.since, now)}`}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => void bringBack(rpc, [card.threadId, ...card.workers.map((worker) => worker.threadId)])}
+                >
+                  Bring back
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

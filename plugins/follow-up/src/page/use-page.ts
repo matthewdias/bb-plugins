@@ -14,6 +14,8 @@ import { PAGE_CHANGED, type Card, type LaneGroup, type Running } from "../../lib
 
 export interface PageSnapshot {
   cards: Card[];
+  /** Put away with "Not now": the Put away fold. */
+  putAway: Card[];
   moreFinished: number;
   count: number;
   running: Running[];

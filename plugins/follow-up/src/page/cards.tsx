@@ -142,14 +142,20 @@ export function PageCard({
   const hide = async () => {
     try {
       // A family is put away whole: the parent and every worker folded into it,
-      // each until something new happens on that thread.
+      // each until something new happens on that thread or its PR changes.
       // Each at its own attention mark, never the family's `since`.
       await Promise.all([
-        rpc.call("page_hide", { threadId: card.threadId, at: card.attentionAt }),
-        ...card.workers.map((worker) => rpc.call("page_hide", { threadId: worker.threadId, at: worker.attentionAt })),
+        rpc.call("page_hide", { threadId: card.threadId, at: card.attentionAt, pr: card.prKey }),
+        ...card.workers.map((worker) =>
+          rpc.call("page_hide", { threadId: worker.threadId, at: worker.attentionAt, pr: worker.prKey }),
+        ),
       ]);
+      const threadIds = [card.threadId, ...card.workers.map((worker) => worker.threadId)];
+      toast("Put away until something new happens.", {
+        action: { label: "Undo", onClick: () => void bringBack(rpc, threadIds) },
+      });
     } catch {
-      toast.error("It could not be hidden. Try again.");
+      toast.error("It could not be put away. Try again.");
     }
   };
 
@@ -474,6 +480,15 @@ export function MessageBox({
       </div>
     </div>
   );
+}
+
+/** Take cards out of the Put away fold: Undo, and Bring back. */
+export async function bringBack(rpc: Rpc, threadIds: string[]): Promise<void> {
+  try {
+    await rpc.call("page_unhide", { threadIds });
+  } catch {
+    toast.error("It could not be brought back. Try again.");
+  }
 }
 
 async function reply(rpc: Rpc, threadId: string, text: string): Promise<boolean> {

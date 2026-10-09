@@ -537,6 +537,17 @@ export const baseCardSchema = z.object({
   status: z.string(),
   /** The review thread started from this card for its current pull request. */
   reviewThreadId: z.string().nullable(),
+  /**
+   * Put away with "Not now": listed in the page's Put away fold rather than
+   * among the cards, and not counted, until something brings it back.
+   */
+  putAway: z.boolean(),
+  /**
+   * The state of the thread's pull request as "Not now" records it, whatever
+   * that state is, so a change to it — checks failing, a review landing, a
+   * merge — brings the card back. Null when the thread has none.
+   */
+  prKey: z.string().nullable(),
 });
 export type WorkerCard = z.infer<typeof baseCardSchema>;
 
@@ -564,14 +575,41 @@ export interface ThreadInputs {
   pr: PrSummary | null;
   /** The thread's last reply, from `threads.output`. */
   reply: string | null;
-  /**
-   * The thread's `latestAttentionAt` when someone pressed "Not now" on its
-   * card. The card stays away until something new happens on the thread.
-   */
-  hiddenAt: number | null;
+  /** What "Not now" recorded for this thread, if anything. See `PutAway`. */
+  hidden: PutAway | null;
   parentTitle: string | null;
   /** A review thread started for this pull request number, if any. */
   review: { prNumber: number; threadId: string } | null;
+}
+
+/**
+ * What "Not now" records: the thread's attention mark when it was pressed, and
+ * its pull request's state then. The card stays put away until something new
+ * happens on the thread or its pull request changes. `pr` is undefined on a
+ * record written before PR changes counted, which then only attention ends.
+ */
+export interface PutAway {
+  at: number;
+  pr?: string | null;
+}
+
+/** A pull request's state, in the form "Not now" compares. */
+export function prKey(pr: PrSummary | null): string | null {
+  return pr === null ? null : `${pr.number}:${pr.attention}`;
+}
+
+/** A stored put-away record, in its old form (a bare number) or its new one. */
+export function parsePutAway(stored: unknown): PutAway | null {
+  if (typeof stored === "number" && Number.isFinite(stored)) return { at: stored };
+  const row = record(stored);
+  if (row === null || typeof row.at !== "number") return null;
+  return typeof row.pr === "string" || row.pr === null ? { at: row.at, pr: row.pr } : { at: row.at };
+}
+
+/** Whether a record still holds: nothing new on the thread, and its PR as it was. */
+export function stillPutAway(hidden: PutAway | null, thread: ThreadFacts, pr: PrSummary | null): boolean {
+  if (hidden === null || hidden.at < thread.latestAttentionAt) return false;
+  return hidden.pr === undefined || hidden.pr === prKey(pr);
 }
 
 /**
@@ -589,9 +627,7 @@ export function cardFor(input: ThreadInputs): Card | null {
 
   const blocked = input.asks.length > 0;
   if (!blocked && isBusy(thread.status)) return null;
-  if (!blocked && input.hiddenAt !== null && input.hiddenAt >= thread.latestAttentionAt) {
-    return null;
-  }
+  const putAway = !blocked && stillPutAway(input.hidden, thread, input.pr);
 
   const action = input.pr === null ? null : prAction(input.pr);
   const pr = input.pr !== null && action !== null ? { ...input.pr, action } : null;
@@ -641,6 +677,8 @@ export function cardFor(input: ThreadInputs): Card | null {
       pr !== null && input.review !== null && input.review.prNumber === pr.number
         ? input.review.threadId
         : null,
+    putAway,
+    prKey: prKey(input.pr),
     workers: [],
   };
 }
@@ -750,6 +788,8 @@ export function combineFamilies(cards: readonly Card[], threads: readonly Thread
       unread: false,
       status: root.status,
       reviewThreadId: null,
+      putAway: ranked.every((worker) => worker.putAway),
+      prKey: null,
       workers: ranked,
     });
   }
