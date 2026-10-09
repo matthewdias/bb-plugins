@@ -2033,11 +2033,13 @@ export default async function plugin(bb: BbPluginApi) {
   /**
    * Send a message into this thread as the user, the way pressing Enter would.
    *
-   * `auto` starts a turn on an idle thread and queues behind a busy one. The
-   * card only offers buttons on an idle thread, but a turn can begin between
-   * the render and the click, and naming a mode that could not cope with that
-   * would be trusting the gap. Shared by every button that sends: a next step,
-   * "Do" on the top follow-up, and Suggest.
+   * `queue-if-active` starts a turn on an idle thread and queues behind a busy
+   * one. Not `auto`, which despite the name steers: it puts the message into
+   * the running turn. The card only offers buttons on an idle thread, but a
+   * turn can begin between the render and the click, and the Follow Up page's
+   * "Queue a message" is pressed on a thread that is running by definition.
+   * Shared by every button that sends: a next step, "Do" on the top
+   * follow-up, Suggest, and the page's replies.
    */
   async function sendAsUser(
     threadId: string,
@@ -2045,7 +2047,7 @@ export default async function plugin(bb: BbPluginApi) {
   ): Promise<"sent" | "queued"> {
     const result = await bb.sdk.threads.send({
       threadId,
-      mode: "auto",
+      mode: "queue-if-active",
       input: input.map((part) => ({
         type: "text" as const,
         text: part.text,

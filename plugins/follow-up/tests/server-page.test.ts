@@ -573,3 +573,11 @@ test("page: the sidebar's summary reads follow-ups only for threads where they c
   const finished = page.cards.find((c: any) => c.threadId === "thr_unread");
   assert.deepEqual(finished?.followUps.map((r: any) => r.text), ["Row on thr_unread"], "a card still lists its rows");
 });
+
+test("page: a message queued on a running thread waits for the turn instead of steering it", async () => {
+  const { call, calls, harness } = await host({ threads: [threadRow("thr_busy", { status: "active" })] });
+  harness.sdk.stub("threads.send", () => ({ ok: true, delivery: "queued" }));
+  const result = await call("page_reply", { threadId: "thr_busy", text: "Then run the e2e suite." });
+  assert.equal(result.outcome, "queued");
+  assert.equal(calls("threads.send")[0]?.mode, "queue-if-active", "auto would steer the running turn");
+});

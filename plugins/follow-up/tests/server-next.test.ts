@@ -98,7 +98,7 @@ test("next: taking a step sends exactly the button's text as the user's message"
   assert.deepEqual(sent(), [
     {
       threadId: THREAD,
-      mode: "auto",
+      mode: "queue-if-active",
       // The step and nothing else — no hidden prompt, no agent-only part.
       input: [{ type: "text", text: "Add a test for the empty export", mentions: [] }],
     },
@@ -203,7 +203,7 @@ test("next: Do hands the row over — one typed line, the record agent-only — 
   const result = await call("followups_next_do", { threadId: THREAD, id: added.id });
   assert.equal(result.outcome, "sent");
   const [message] = sent();
-  assert.equal(message.mode, "auto");
+  assert.equal(message.mode, "queue-if-active");
   assert.deepEqual(message.input[0], {
     type: "text",
     text: 'Pick up the follow-up "Tidy the loader".',
