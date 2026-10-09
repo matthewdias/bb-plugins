@@ -615,3 +615,87 @@ test("page: a message queued on a running thread waits for the turn instead of s
   assert.equal(result.outcome, "queued");
   assert.equal(calls("threads.send")[0]?.mode, "queue-if-active", "auto would steer the running turn");
 });
+
+// --- approvals in place ------------------------------------------------------
+
+const approvalInteraction = (id: string, subject: Row, extra: Row = {}): Row => ({
+  id,
+  status: "pending",
+  createdAt: 40,
+  payload: { kind: "approval", availableDecisions: ["allow_once", "allow_for_session", "deny"], reason: null, subject, ...extra },
+});
+
+const grant = { fileSystem: { read: ["/repo"], write: ["/repo"] }, network: { enabled: true } };
+
+test("page: an approval is answered exactly as bb's card would answer it", async () => {
+  const { call, calls } = await host({
+    threads: [threadRow("thr_cmd", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_cmd: [approvalInteraction("int_c", { kind: "command", itemId: "x", command: "git push", cwd: "/repo", actions: [], sessionGrant: grant })] },
+  });
+  const page = await call("page_snapshot");
+  assert.deepEqual([page.cards[0].lead, page.cards[0].asks[0].detail.command], ["approval", "git push"]);
+  const result = await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision: "allow_for_session" });
+  assert.deepEqual(result, { outcome: "answered", noted: null });
+  assert.deepEqual(calls("threads.interactions.resolve")[0], {
+    threadId: "thr_cmd",
+    interactionId: "int_c",
+    resolution: { decision: "allow_for_session", grantedPermissions: grant },
+  });
+});
+
+test("page: an approval no longer pending is stale, and a choice it doesn't offer is refused", async () => {
+  const { call, calls, w } = await host({
+    threads: [threadRow("thr_cmd", { hasPendingInteraction: true })],
+    interactions: { thr_cmd: [approvalInteraction("int_c", { kind: "plan", itemId: "x", plan: "## P", planFilePath: null }, { availableDecisions: ["allow_once", "deny"] })] },
+  });
+  const refused = await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision: "allow_for_session" });
+  assert.equal(refused.outcome, "refused");
+  w.interactions.thr_cmd = [{ ...approvalInteraction("int_c", { kind: "plan", itemId: "x", plan: "## P", planFilePath: null }), status: "resolved" }];
+  const stale = await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision: "allow_once" });
+  assert.equal(stale.outcome, "stale");
+  assert.equal(calls("threads.interactions.resolve").length, 0);
+});
+
+test("page: Keep planning denies the plan, then steers the note into the turn", async () => {
+  const { call, calls, harness } = await host({
+    threads: [threadRow("thr_plan", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_plan: [approvalInteraction("int_p", { kind: "plan", itemId: "x", plan: "## P", planFilePath: null }, { availableDecisions: ["allow_once", "deny"] })] },
+  });
+  const order: string[] = [];
+  harness.sdk.stub("threads.interactions.resolve", () => {
+    order.push("resolve");
+    return {};
+  });
+  harness.sdk.stub("threads.send", () => {
+    order.push("send");
+    return { ok: true, delivery: "steered" };
+  });
+  const result = await call("page_approve", { threadId: "thr_plan", interactionId: "int_p", decision: "deny", note: "Split #183 in two." });
+  assert.deepEqual(result, { outcome: "answered", noted: "sent" });
+  assert.deepEqual(order, ["resolve", "send"], "the note follows the deny");
+  const sent = calls("threads.send")[0];
+  assert.equal(sent?.mode, "auto", "steer the live turn, else start one");
+  assert.equal((sent?.input as Row[])[0]?.text, "Split #183 in two.");
+});
+
+test("page: a note sent with an approval that isn't Keep planning is not sent", async () => {
+  const { call, calls } = await host({
+    threads: [threadRow("thr_plan", { hasPendingInteraction: true })],
+    interactions: { thr_plan: [approvalInteraction("int_p", { kind: "plan", itemId: "x", plan: "## P", planFilePath: null }, { availableDecisions: ["allow_once", "deny"] })] },
+  });
+  const result = await call("page_approve", { threadId: "thr_plan", interactionId: "int_p", decision: "allow_once", note: "ignored" });
+  assert.deepEqual(result, { outcome: "answered", noted: null });
+  assert.equal(calls("threads.send").length, 0);
+});
+
+test("page: a file change's approval carries its diff from the thread's events", async () => {
+  const { call } = await host({
+    threads: [threadRow("thr_edit", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_edit: [approvalInteraction("int_f", { kind: "file_change", itemId: "it_7", writeScope: "/repo", sessionGrant: null })] },
+    events: {
+      thr_edit: [{ type: "item/started", data: { item: { id: "it_7", type: "fileChange", changes: [{ path: "/repo/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }] } } }],
+    },
+  });
+  const page = await call("page_snapshot");
+  assert.deepEqual(page.cards[0].asks[0].detail.files, [{ path: "/repo/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false }]);
+});

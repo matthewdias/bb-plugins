@@ -106,13 +106,16 @@ import {
 } from "./lib/wrap-up.ts";
 import {
   activityLabel,
+  approvalResolution,
   asksFor,
   capFinished,
   cardFor,
   cardSchema,
   combineFamilies,
   countOf,
+  DECISIONS,
   familyOf,
+  fileChangesFor,
   foldRunning,
   groupFollowUps,
   inMotion,
@@ -777,6 +780,29 @@ export const rpcContract = defineRpcContract({
     output: z.object({ outcome: z.enum(["answered", "stale", "failed"]) }).strict(),
   },
   /**
+   * Answer an approval from its card, exactly as bb's own approval card does
+   * (approvalResolution). Refused as `stale` once it is no longer pending, and
+   * as `refused` for a choice the approval does not offer. `note` goes with
+   * "Keep planning" on a plan: the plan is denied, then the note is steered
+   * into the live turn, or starts one, as typing it in the composer would.
+   */
+  page_approve: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        interactionId: z.string().min(1).max(200),
+        decision: z.enum(DECISIONS),
+        note: z.string().trim().min(1).max(REPLY_MAX).optional(),
+      })
+      .strict(),
+    output: z
+      .object({
+        outcome: z.enum(["answered", "stale", "refused", "failed"]),
+        noted: z.enum(["sent", "queued", "failed"]).nullable(),
+      })
+      .strict(),
+  },
+  /**
    * Send a message into a thread as you: a card's reply box, an edited next
    * step, or a pull request's prefilled message. The text is exactly what the
    * box showed when you pressed send.
@@ -1044,6 +1070,8 @@ const PR_TTL_MS = 5 * 60 * 1000;
 const PR_CONCURRENCY = 4;
 /** Events read to say what a running thread is doing. */
 const ACTIVITY_EVENTS = "60";
+/** Started items read to find a file change an approval is about. */
+const FILE_CHANGE_EVENTS = "200";
 
 /** The thread changes that can move a card. Everything else — every streamed delta — cannot. */
 const PAGE_RELEVANT_CHANGES: ReadonlySet<string> = new Set([
@@ -2057,10 +2085,11 @@ export default async function plugin(bb: BbPluginApi) {
   async function sendAsUser(
     threadId: string,
     input: Array<{ text: string; agentOnly?: boolean }>,
+    mode: "queue-if-active" | "auto" = "queue-if-active",
   ): Promise<"sent" | "queued"> {
     const result = await bb.sdk.threads.send({
       threadId,
-      mode: "queue-if-active",
+      mode,
       input: input.map((part) => ({
         type: "text" as const,
         text: part.text,
@@ -3611,14 +3640,38 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   async function readPendingAsks(threadId: string): Promise<PendingAsk[]> {
+    let asks: PendingAsk[];
     try {
       const list: unknown = await bb.sdk.threads.interactions.list({ threadId });
-      return (Array.isArray(list) ? list : [])
+      asks = (Array.isArray(list) ? list : [])
         .map(pendingAsk)
         .filter((ask): ask is PendingAsk => ask !== null);
     } catch (error) {
       bb.log.warn(`page: could not read ${threadId}'s pending asks: ${String(error)}`);
       return [];
+    }
+    // A file change's approval names only the item; its diff is on the
+    // thread's item events, so the card can show what it would approve.
+    const changes = asks.filter(
+      (ask) => ask.kind === "approval" && ask.detail.kind === "file_change" && ask.detail.itemId !== "",
+    );
+    if (changes.length === 0) return asks;
+    try {
+      const events: unknown = await bb.sdk.threads.events.list({
+        threadId,
+        order: "desc",
+        limit: FILE_CHANGE_EVENTS,
+        types: ["item/started"],
+      });
+      const list = Array.isArray(events) ? events : [];
+      return asks.map((ask) =>
+        ask.kind === "approval" && ask.detail.kind === "file_change"
+          ? { ...ask, detail: { ...ask.detail, files: fileChangesFor(ask.detail.itemId, list) } }
+          : ask,
+      );
+    } catch (error) {
+      bb.log.warn(`page: could not read ${threadId}'s file changes: ${String(error)}`);
+      return asks;
     }
   }
 
@@ -4377,6 +4430,42 @@ export default async function plugin(bb: BbPluginApi) {
       } catch (error) {
         bb.log.error(`page: answer failed on ${threadId}: ${String(error)}`);
         return { outcome: "failed" as const };
+      }
+    },
+    page_approve: async ({ threadId, interactionId, decision, note }) => {
+      let interaction: unknown;
+      try {
+        interaction = await bb.sdk.threads.interactions.get({ threadId, interactionId });
+      } catch (error) {
+        bb.log.error(`page: could not read ${interactionId} on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const, noted: null };
+      }
+      const ask = pendingAsk(interaction);
+      if (ask === null || ask.kind !== "approval" || ask.interactionId !== interactionId) {
+        return { outcome: "stale" as const, noted: null };
+      }
+      if (!ask.decisions.includes(decision)) return { outcome: "refused" as const, noted: null };
+      try {
+        await bb.sdk.threads.interactions.resolve({
+          threadId,
+          interactionId,
+          resolution: approvalResolution(interaction, decision) as never,
+        });
+      } catch (error) {
+        bb.log.error(`page: approval ${interactionId} failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const, noted: null };
+      }
+      bb.log.info(`page: ${decision} on ${interactionId} (${ask.subject}) on ${threadId}`);
+      pageChanged();
+      // Only Keep planning takes a note: the plan's agent revises with it.
+      if (note === undefined || ask.subject !== "plan" || decision !== "deny") {
+        return { outcome: "answered" as const, noted: null };
+      }
+      try {
+        return { outcome: "answered" as const, noted: await sendAsUser(threadId, [{ text: note }], "auto") };
+      } catch (error) {
+        bb.log.error(`page: kept planning on ${threadId} but the note did not go: ${String(error)}`);
+        return { outcome: "answered" as const, noted: "failed" as const };
       }
     },
     page_reply: async ({ threadId, text }) => {
