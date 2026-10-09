@@ -75,68 +75,82 @@ function RunningRow({ row, now }: { row: Running; now: number }) {
   // A family row for a parent that is not running itself: its workers are.
   const selfRunning = isBusy(row.status);
   return (
-    <li className="border-t border-border py-2 first:border-t-0">
-      <div className="flex items-start gap-2">
-        <span
-          aria-hidden
-          className={cn(
-            "mt-1.5 size-2 shrink-0 rounded-full",
-            row.status === "pending" ? "bg-muted-foreground/50" : "animate-pulse bg-emerald-500 motion-reduce:animate-none",
-          )}
-        />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <div className="flex items-baseline gap-2">
-            <button
-              type="button"
-              className="min-w-0 truncate text-left text-[13px] font-medium text-foreground hover:underline"
-              onClick={() => navigate.toThread(row.threadId)}
-            >
-              {row.title}
-            </button>
-            {row.startedAt !== null && (
-              <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">{ago(row.startedAt, now)}</span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-            <span className="min-w-0 break-words">{row.now}</span>
-            {total > 0 && (
-              <span>
-                · {row.openFollowUps} of {total} follow-ups open
-              </span>
-            )}
-            {selfRunning && row.workers.length > 0 && (
-              <span>· {row.workers.length === 1 ? "1 worker running" : `${row.workers.length} workers running`}</span>
-            )}
-          </div>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 shrink-0 text-muted-foreground"
-          aria-expanded={open}
-          aria-label={open ? "Hide actions" : "Show actions"}
-          onClick={() => setOpen(!open)}
+    <li className="border-t border-border py-1 first:border-t-0">
+      <div className="flex items-center gap-1">
+        {/* The whole row opens the thread: a phone has no room to aim at a
+            truncated title, and the activity line is what you tapped for. */}
+        <button
+          type="button"
+          aria-label={`Open ${row.title}`}
+          onClick={() => navigate.toThread(row.threadId)}
+          className="group flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
-          <Icon name={open ? "ChevronUp" : "ChevronDown"} className="size-3.5" />
-        </Button>
+          <span
+            aria-hidden
+            className={cn(
+              "mt-1.5 size-2 shrink-0 rounded-full",
+              row.status === "pending" || !selfRunning
+                ? "bg-muted-foreground/50"
+                : "animate-pulse bg-emerald-500 motion-reduce:animate-none",
+            )}
+          />
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex items-baseline gap-2">
+              <span className="min-w-0 truncate text-[13px] font-medium text-foreground">{row.title}</span>
+              {row.startedAt !== null && (
+                <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">{ago(row.startedAt, now)}</span>
+              )}
+            </span>
+            <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+              <span className="min-w-0 break-words">{row.now}</span>
+              {total > 0 && (
+                <span>
+                  · {row.openFollowUps} of {total} follow-ups open
+                </span>
+              )}
+              {selfRunning && row.workers.length > 0 && (
+                <span>· {row.workers.length === 1 ? "1 worker running" : `${row.workers.length} workers running`}</span>
+              )}
+            </span>
+          </span>
+          <Icon
+            name="ArrowUpRight"
+            aria-hidden
+            className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          />
+        </button>
+        {selfRunning && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0 text-muted-foreground"
+            aria-expanded={open}
+            aria-label={open ? "Hide actions" : "Show actions"}
+            onClick={() => setOpen(!open)}
+          >
+            <Icon name="MoreHorizontal" className="size-4" />
+          </Button>
+        )}
       </div>
-      {open && row.workers.length > 0 && (
-        <ul aria-label="Workers running" className="mt-2 flex flex-col gap-1 border-l-2 border-border pl-3">
+      {row.workers.length > 0 && (
+        <ul aria-label="Workers running" className="ml-3 flex flex-col border-l-2 border-border pl-1">
           {row.workers.map((worker) => (
-            <li key={worker.threadId} className="flex min-w-0 flex-col text-xs">
-              <span className="flex items-baseline gap-2">
-                <button
-                  type="button"
-                  className="min-w-0 truncate text-left font-medium text-foreground hover:underline"
-                  onClick={() => navigate.toThread(worker.threadId)}
-                >
-                  {worker.title}
-                </button>
-                {worker.startedAt !== null && (
-                  <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">{ago(worker.startedAt, now)}</span>
-                )}
-              </span>
-              <span className="break-words text-muted-foreground">{worker.now}</span>
+            <li key={worker.threadId}>
+              <button
+                type="button"
+                aria-label={`Open ${worker.title}`}
+                onClick={() => navigate.toThread(worker.threadId)}
+                className="group flex min-h-10 w-full min-w-0 flex-col gap-0.5 rounded-md px-1.5 py-1 text-left text-xs hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <span className="flex w-full items-baseline gap-2">
+                  <span className="size-1.5 shrink-0 self-center rounded-full bg-emerald-500" aria-hidden />
+                  <span className="min-w-0 truncate font-medium text-foreground">{worker.title}</span>
+                  {worker.startedAt !== null && (
+                    <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">{ago(worker.startedAt, now)}</span>
+                  )}
+                </span>
+                <span className="break-words pl-3.5 text-muted-foreground">{worker.now}</span>
+              </button>
             </li>
           ))}
         </ul>

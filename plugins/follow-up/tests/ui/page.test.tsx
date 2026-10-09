@@ -372,9 +372,10 @@ describe("families", () => {
     });
     const motion = await slot.findByRole("region", { name: "In motion" });
     expect(within(motion).getByText("2 workers running")).toBeTruthy();
-    fireEvent.click(within(motion).getByRole("button", { name: "Show actions" }));
-    expect(within(motion).getByText("Editing app.tsx")).toBeTruthy();
-    expect(within(motion).queryByRole("button", { name: /Stop/ })).toBeNull();
+    expect(within(motion).getByText("Editing app.tsx"), "workers show without expanding").toBeTruthy();
+    expect(within(motion).queryByRole("button", { name: "Show actions" }), "an idle parent has nothing to stop").toBeNull();
+    fireEvent.click(within(motion).getByRole("button", { name: "Open #15 panel" }));
+    expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "thr_b" }]);
   });
 });
 
@@ -440,6 +441,29 @@ describe("layout", () => {
     expect(cards?.contains(slot.getByRole("region", { name: "Finished" }))).toBe(true);
     // Nothing above them scrolls, or the two would scroll together.
     expect(cards?.parentElement?.parentElement?.className ?? "").not.toMatch(/\boverflow-y-auto\b/);
+  });
+});
+
+describe("in motion", () => {
+  const running = {
+    threadId: "thr_run", title: "Updates deck", projectId: "prj_1", status: "active", startedAt: NOW - 60_000,
+    now: "Running npm test", openFollowUps: 0, doneFollowUps: 0, workers: [],
+  };
+
+  it("opens the thread from anywhere on its row", async () => {
+    const slot = renderPage({ running: [running] });
+    const motion = await slot.findByRole("region", { name: "In motion" });
+    fireEvent.click(within(motion).getByText("Running npm test"));
+    expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "thr_run" }]);
+  });
+
+  it("keeps Queue and Stop behind their own button, which opens nothing", async () => {
+    const slot = renderPage({ running: [running] });
+    const motion = await slot.findByRole("region", { name: "In motion" });
+    fireEvent.click(within(motion).getByRole("button", { name: "Show actions" }));
+    expect(within(motion).getByRole("button", { name: "Queue a message" })).toBeTruthy();
+    expect(within(motion).getByRole("button", { name: /Stop/ })).toBeTruthy();
+    expect(slot.inspection.navigateCalls).toEqual([]);
   });
 });
 
