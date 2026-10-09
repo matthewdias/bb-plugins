@@ -55,6 +55,16 @@ archived, once everything sent somewhere has landed. If anything didn't, the
 thread stays open, saying why. The Next row offers it when the agent says the
 goal is met.
 
+The Follow Up page, from its own item in bb's sidebar, lists every thread
+that needs you, one card per thread, and lets you answer it there: a
+question's options, the agent's next steps, Wrap up, a retry, a reply. A pull
+request one of your threads opened can be merged, sent back to its thread to
+fix or rebase, or given a review thread. Every message the page sends for you
+is shown first, exactly as it will go. Beside the cards are the threads still
+working, with what each is doing, and every open follow-up by project,
+archived threads included. The sidebar item counts the threads that want
+something from you, and the new-thread page shows the first three.
+
 ## How it works
 
 There is no background model call. Capture happens inside a turn the agent is
