@@ -104,7 +104,7 @@ function renderPage({
     followups_next_take: async () => ({ outcome: "sent" }),
     ...handlers,
   };
-  return renderSlot({ component: FollowUpPage }, {}, { rpc: rpc as never });
+  return renderSlot({ component: FollowUpPage }, { subPath: "" }, { rpc: rpc as never });
 }
 
 type Slot = ReturnType<typeof renderPage>;
