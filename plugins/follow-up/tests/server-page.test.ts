@@ -76,9 +76,12 @@ async function host(world: Partial<World> = {}) {
   };
   const { bb, harness } = createFakePluginHost();
   let onChange: ((event: { changes: string[] }) => void) | null = null;
+  let unsubscribed = 0;
   harness.sdk.stub("subscribe", (args: { callback: (event: { changes: string[] }) => void }) => {
     onChange = args.callback;
-    return () => {};
+    return () => {
+      unsubscribed += 1;
+    };
   });
   harness.sdk.stub("threads.list", () => w.threads);
   harness.sdk.stub("threads.get", (args: { threadId: string }) => {
@@ -123,7 +126,7 @@ async function host(world: Partial<World> = {}) {
     assert.ok(onChange !== null, "the server subscribed to thread changes");
     onChange({ changes });
   };
-  return { w, harness, call, calls, signals, record, change };
+  return { w, harness, call, calls, signals, record, change, unsubscribed: () => unsubscribed };
 }
 
 /** Long enough for the page signal's debounce and any background lookup. */
@@ -416,4 +419,22 @@ test("page: workers fold into one family card, and archiving takes only merged w
   });
   assert.deepEqual(result, { archived: 2, skipped: 2 }, "not the unmerged worker, not another family's thread");
   assert.deepEqual(calls("threads.archive").map((args) => args.threadId).sort(), ["thr_w11", "thr_w12"]);
+});
+
+test("page: a reload stops the change feed and the pending signal, so nothing touches a stale handle", async () => {
+  const errors: unknown[] = [];
+  const onError = (error: unknown) => errors.push(error);
+  process.on("uncaughtException", onError);
+  try {
+    const { harness, change, signals, unsubscribed } = await host();
+    change("interactions-changed"); // a signal is pending when the reload lands
+    await harness.lifecycle.dispose();
+    assert.equal(unsubscribed(), 1, "the change feed is let go of");
+    change("status-changed"); // a late delivery from the old subscription
+    await settle();
+    assert.deepEqual(errors, [], "no uncaught PluginContextStaleError from a timer");
+    assert.equal(signals(), 0);
+  } finally {
+    process.off("uncaughtException", onError);
+  }
 });

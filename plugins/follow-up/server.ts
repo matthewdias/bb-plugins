@@ -3556,15 +3556,23 @@ export default async function plugin(bb: BbPluginApi) {
     { title: string; projectId: string; updatedAt: number } | null
   >();
   let pageTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Set when bb reloads or disables this plugin. After that every `bb` handle
+   * throws, and a timer, a late change from the feed or a lookup finishing in
+   * the background must not reach one: thrown from a timer, it is an uncaught
+   * exception in bb's server.
+   */
+  let disposed = false;
 
   /**
    * Tell open pages and the sidebar count to refetch. A burst — a turn ending
    * moves a thread's status, attention and read mark at once — is one refetch.
    */
   function pageChanged(): void {
-    if (pageTimer !== null) return;
+    if (disposed || pageTimer !== null) return;
     pageTimer = setTimeout(() => {
       pageTimer = null;
+      if (disposed) return;
       bb.realtime.publish(PAGE_CHANGED, {});
     }, PAGE_SIGNAL_MS);
   }
@@ -3620,7 +3628,7 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   function pumpPullRequests(): void {
-    while (prActive < PR_CONCURRENCY && prQueue.length > 0) {
+    while (!disposed && prActive < PR_CONCURRENCY && prQueue.length > 0) {
       const environmentId = prQueue.shift() as string;
       prActive += 1;
       void (async () => {
@@ -3633,7 +3641,9 @@ export default async function plugin(bb: BbPluginApi) {
           // Keep what was known, and wait the full interval before asking again:
           // a git host having a bad minute is not worth a lookup per refetch.
           pullRequests.set(environmentId, { checkedAt: Date.now(), pr: before?.pr ?? null });
-          bb.log.warn(`page: pull request lookup failed for ${environmentId}: ${String(error)}`);
+          // A lookup that outlived a reload fails on the stale handle; the
+          // log is behind the same handle, so it says nothing.
+          if (!disposed) bb.log.warn(`page: pull request lookup failed for ${environmentId}: ${String(error)}`);
         } finally {
           prQueued.delete(environmentId);
           prActive -= 1;
@@ -3916,8 +3926,9 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Host changes that can move a card. The subscription is the server's own,
   // so one signal reaches every open page however many there are.
+  let unsubscribe: (() => void) | null = null;
   try {
-    bb.sdk.subscribe({
+    unsubscribe = bb.sdk.subscribe({
       event: "thread:changed",
       callback: (event) => {
         if (event.changes.some((change) => PAGE_RELEVANT_CHANGES.has(change))) pageChanged();
@@ -3928,6 +3939,21 @@ export default async function plugin(bb: BbPluginApi) {
     // it just refreshes when this plugin's own events fire.
     bb.log.warn(`page: no thread change feed, so pages refresh on Follow Up's own events: ${String(error)}`);
   }
+  // The subscription is the host's, not this instance's: left alone it keeps
+  // delivering to a reloaded plugin, whose timer then publishes on a stale
+  // handle. Let go of it, and of the pending signal and lookups, on dispose.
+  bb.onDispose(() => {
+    disposed = true;
+    if (pageTimer !== null) clearTimeout(pageTimer);
+    pageTimer = null;
+    prQueue.length = 0;
+    prQueued.clear();
+    try {
+      unsubscribe?.();
+    } catch {
+      // Already gone with the host.
+    }
+  });
   bb.events.on("interaction.pending", () => pageChanged());
   bb.events.on("thread.archived", () => pageChanged());
   bb.events.on("thread.unarchived", ({ thread }) => {
