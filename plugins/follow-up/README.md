@@ -156,6 +156,107 @@ is removed, the whole wrap-up is refused and you're asked to look again. A
 row nobody decided about is never carried out. Wrap up waits while the agent
 is working.
 
+**The Follow Up page.** Every thread that needs you, in one place, answered
+where it is. Open it from the *Follow Up* item in bb's sidebar, whose count is
+how many threads want something from you. bb first puts a new item under
+More, so pin it once with *Customize sidebar*. bb doesn't show sidebar counts
+at phone width, so there the page shows the count itself.
+
+There is one card per thread, not one per ask. A thread that offered next steps
+and has a pull request ready is one card with both. Its most urgent ask decides
+which of three tiers it sits in:
+
+- **Blocked**: the agent is stopped mid-turn on a question, an approval or a
+  form. Longest-waiting first. A question is answered right on the card: its
+  options, several at once when it allows that, an *Other* field when it takes
+  free text, and every question of a multi-question form, sent together. If it
+  was answered somewhere else in the meantime, the card says so and sends
+  nothing. Approvals and plugin forms show what they ask and open the thread.
+- **Your turn**: the turn ended with something for you, newest first. The
+  agent's next steps work the way the Next row's do: press to send, ⌥-click to
+  edit first, or keep one for later. Wrap up is the same sheet as in the
+  composer. A reply ending on the thread's Thread Page link opens the page. A
+  failed thread has *Retry*, bb's own. A pull request one of your threads
+  opened shows its checks and offers what it needs (below).
+- **Finished**: the turn ended without asking anything and you haven't read
+  it. The end of the reply, with *Reply…*, *Mark read* and *Archive*. Newest
+  first, up to 20; beyond that, the sidebar's unread dots have them.
+
+A thread's workers, the child threads it spawned (at any depth), fold into
+its card as a **Workers** list, so an orchestrator and the six workers it ran
+are one card rather than seven. Each line says what that worker wants and opens
+into its own card's controls. A parent with nothing of its own to ask still
+gets a card for its workers, and the card sits in the most urgent tier any of
+them is in, so the count counts the family once. A blocked worker keeps a card
+of its own, labelled with its parent, since a stopped agent shouldn't be buried
+in a list. A worker whose parent is archived stands alone. *Archive the N
+merged workers* archives, in one press, the workers the card lists whose pull
+request merged, and leaves any that moved on in the meantime.
+
+Wherever the page offers to close a thread out (*Merge*, *Archive*,
+*Archive the N merged workers*), it lists that thread's open follow-ups right
+there, each with its own buttons, so you can hand one off, file it or close it
+before the thread goes. Merging doesn't close them, and archiving leaves them
+open, so beside *Archive* there's also *Wrap up instead*, which decides each
+row first and then archives.
+
+*Not now* puts a card away until something new happens on its thread or its
+pull request changes (checks fail, a review lands, it merges). A family's card
+puts the parent and its workers away together. The toast right after has
+*Undo*, and put-away cards wait in a **Put away** fold at the bottom of the
+cards, out of the count, each with *Bring back*. A blocked card has
+no *Not now*: the agent is stopped, and putting it off would leave a thread
+nobody comes back to.
+
+A pull request gets a card when bb's roll-up of its checks, review and
+mergeability says it wants you: ready to merge, review requested, changes
+requested, checks failed, conflicts, or merged. Only pull requests on a
+worktree count, since a shared checkout's branch belongs to no one thread, and
+the card goes to the thread that opened the worktree, so a review thread or a
+hand-off started there later never takes it. It shows once that thread is idle,
+since a working agent is still pushing. They're looked up in the background, four at a time, cached for five
+minutes and looked up again when a turn ends, so the page never waits on
+GitHub.
+
+- *Merge* uses the project's merge method. The first merge in a project asks
+  which method it uses, and every later merge there uses the same one. The
+  pull request is checked again when you press, so one that stopped being
+  ready in between is refused rather than merged. Once it merges, the thread
+  that opened it is told, since its agent is often waiting to hear: the words
+  ("I merged PR #44.") are beside the button, with a box to untick. A pull
+  request merged somewhere else gets *Tell the thread it merged* instead.
+- *Ask the thread to fix*, *Ask the thread to rebase* and *Request changes…*
+  send a message to the thread that opened the pull request. A box shows the
+  message first, prefilled with the failing checks or the base branch, and
+  what's in the box when you press send is exactly what goes.
+- *Start a review thread* opens a new thread in the same worktree with a
+  review prompt naming the pull request, also shown in a box first. It is a
+  child of the author's thread: it reports back there, sits in the author's
+  card as one of its workers, and findings it records as follow-ups carry up
+  to the author. Archiving the author's thread archives the review with it.
+  Once it starts, the card links to it.
+
+Beside the cards, **In motion** lists what is running now: each thread, what
+it's doing ("Running npm test", "Editing app.tsx"), how long the turn has been
+going, and how many of its follow-ups are open. Expanding a row offers *Queue a
+message*, which runs after the current turn, and *Stop*, which asks once more
+before it stops anything. Running workers fold under their parent's row, which
+shows how many are running even when the parent itself isn't. A thread that has sat waiting to start for a day is
+left out. **Follow-ups** lists every open row on every thread, by project.
+Archived threads are included, because archiving a thread is not deciding
+about its follow-ups. Each row leads with *Do*, or with *Hand off* for an
+out-of-scope row or one on an archived thread, and its ⋯ menu files it, marks
+it done or dismisses it.
+
+A Thread Page or GitHub link opens wherever your bb browser preference sends
+links. On a wide window the cards and the two lanes scroll separately. On a phone,
+the cards, In motion and Follow-ups are three tabs. The page
+updates itself whenever a question arrives, a turn ends, a thread is read or
+archived, or a follow-up changes, without polling.
+
+The new-thread page gets a **Needs you** strip: the first three threads that
+need you, each a link, and a link to the rest.
+
 **The empty state.** When the list empties, the banner offers three things:
 *suggest what's next*, start a new thread in the same checkout, or archive this
 one. The first is a real agent turn rather than anything the plugin computes —

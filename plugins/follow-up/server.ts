@@ -104,6 +104,40 @@ import {
   type EnvironmentShape,
   type WrapUpRecord,
 } from "./lib/wrap-up.ts";
+import {
+  activityLabel,
+  asksFor,
+  capFinished,
+  cardFor,
+  cardSchema,
+  combineFamilies,
+  countOf,
+  familyOf,
+  foldRunning,
+  groupFollowUps,
+  inMotion,
+  isBusy,
+  isUnread,
+  laneGroupSchema,
+  MERGE_METHODS,
+  PAGE_CHANGED,
+  parsePutAway,
+  pendingAsk,
+  prAction,
+  prOwners,
+  prSummary,
+  rank,
+  REPLY_MAX,
+  runningSchema,
+  STRIP_MAX,
+  threadFacts,
+  type LaneInput,
+  type MergeMethod,
+  type PendingAsk,
+  type PrSummary,
+  type RunningWorker,
+  type ThreadFacts,
+} from "./lib/page.ts";
 
 /** Global, not per-thread: settings have no project or thread scope. */
 const EXECUTION_KEY = "expansion-execution";
@@ -689,6 +723,190 @@ export const rpcContract = defineRpcContract({
       })
       .strict(),
   },
+  /**
+   * Everything the Follow Up page shows, in one round trip: a card for each
+   * thread that wants you, the threads in motion, and every open follow-up.
+   * The rules are lib/page.ts; this only gathers what they read.
+   */
+  page_snapshot: {
+    input: z.object({}).strict(),
+    output: z
+      .object({
+        cards: z.array(cardSchema),
+        /** Cards put away with "Not now", for the Put away fold. */
+        putAway: z.array(cardSchema),
+        moreFinished: z.number().int(),
+        count: z.number().int(),
+        running: z.array(runningSchema),
+        followUps: z.array(laneGroupSchema),
+        /** Project names, so a card can say where its thread lives. */
+        projects: z.array(z.object({ id: z.string(), name: z.string() }).strict()),
+      })
+      .strict(),
+  },
+  /**
+   * The sidebar's count and the new-thread strip's first cards. The same
+   * cards as the page, without the lanes, because the sidebar asks on every
+   * change whether or not the page is open.
+   */
+  page_summary: {
+    input: z.object({}).strict(),
+    output: z.object({ count: z.number().int(), top: z.array(cardSchema) }).strict(),
+  },
+  /**
+   * Answer a thread's question from its card. Refused as `stale` once the
+   * question is no longer pending — answered in the thread, in another window,
+   * or interrupted — so a late press never answers something else.
+   */
+  page_answer: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        interactionId: z.string().min(1).max(200),
+        answers: z.record(
+          z.string().min(1).max(200),
+          z
+            .object({
+              selected: z.array(z.string().max(2000)).max(50),
+              freeText: z.string().max(REPLY_MAX).optional(),
+            })
+            .strict(),
+        ),
+      })
+      .strict(),
+    output: z.object({ outcome: z.enum(["answered", "stale", "failed"]) }).strict(),
+  },
+  /**
+   * Send a message into a thread as you: a card's reply box, an edited next
+   * step, or a pull request's prefilled message. The text is exactly what the
+   * box showed when you pressed send.
+   */
+  page_reply: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        text: z.string().trim().min(1).max(REPLY_MAX),
+      })
+      .strict(),
+    output: z.object({ outcome: z.enum(["sent", "queued", "failed"]) }).strict(),
+  },
+  page_mark_read: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z.object({ outcome: z.enum(["done", "failed"]) }).strict(),
+  },
+  page_archive: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z.object({ outcome: z.enum(["done", "failed"]) }).strict(),
+  },
+  /**
+   * "Not now": put this card away until something new happens on its thread,
+   * or its pull request changes. `at` is the attention mark the card was
+   * showing, so a press that lands after the thread moved on hides nothing
+   * newer than what you saw; `pr` is the PR state it showed (`prKey`).
+   */
+  page_hide: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        at: z.number().int().min(0),
+        pr: z.string().max(200).nullable().optional(),
+      })
+      .strict(),
+    output: z.object({ outcome: z.enum(["done"]) }).strict(),
+  },
+  /** Bring put-away cards back: "Undo" after Not now, and the Put away fold. */
+  page_unhide: {
+    input: z.object({ threadIds: z.array(z.string().min(1).max(200)).min(1).max(100) }).strict(),
+    output: z.object({ outcome: z.enum(["done"]) }).strict(),
+  },
+  /** Re-run a failed turn with bb's own retry. */
+  page_retry: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z.object({ outcome: z.enum(["retrying", "failed"]) }).strict(),
+  },
+  /** Stop a thread that is in motion. */
+  page_stop: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z.object({ outcome: z.enum(["stopped", "failed"]) }).strict(),
+  },
+  /**
+   * Merge the pull request on this thread's worktree. The first merge in a
+   * project has no method yet and answers `needs-method`; the method it is
+   * then called with becomes that project's, and later merges use it.
+   *
+   * `tell` is the message the card showed beside the button, sent to the
+   * thread once the merge lands: an agent that opened a pull request is often
+   * waiting to hear it merged before it goes on. Not sent when the merge does
+   * not happen.
+   */
+  page_pr_merge: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        method: z.enum(MERGE_METHODS).optional(),
+        tell: z.string().trim().min(1).max(REPLY_MAX).optional(),
+      })
+      .strict(),
+    output: z
+      .object({
+        outcome: z.enum(["merged", "needs-method", "not-ready", "failed"]),
+        method: z.enum(MERGE_METHODS).nullable(),
+        message: z.string().nullable(),
+        /** Whether the thread was told, when it was asked to be. */
+        told: z.enum(["sent", "queued", "failed"]).nullable(),
+      })
+      .strict(),
+  },
+  /**
+   * Start a review thread for this thread's pull request, in the same
+   * worktree, with the prompt the card showed you. A child of the author's
+   * thread: the review is the author's delegated work, so it reports back
+   * there, folds into the author's card on the page, and its findings, if
+   * recorded as follow-ups, carry up to the author.
+   */
+  page_pr_review: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        prompt: z.string().trim().min(1).max(REPLY_MAX),
+      })
+      .strict(),
+    output: z
+      .object({
+        outcome: z.enum(["spawned", "failed"]),
+        spawnedThreadId: z.string().nullable(),
+      })
+      .strict(),
+  },
+  /**
+   * "Archive the merged workers" on a family card. Archives only the workers
+   * the card listed that are, still, workers of that family whose pull request
+   * merged — never one the card did not show, and never one that moved on in
+   * between.
+   */
+  page_archive_workers: {
+    input: z
+      .object({
+        parentThreadId: z.string().min(1).max(200),
+        threadIds: z.array(z.string().min(1).max(200)).min(1).max(100),
+      })
+      .strict(),
+    output: z.object({ archived: z.number().int(), skipped: z.number().int() }).strict(),
+  },
+  /**
+   * Hand a follow-up to a new thread in its own thread's checkout, from the
+   * page's follow-ups lane — `bb follow-up handoff` without a skill. The row
+   * is done on its old thread, saying where it went.
+   */
+  page_handoff: {
+    input: z.object({ threadId: z.string().min(1).max(200), id: z.string().min(1).max(64) }).strict(),
+    output: z
+      .object({
+        outcome: z.enum(["spawned", "not-found", "no-environment", "failed"]),
+        spawnedThreadId: z.string().nullable(),
+      })
+      .strict(),
+  },
 });
 
 /**
@@ -808,6 +1026,40 @@ const wrapUpKey = (threadId: string) => `${WRAP_UP_PREFIX}${threadId}`;
 const WRAP_UP_CHANGED = "followups-wrap-up-changed";
 /** Thread statuses with a turn under way, or about to be. */
 const BUSY_STATUSES: ReadonlySet<string> = new Set(["active", "pending", "starting", "stopping"]);
+
+/** How long a burst of host changes is gathered into one page refetch. */
+const PAGE_SIGNAL_MS = 250;
+/** "Not now" on a card: the thread's attention mark when it was pressed. */
+const HIDDEN_PREFIX = "page-hidden:";
+const hiddenKey = (threadId: string) => `${HIDDEN_PREFIX}${threadId}`;
+/** Each project's merge method, asked the first time a card merges there. */
+const MERGE_METHOD_PREFIX = "merge-method:";
+const mergeMethodKey = (projectId: string) => `${MERGE_METHOD_PREFIX}${projectId}`;
+/** The review thread a card started, and for which pull request. */
+const REVIEW_PREFIX = "page-review:";
+const reviewKey = (threadId: string) => `${REVIEW_PREFIX}${threadId}`;
+/** How long a pull request lookup is good for before a page asks again. */
+const PR_TTL_MS = 5 * 60 * 1000;
+/** Pull request lookups at once. 76 worktrees on one host is not unusual. */
+const PR_CONCURRENCY = 4;
+/** Events read to say what a running thread is doing. */
+const ACTIVITY_EVENTS = "60";
+
+/** The thread changes that can move a card. Everything else — every streamed delta — cannot. */
+const PAGE_RELEVANT_CHANGES: ReadonlySet<string> = new Set([
+  "interactions-changed",
+  "read-state-changed",
+  "status-changed",
+  "archived-changed",
+  "thread-created",
+  "thread-deleted",
+  "title-changed",
+  "queue-changed",
+  // Families fold by parent, and a worktree's PR goes to the thread that
+  // opened it: either can move a card without any of the above changing.
+  "parent-changed",
+  "environment-changed",
+]);
 
 const TOOL_INSTRUCTIONS = [
   "When you notice work you are not going to do in this turn — something out of",
@@ -1794,11 +2046,13 @@ export default async function plugin(bb: BbPluginApi) {
   /**
    * Send a message into this thread as the user, the way pressing Enter would.
    *
-   * `auto` starts a turn on an idle thread and queues behind a busy one. The
-   * card only offers buttons on an idle thread, but a turn can begin between
-   * the render and the click, and naming a mode that could not cope with that
-   * would be trusting the gap. Shared by every button that sends: a next step,
-   * "Do" on the top follow-up, and Suggest.
+   * `queue-if-active` starts a turn on an idle thread and queues behind a busy
+   * one. Not `auto`, which despite the name steers: it puts the message into
+   * the running turn. The card only offers buttons on an idle thread, but a
+   * turn can begin between the render and the click, and the Follow Up page's
+   * "Queue a message" is pressed on a thread that is running by definition.
+   * Shared by every button that sends: a next step, "Do" on the top
+   * follow-up, Suggest, and the page's replies.
    */
   async function sendAsUser(
     threadId: string,
@@ -1806,7 +2060,7 @@ export default async function plugin(bb: BbPluginApi) {
   ): Promise<"sent" | "queued"> {
     const result = await bb.sdk.threads.send({
       threadId,
-      mode: "auto",
+      mode: "queue-if-active",
       input: input.map((part) => ({
         type: "text" as const,
         text: part.text,
@@ -3300,6 +3554,460 @@ export default async function plugin(bb: BbPluginApi) {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // The Follow Up page: every thread that needs you, in one list.
+  //
+  // lib/page.ts holds the rules. This gathers the facts they read — one
+  // thread list, the asks of blocked threads only, this plugin's own storage,
+  // last replies and pull requests — and carries out what a card asks for.
+
+  /** Last replies, good until the thread's attention mark moves. */
+  const replies = new Map<string, { at: number; reply: string | null }>();
+  /** Each worktree's pull request, and when it was last looked up. */
+  const pullRequests = new Map<string, { checkedAt: number; pr: PrSummary | null }>();
+  const prQueue: string[] = [];
+  const prQueued = new Set<string>();
+  let prActive = 0;
+  /**
+   * Archived threads that still hold open follow-ups. Looked up once each:
+   * an archived thread's title and project do not change while it stays
+   * archived, and unarchiving it puts it back in the thread list.
+   */
+  const archivedThreads = new Map<
+    string,
+    { title: string; projectId: string; updatedAt: number } | null
+  >();
+  let pageTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Set when bb reloads or disables this plugin. After that every `bb` handle
+   * throws, and a timer, a late change from the feed or a lookup finishing in
+   * the background must not reach one: thrown from a timer, it is an uncaught
+   * exception in bb's server.
+   */
+  let disposed = false;
+
+  /**
+   * Tell open pages and the sidebar count to refetch. A burst — a turn ending
+   * moves a thread's status, attention and read mark at once — is one refetch.
+   */
+  function pageChanged(): void {
+    if (disposed || pageTimer !== null) return;
+    pageTimer = setTimeout(() => {
+      pageTimer = null;
+      if (disposed) return;
+      bb.realtime.publish(PAGE_CHANGED, {});
+    }, PAGE_SIGNAL_MS);
+  }
+
+  /** The visible, unarchived threads, as the page reads them. */
+  async function listOpenThreads(): Promise<ThreadFacts[]> {
+    // Open threads only: the list otherwise includes every archived thread,
+    // which on a host that has been in use a while is most of them.
+    const rows: unknown = await bb.sdk.threads.list({ archived: false });
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .map((row) => threadFacts(row as Record<string, unknown>))
+      .filter((facts): facts is ThreadFacts => facts !== null && !facts.archived);
+  }
+
+  async function readPendingAsks(threadId: string): Promise<PendingAsk[]> {
+    try {
+      const list: unknown = await bb.sdk.threads.interactions.list({ threadId });
+      return (Array.isArray(list) ? list : [])
+        .map(pendingAsk)
+        .filter((ask): ask is PendingAsk => ask !== null);
+    } catch (error) {
+      bb.log.warn(`page: could not read ${threadId}'s pending asks: ${String(error)}`);
+      return [];
+    }
+  }
+
+  async function readLastReply(thread: ThreadFacts): Promise<string | null> {
+    const cached = replies.get(thread.id);
+    if (cached !== undefined && cached.at === thread.latestAttentionAt) return cached.reply;
+    try {
+      const { output } = await bb.sdk.threads.output({ threadId: thread.id });
+      replies.set(thread.id, { at: thread.latestAttentionAt, reply: output });
+      return output;
+    } catch (error) {
+      bb.log.warn(`page: could not read ${thread.id}'s last reply: ${String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Look a worktree's pull request up in the background, unless it was looked
+   * up recently. A page never waits on GitHub: it shows what is cached, and a
+   * lookup that changes anything signals the page to refetch.
+   */
+  function queuePullRequest(environmentId: string, force = false): void {
+    const cached = pullRequests.get(environmentId);
+    if (!force && cached !== undefined && Date.now() - cached.checkedAt < PR_TTL_MS) return;
+    if (prQueued.has(environmentId)) return;
+    prQueued.add(environmentId);
+    prQueue.push(environmentId);
+    pumpPullRequests();
+  }
+
+  function pumpPullRequests(): void {
+    while (!disposed && prActive < PR_CONCURRENCY && prQueue.length > 0) {
+      const environmentId = prQueue.shift() as string;
+      prActive += 1;
+      void (async () => {
+        const before = pullRequests.get(environmentId);
+        try {
+          const pr = prSummary(await bb.sdk.environments.pullRequest({ environmentId }));
+          pullRequests.set(environmentId, { checkedAt: Date.now(), pr });
+          if (JSON.stringify(before?.pr ?? null) !== JSON.stringify(pr)) pageChanged();
+        } catch (error) {
+          // Keep what was known, and wait the full interval before asking again:
+          // a git host having a bad minute is not worth a lookup per refetch.
+          pullRequests.set(environmentId, { checkedAt: Date.now(), pr: before?.pr ?? null });
+          // A lookup that outlived a reload fails on the stale handle; the
+          // log is behind the same handle, so it says nothing.
+          if (!disposed) bb.log.warn(`page: pull request lookup failed for ${environmentId}: ${String(error)}`);
+        } finally {
+          prQueued.delete(environmentId);
+          prActive -= 1;
+          pumpPullRequests();
+        }
+      })();
+    }
+  }
+
+  async function readArchivedThread(
+    threadId: string,
+  ): Promise<{ title: string; projectId: string; updatedAt: number } | null> {
+    if (archivedThreads.has(threadId)) return archivedThreads.get(threadId) ?? null;
+    let info: { title: string; projectId: string; updatedAt: number } | null = null;
+    try {
+      const facts = threadFacts((await bb.sdk.threads.get({ threadId })) as unknown as Record<string, unknown>);
+      // Only archived threads: a hidden helper that recorded a row is not
+      // somewhere a person goes to read it.
+      if (facts !== null && facts.archived) {
+        info = { title: facts.title, projectId: facts.projectId, updatedAt: facts.updatedAt };
+      }
+    } catch {
+      // Deleted: its rows have nowhere to send anything.
+    }
+    archivedThreads.set(threadId, info);
+    return info;
+  }
+
+  async function runningRow(
+    thread: ThreadFacts,
+    rows: readonly FollowUp[],
+    done: number,
+  ): Promise<RunningWorker> {
+    let startedAt: number | null = null;
+    let now = thread.status === "pending" ? "Waiting to start" : "Working";
+    if (thread.status !== "pending") {
+      try {
+        const events: unknown = await bb.sdk.threads.events.list({
+          threadId: thread.id,
+          order: "desc",
+          limit: ACTIVITY_EVENTS,
+          types: ["turn/started", "item/started"],
+        });
+        const list = Array.isArray(events) ? (events as Array<Record<string, unknown>>) : [];
+        const turn = list.find((event) => event.type === "turn/started");
+        startedAt = typeof turn?.createdAt === "number" ? turn.createdAt : null;
+        // The newest item since the turn started that says something: a run
+        // of reasoning between two commands is still the command's turn.
+        const items = list.filter(
+          (event) =>
+            event.type === "item/started" &&
+            (startedAt === null || (typeof event.createdAt === "number" && event.createdAt >= startedAt)),
+        );
+        const telling = items.find((event) => {
+          const item = (event.data as { item?: { type?: unknown } } | undefined)?.item;
+          return item?.type !== "reasoning";
+        });
+        const chosen = telling ?? items[0];
+        if (chosen !== undefined) now = activityLabel((chosen.data as { item?: unknown } | undefined)?.item);
+      } catch (error) {
+        bb.log.warn(`page: could not read ${thread.id}'s activity: ${String(error)}`);
+      }
+    }
+    return {
+      threadId: thread.id,
+      title: thread.title,
+      projectId: thread.projectId,
+      status: thread.status,
+      startedAt,
+      now,
+      openFollowUps: rows.length,
+      doneFollowUps: done,
+    };
+  }
+
+  /**
+   * Build the page. `withLanes` adds the threads in motion and the follow-ups
+   * lane, which the sidebar count and the new-thread strip do not need.
+   */
+  async function buildPage(withLanes: boolean) {
+    const now = Date.now();
+    const [threads, current, offerKeys, wrapKeys, hiddenKeys, reviewKeys, itemKeys] =
+      await Promise.all([
+        listOpenThreads(),
+        settings.get(),
+        bb.storage.kv.list(NEXT_PREFIX),
+        bb.storage.kv.list(WRAP_UP_PREFIX),
+        bb.storage.kv.list(HIDDEN_PREFIX),
+        bb.storage.kv.list(REVIEW_PREFIX),
+        bb.storage.kv.list(ITEMS_PREFIX),
+      ]);
+    const idsOf = (keys: readonly string[], prefix: string) =>
+      new Set(keys.map((key) => key.slice(prefix.length)));
+    const withOffer = idsOf(offerKeys, NEXT_PREFIX);
+    const withWrapUp = idsOf(wrapKeys, WRAP_UP_PREFIX);
+    const withHidden = idsOf(hiddenKeys, HIDDEN_PREFIX);
+    const withReview = idsOf(reviewKeys, REVIEW_PREFIX);
+    const withItems = idsOf(itemKeys, ITEMS_PREFIX);
+    const byId = new Map(threads.map((thread) => [thread.id, thread]));
+
+    // Each thread's open rows, read once however many things need them.
+    const open = new Map<string, Promise<{ rows: FollowUp[]; done: number }>>();
+    const rowsOf = (threadId: string) => {
+      let entry = open.get(threadId);
+      if (entry === undefined) {
+        entry = withItems.has(threadId)
+          ? Promise.all([readItems(threadId), readTombstones(threadId)]).then(([items, tombs]) => ({
+              rows: openFollowUps(items, tombs),
+              done: doneFollowUps(items, tombs).length,
+            }))
+          : Promise.resolve({ rows: [], done: 0 });
+        open.set(threadId, entry);
+      }
+      return entry;
+    };
+
+    const owners = prOwners(threads);
+    const environmentOf = new Map([...owners].map(([environmentId, threadId]) => [threadId, environmentId]));
+    for (const [environmentId, threadId] of owners) {
+      // An idle thread's pull request only: a working agent is still pushing.
+      if (!isBusy(byId.get(threadId)?.status ?? "idle")) queuePullRequest(environmentId);
+    }
+
+    const cards = (
+      await Promise.all(
+        threads.map(async (thread) => {
+          const asks = asksFor(thread, thread.hasPendingInteraction ? await readPendingAsks(thread.id) : []);
+          const busy = isBusy(thread.status);
+          if (asks.length === 0 && busy) return null;
+          const [offer, wrapRecord, hiddenAt, review] = await Promise.all([
+            current.offerNextSteps && withOffer.has(thread.id) ? readOffer(thread.id) : null,
+            withWrapUp.has(thread.id) ? readWrapUp(thread.id) : null,
+            withHidden.has(thread.id) ? bb.storage.kv.get<unknown>(hiddenKey(thread.id)) : undefined,
+            withReview.has(thread.id)
+              ? bb.storage.kv.get<{ prNumber: number; threadId: string }>(reviewKey(thread.id))
+              : undefined,
+          ]);
+          const environmentId = environmentOf.get(thread.id);
+          const pr = environmentId === undefined || busy ? null : (pullRequests.get(environmentId)?.pr ?? null);
+          // A reply is read only where a card could use it: an unread turn, an
+          // offer, a failure or a pull request. A read thread that asked for
+          // nothing has nothing to quote.
+          const wantsReply =
+            !busy &&
+            (isUnread(thread) ||
+              offer !== null ||
+              thread.status === "error" ||
+              (pr !== null && prAction(pr) !== null));
+          const reply = wantsReply ? await readLastReply(thread) : null;
+          const inputs = {
+            thread,
+            asks,
+            offer,
+            wrapUp: wrapRecord === null ? null : { held: wrapRecord.held, running: wrapRecord.held === null },
+            pr,
+            reply,
+            hidden: parsePutAway(hiddenAt),
+            parentTitle:
+              thread.parentThreadId === null ? null : (byId.get(thread.parentThreadId)?.title ?? null),
+            review: review ?? null,
+          };
+          // A thread's rows are read only where they can matter: on a card it
+          // gets anyway, where they are listed for its close-out, or when its
+          // goal is met, where open rows make it a wrap-up. Most open threads
+          // are neither, and the sidebar count asks on every change; reading
+          // every one's rows was two kv reads per open thread per refresh.
+          const card = cardFor({ ...inputs, openFollowUps: 0, rows: [] });
+          if (!withItems.has(thread.id) || (card === null && offer?.goalMet !== true)) return card;
+          const { rows } = await rowsOf(thread.id);
+          return cardFor({ ...inputs, openFollowUps: rows.length, rows });
+        }),
+      )
+    ).filter((card) => card !== null);
+
+    // One card per family: workers fold into their parent's (lib/page.ts).
+    // Cards put away with "Not now" are kept apart: not counted, and listed
+    // in the page's Put away fold, families combined the same way.
+    const ranked = rank(combineFamilies(cards.filter((card) => !card.putAway), threads));
+    const putAway = rank(combineFamilies(cards.filter((card) => card.putAway), threads));
+    const count = countOf(ranked);
+    if (!withLanes) {
+      return { count, ranked, putAway, running: [], followUps: [], projectNames: new Map<string, string>() };
+    }
+
+    const running = foldRunning(
+      await Promise.all(
+        threads
+          .filter((thread) => inMotion(thread, now))
+          .map(async (thread) => {
+            const { rows, done } = await rowsOf(thread.id);
+            return runningRow(thread, rows, done);
+          }),
+      ),
+      threads,
+    );
+
+    let projectNames = new Map<string, string>();
+    try {
+      const projects: unknown = await bb.sdk.projects.list();
+      if (Array.isArray(projects)) {
+        projectNames = new Map(
+          projects.flatMap((project: { id?: unknown; name?: unknown }) =>
+            typeof project.id === "string" && typeof project.name === "string"
+              ? [[project.id, project.name] as const]
+              : [],
+          ),
+        );
+      }
+    } catch (error) {
+      bb.log.warn(`page: could not list projects: ${String(error)}`);
+    }
+
+    // In parallel: rows outlive archiving, so this is every thread that ever
+    // recorded one, and reading them in turn made each refetch wait on all.
+    const laneInputs = (
+      await Promise.all(
+        [...withItems].map(async (threadId): Promise<LaneInput | null> => {
+          const { rows } = await rowsOf(threadId);
+          if (rows.length === 0) return null;
+          const live = byId.get(threadId);
+          const info = live ?? (await readArchivedThread(threadId));
+          if (info === null) return null;
+          return {
+            threadId,
+            title: info.title,
+            projectId: info.projectId,
+            archived: live === undefined,
+            updatedAt: info.updatedAt,
+            rows,
+          };
+        }),
+      )
+    ).filter((input): input is LaneInput => input !== null);
+
+    return {
+      count,
+      ranked,
+      putAway,
+      running,
+      followUps: groupFollowUps(laneInputs, projectNames),
+      projectNames,
+    };
+  }
+
+  /** Merge a thread's worktree pull request, once it is still ready to merge. */
+  async function mergeFromPage(
+    threadId: string,
+    asked: MergeMethod | undefined,
+    tell: string | undefined,
+  ): Promise<{
+    outcome: "merged" | "needs-method" | "not-ready" | "failed";
+    method: MergeMethod | null;
+    message: string | null;
+    told: "sent" | "queued" | "failed" | null;
+  }> {
+    const thread = await bb.sdk.threads.get({ threadId });
+    if (thread.environmentId === null) {
+      return { outcome: "not-ready", method: null, message: "This thread has no worktree to merge from.", told: null };
+    }
+    const remembered = await bb.storage.kv.get<MergeMethod>(mergeMethodKey(thread.projectId));
+    const method = asked ?? remembered ?? null;
+    if (method === null) return { outcome: "needs-method", method: null, message: null, told: null };
+    // Looked up again rather than trusting the card: checks can fail, or a
+    // conflict land, between the card drawing and the press.
+    const pr = prSummary(await bb.sdk.environments.pullRequest({ environmentId: thread.environmentId }));
+    if (pr === null || prAction(pr) !== "merge") {
+      return {
+        outcome: "not-ready",
+        method,
+        message: pr === null ? "There is no pull request on this thread's branch." : "This pull request is no longer ready to merge.",
+        told: null,
+      };
+    }
+    try {
+      await bb.sdk.environments.mergePullRequest({ environmentId: thread.environmentId, method });
+    } catch (error) {
+      bb.log.error(`page: merge failed on ${threadId}: ${String(error)}`);
+      return { outcome: "failed", method, message: String(error instanceof Error ? error.message : error), told: null };
+    }
+    if (asked !== undefined && asked !== remembered) {
+      await bb.storage.kv.set(mergeMethodKey(thread.projectId), asked);
+    }
+    queuePullRequest(thread.environmentId, true);
+    bb.log.info(`page: merged #${pr.number} on ${threadId} (${method})`);
+    let told: "sent" | "queued" | "failed" | null = null;
+    if (tell !== undefined) {
+      try {
+        told = await sendAsUser(threadId, [{ text: tell }]);
+      } catch (error) {
+        bb.log.error(`page: merged #${pr.number} but could not tell ${threadId}: ${String(error)}`);
+        told = "failed";
+      }
+    }
+    return { outcome: "merged", method, message: null, told };
+  }
+
+  // Host changes that can move a card. The subscription is the server's own,
+  // so one signal reaches every open page however many there are.
+  let unsubscribe: (() => void) | null = null;
+  try {
+    unsubscribe = bb.sdk.subscribe({
+      event: "thread:changed",
+      callback: (event) => {
+        if (event.changes.some((change) => PAGE_RELEVANT_CHANGES.has(change))) pageChanged();
+      },
+    });
+  } catch (error) {
+    // An older host, or a test host with no realtime: the page still works,
+    // it just refreshes when this plugin's own events fire.
+    bb.log.warn(`page: no thread change feed, so pages refresh on Follow Up's own events: ${String(error)}`);
+  }
+  // The subscription is the host's, not this instance's: left alone it keeps
+  // delivering to a reloaded plugin, whose timer then publishes on a stale
+  // handle. Let go of it, and of the pending signal and lookups, on dispose.
+  bb.onDispose(() => {
+    disposed = true;
+    if (pageTimer !== null) clearTimeout(pageTimer);
+    pageTimer = null;
+    prQueue.length = 0;
+    prQueued.clear();
+    try {
+      unsubscribe?.();
+    } catch {
+      // Already gone with the host.
+    }
+  });
+  bb.events.on("interaction.pending", () => pageChanged());
+  bb.events.on("thread.archived", () => pageChanged());
+  bb.events.on("thread.unarchived", ({ thread }) => {
+    archivedThreads.delete(thread.id);
+    pageChanged();
+  });
+  bb.events.on("thread.idle", ({ thread }) => {
+    // A turn just ended: whatever it pushed is worth a fresh look.
+    const environmentId = (thread as { environmentId?: unknown }).environmentId;
+    if (typeof environmentId === "string" && pullRequests.has(environmentId)) {
+      queuePullRequest(environmentId, true);
+    }
+    pageChanged();
+  });
+  bb.events.on("thread.failed", () => pageChanged());
+
   bb.rpc.register(rpcContract, {
     getFollowUpCountsV1: async ({ threadIds }) => {
       // Deduped, and first-seen order kept: a caller assembling a sidebar may
@@ -3635,6 +4343,164 @@ export default async function plugin(bb: BbPluginApi) {
     followups_clear_done: async ({ threadId }) => ({
       cleared: await clearDone(threadId),
     }),
+    page_snapshot: async () => {
+      const page = await buildPage(true);
+      const { cards, moreFinished } = capFinished(page.ranked);
+      return {
+        cards,
+        putAway: page.putAway,
+        moreFinished,
+        count: page.count,
+        running: page.running,
+        followUps: page.followUps,
+        projects: [...page.projectNames].map(([id, name]) => ({ id, name })),
+      };
+    },
+    page_summary: async () => {
+      const page = await buildPage(false);
+      // The strip shows what needs you, as the count does: never a finished card.
+      return { count: page.count, top: page.ranked.filter((card) => card.tier !== "finished").slice(0, STRIP_MAX) };
+    },
+    page_answer: async ({ threadId, interactionId, answers }) => {
+      try {
+        const interaction: unknown = await bb.sdk.threads.interactions.get({ threadId, interactionId });
+        const ask = pendingAsk(interaction);
+        if (ask === null || ask.kind !== "question") return { outcome: "stale" as const };
+        await bb.sdk.threads.interactions.resolve({
+          threadId,
+          interactionId,
+          resolution: { kind: "user_answer", answers },
+        });
+        bb.log.info(`page: answered ${interactionId} on ${threadId}`);
+        pageChanged();
+        return { outcome: "answered" as const };
+      } catch (error) {
+        bb.log.error(`page: answer failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+    },
+    page_reply: async ({ threadId, text }) => {
+      try {
+        const outcome = await sendAsUser(threadId, [{ text }]);
+        bb.log.info(`page: sent a reply to ${threadId} (${outcome})`);
+        return { outcome };
+      } catch (error) {
+        bb.log.error(`page: reply failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+    },
+    page_mark_read: async ({ threadId }) => {
+      try {
+        await bb.sdk.threads.markRead({ threadId });
+        pageChanged();
+        return { outcome: "done" as const };
+      } catch (error) {
+        bb.log.error(`page: mark read failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+    },
+    page_archive: async ({ threadId }) => {
+      try {
+        await bb.sdk.threads.archive({ threadId });
+        pageChanged();
+        return { outcome: "done" as const };
+      } catch (error) {
+        bb.log.error(`page: archive failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+    },
+    page_hide: async ({ threadId, at, pr }) => {
+      await bb.storage.kv.set(hiddenKey(threadId), pr === undefined ? { at } : { at, pr });
+      pageChanged();
+      return { outcome: "done" as const };
+    },
+    page_unhide: async ({ threadIds }) => {
+      await Promise.all([...new Set(threadIds)].map((threadId) => bb.storage.kv.delete(hiddenKey(threadId))));
+      pageChanged();
+      return { outcome: "done" as const };
+    },
+    page_retry: async ({ threadId }) => {
+      try {
+        await bb.sdk.threads.retry({ threadId });
+        pageChanged();
+        return { outcome: "retrying" as const };
+      } catch (error) {
+        bb.log.error(`page: retry failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+    },
+    page_stop: async ({ threadId }) => {
+      try {
+        await bb.sdk.threads.stop({ threadId });
+        pageChanged();
+        return { outcome: "stopped" as const };
+      } catch (error) {
+        bb.log.error(`page: stop failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      }
+    },
+    page_pr_merge: async ({ threadId, method, tell }) => {
+      try {
+        return await mergeFromPage(threadId, method, tell);
+      } catch (error) {
+        bb.log.error(`page: merge failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const, method: method ?? null, message: null, told: null };
+      }
+    },
+    page_pr_review: async ({ threadId, prompt }) => {
+      try {
+        const thread = await bb.sdk.threads.get({ threadId });
+        if (thread.environmentId === null) return { outcome: "failed" as const, spawnedThreadId: null };
+        const pr = prSummary(await bb.sdk.environments.pullRequest({ environmentId: thread.environmentId }));
+        const spawned = await spawnThread(
+          {
+            projectId: thread.projectId,
+            environment: { type: "reuse", environmentId: thread.environmentId },
+            prompt,
+          },
+          threadId,
+        );
+        if (pr !== null) {
+          await bb.storage.kv.set(reviewKey(threadId), { prNumber: pr.number, threadId: spawned.id });
+        }
+        bb.log.info(`page: started review thread ${spawned.id} for ${threadId}`);
+        pageChanged();
+        return { outcome: "spawned" as const, spawnedThreadId: spawned.id };
+      } catch (error) {
+        bb.log.error(`page: review thread failed for ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const, spawnedThreadId: null };
+      }
+    },
+    page_archive_workers: async ({ parentThreadId, threadIds }) => {
+      const threads = await listOpenThreads();
+      const owners = prOwners(threads);
+      const environmentOf = new Map([...owners].map(([environmentId, threadId]) => [threadId, environmentId]));
+      let archived = 0;
+      let skipped = 0;
+      for (const threadId of new Set(threadIds)) {
+        const environmentId = environmentOf.get(threadId);
+        const pr = environmentId === undefined ? null : (pullRequests.get(environmentId)?.pr ?? null);
+        const merged = pr !== null && prAction(pr) === "merged";
+        if (familyOf(threadId, threads) !== parentThreadId || !merged) {
+          skipped += 1;
+          continue;
+        }
+        try {
+          await bb.sdk.threads.archive({ threadId });
+          archived += 1;
+        } catch (error) {
+          bb.log.error(`page: archive failed on ${threadId}: ${String(error)}`);
+          skipped += 1;
+        }
+      }
+      bb.log.info(`page: archived ${archived} merged workers of ${parentThreadId} (${skipped} skipped)`);
+      pageChanged();
+      return { archived, skipped };
+    },
+    page_handoff: async ({ threadId, id }) => {
+      const result = await handoffFollowUp(threadId, id, "thread", { kind: "prompt", skill: null });
+      return { outcome: result.outcome, spawnedThreadId: result.spawnedThreadId };
+    },
   });
 
   // Standing rules in every thread's instructions. Synchronous and

@@ -28,6 +28,7 @@ import { getRpc } from "./src/rpc.ts";
 import { toast } from "sonner";
 import { ComplicationPublisher } from "./src/complication-publisher.tsx";
 import { registerWrapUpCommand, WRAP_UP_POPUP_ID, WrapUpPopup } from "./src/wrap-up.tsx";
+import { FollowUpPage, FollowUpPageCount, NeedsYouStrip, PAGE_PATH } from "./src/page/page.tsx";
 
 export default definePluginApp((app) => {
   // Publishes each thread's follow-up progress for any surface drawing it —
@@ -36,6 +37,22 @@ export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({
     id: "complications",
     component: ComplicationPublisher,
+  });
+
+  // Every thread that needs you, answered in one place: a sidebar item with
+  // the count, and the first few on the new-thread page. See src/page/.
+  app.slots.navPanel({
+    id: "page",
+    title: "Follow Up",
+    icon: "TextWrap",
+    path: PAGE_PATH,
+    component: FollowUpPage,
+    experimental_sidebarAccessory: FollowUpPageCount,
+  });
+  app.slots.homepageSection({
+    id: "needs-you",
+    title: "Needs you",
+    component: NeedsYouStrip,
   });
 
   app.composer.customize({
