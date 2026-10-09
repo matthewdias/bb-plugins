@@ -154,6 +154,12 @@ test("page: a blocked thread, an offer and an unread reply make three cards in t
   assert.equal(page.cards[2].excerpt, "All done.");
 });
 
+test("page: asks the host for open threads only", async () => {
+  const { call, calls } = await host({ threads: [threadRow("thr_a")] });
+  await call("page_snapshot");
+  assert.deepEqual(calls("threads.list"), [{ archived: false }]);
+});
+
 test("page: only blocked threads have their asks read, and a read thread's reply is never fetched", async () => {
   const { call, calls } = await host({
     threads: [

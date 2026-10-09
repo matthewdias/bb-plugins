@@ -300,6 +300,12 @@ test("cardFor: a pull request that wants you is your turn; one that does not add
   assert.equal(cardFor(inputs({ pr: pr("draft") })), null);
 });
 
+test("cardFor: a merged pull request is finished, not your turn", () => {
+  const card = must(cardFor(inputs({ pr: pr("merged") })));
+  assert.equal(card.lead, "pr");
+  assert.equal(card.tier, "finished");
+});
+
 test("cardFor: an unread finished turn is finished; a read one with nothing asked is nothing", () => {
   const card = must(cardFor(inputs({ thread: thread({ latestAttentionAt: 200, lastReadAt: 100 }), reply: "Done." })));
   assert.equal(card.tier, "finished");

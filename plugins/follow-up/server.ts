@@ -3545,8 +3545,9 @@ export default async function plugin(bb: BbPluginApi) {
 
   /** The visible, unarchived threads, as the page reads them. */
   async function listOpenThreads(): Promise<ThreadFacts[]> {
-    // No limit, the way `bb thread list` asks: one call returns them all.
-    const rows: unknown = await bb.sdk.threads.list();
+    // Open threads only: the list otherwise includes every archived thread,
+    // which on a host that has been in use a while is most of them.
+    const rows: unknown = await bb.sdk.threads.list({ archived: false });
     if (!Array.isArray(rows)) return [];
     return rows
       .map((row) => threadFacts(row as Record<string, unknown>))

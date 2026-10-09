@@ -526,7 +526,10 @@ export function cardFor(input: ThreadInputs): Card | null {
   else lead = null;
   if (lead === null) return null;
 
-  const tier: Tier = blocked ? "blocked" : lead === "finished" ? "finished" : "turn";
+  // A merged pull request asks nothing: the thread is done, and archiving it
+  // is tidying up. It sits with the finished turns, out of the count.
+  const asksNothing = lead === "finished" || (lead === "pr" && pr?.action === "merged");
+  const tier: Tier = blocked ? "blocked" : asksNothing ? "finished" : "turn";
   return {
     threadId: thread.id,
     title: thread.title,
