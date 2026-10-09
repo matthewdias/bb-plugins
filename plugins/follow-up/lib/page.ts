@@ -42,6 +42,12 @@ export const BUSY_STATUSES: ReadonlySet<string> = new Set([
  */
 export const PENDING_STALE_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Something on the Follow Up page changed: open pages and the sidebar count
+ * refetch. Here rather than in server.ts because the page listens for it.
+ */
+export const PAGE_CHANGED = "followups-page-changed";
+
 /** Finished cards shown before the rest fold into a count. */
 export const FINISHED_CAP = 20;
 
@@ -682,8 +688,8 @@ export interface LaneInput {
  *
  * Archived threads are included: their rows were never closed, and archiving
  * a thread is not deciding about its follow-ups. They sort after the open
- * threads of their project, which sort most recently active first. A thread
- * with nothing open is left out.
+ * threads of their project, which sort most recently active first, and their
+ * rows lead with a handoff. A thread with nothing open is left out.
  */
 export function groupFollowUps(
   inputs: readonly LaneInput[],
@@ -710,7 +716,12 @@ export function groupFollowUps(
             id: row.id,
             text: row.text,
             reason: row.reason,
-            lead: mainActionFor(row.reason as Reason | null) === "handoff" ? ("handoff" as const) : ("do" as const),
+            // An archived thread has no turn to send a row into, so its rows go
+            // to a thread of their own.
+            lead:
+              thread.archived || mainActionFor(row.reason as Reason | null) === "handoff"
+                ? ("handoff" as const)
+                : ("do" as const),
             inProgress: row.sentAt != null,
           })),
         })),

@@ -116,6 +116,7 @@ import {
   isUnread,
   laneGroupSchema,
   MERGE_METHODS,
+  PAGE_CHANGED,
   pendingAsk,
   prAction,
   prOwners,
@@ -731,6 +732,8 @@ export const rpcContract = defineRpcContract({
         count: z.number().int(),
         running: z.array(runningSchema),
         followUps: z.array(laneGroupSchema),
+        /** Project names, so a card can say where its thread lives. */
+        projects: z.array(z.object({ id: z.string(), name: z.string() }).strict()),
       })
       .strict(),
   },
@@ -982,8 +985,6 @@ const WRAP_UP_CHANGED = "followups-wrap-up-changed";
 /** Thread statuses with a turn under way, or about to be. */
 const BUSY_STATUSES: ReadonlySet<string> = new Set(["active", "pending", "starting", "stopping"]);
 
-/** Something on the Follow Up page changed: open pages and the sidebar count refetch. */
-const PAGE_CHANGED = "followups-page-changed";
 /** How long a burst of host changes is gathered into one page refetch. */
 const PAGE_SIGNAL_MS = 250;
 /** "Not now" on a card: the thread's attention mark when it was pressed. */
@@ -3775,7 +3776,9 @@ export default async function plugin(bb: BbPluginApi) {
 
     const ranked = rank(cards);
     const count = countOf(ranked);
-    if (!withLanes) return { count, ranked, running: [], followUps: [] };
+    if (!withLanes) {
+      return { count, ranked, running: [], followUps: [], projectNames: new Map<string, string>() };
+    }
 
     const running = await Promise.all(
       threads
@@ -3819,7 +3822,13 @@ export default async function plugin(bb: BbPluginApi) {
       });
     }
 
-    return { count, ranked, running, followUps: groupFollowUps(laneInputs, projectNames) };
+    return {
+      count,
+      ranked,
+      running,
+      followUps: groupFollowUps(laneInputs, projectNames),
+      projectNames,
+    };
   }
 
   /** Merge a thread's worktree pull request, once it is still ready to merge. */
@@ -4230,7 +4239,14 @@ export default async function plugin(bb: BbPluginApi) {
     page_snapshot: async () => {
       const page = await buildPage(true);
       const { cards, moreFinished } = capFinished(page.ranked);
-      return { cards, moreFinished, count: page.count, running: page.running, followUps: page.followUps };
+      return {
+        cards,
+        moreFinished,
+        count: page.count,
+        running: page.running,
+        followUps: page.followUps,
+        projects: [...page.projectNames].map(([id, name]) => ({ id, name })),
+      };
     },
     page_summary: async () => {
       const page = await buildPage(false);

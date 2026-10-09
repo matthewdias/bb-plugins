@@ -475,4 +475,5 @@ test("groupFollowUps: by project, open threads newest first, archived after, emp
   assert.equal(groups[1]?.threads[0]?.rows[0]?.lead, "handoff", "out of scope leads with a handoff");
   assert.equal(groups[1]?.threads[1]?.rows[0]?.lead, "do");
   assert.equal(groups[0]?.threads[0]?.rows[0]?.inProgress, true);
+  assert.equal(groups[1]?.threads[2]?.rows[0]?.lead, "handoff", "an archived thread's rows go to a new thread");
 });
