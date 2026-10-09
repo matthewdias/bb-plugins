@@ -781,9 +781,12 @@ export const rpcContract = defineRpcContract({
   /**
    * Answer an approval from its card, exactly as bb's own approval card does
    * (approvalResolution). Refused as `stale` once it is no longer pending, and
-   * as `refused` for a choice the approval does not offer. `note` goes with
-   * "Keep planning" on a plan: the plan is denied, then the note is steered
-   * into the live turn, or starts one, as typing it in the composer would.
+   * as `refused` for a choice the approval does not offer.
+   *
+   * "Keep planning" carries no note, as bb's own card doesn't: a deny can't
+   * hold a message, bb holds anything sent while an approval is pending, and
+   * bb's rejection tells the agent to ask what to change. That question is
+   * where the change is said, on its own card.
    */
   page_approve: {
     input: z
@@ -791,15 +794,9 @@ export const rpcContract = defineRpcContract({
         threadId: z.string().min(1).max(200),
         interactionId: z.string().min(1).max(200),
         decision: z.enum(DECISIONS),
-        note: z.string().trim().min(1).max(REPLY_MAX).optional(),
       })
       .strict(),
-    output: z
-      .object({
-        outcome: z.enum(["answered", "stale", "refused", "failed"]),
-        noted: z.enum(["sent", "queued", "failed"]).nullable(),
-      })
-      .strict(),
+    output: z.object({ outcome: z.enum(["answered", "stale", "refused", "failed"]) }).strict(),
   },
   /**
    * Send a message into a thread as you: a card's reply box, an edited next
@@ -2089,11 +2086,10 @@ export default async function plugin(bb: BbPluginApi) {
   async function sendAsUser(
     threadId: string,
     input: Array<{ text: string; agentOnly?: boolean }>,
-    mode: "queue-if-active" | "auto" = "queue-if-active",
   ): Promise<"sent" | "queued"> {
     const result = await bb.sdk.threads.send({
       threadId,
-      mode,
+      mode: "queue-if-active",
       input: input.map((part) => ({
         type: "text" as const,
         text: part.text,
@@ -4436,22 +4432,22 @@ export default async function plugin(bb: BbPluginApi) {
         return { outcome: "failed" as const };
       }
     },
-    page_approve: async ({ threadId, interactionId, decision, note }) => {
+    page_approve: async ({ threadId, interactionId, decision }) => {
       let interaction: unknown;
       try {
         interaction = await bb.sdk.threads.interactions.get({ threadId, interactionId });
       } catch (error) {
         bb.log.error(`page: could not read ${interactionId} on ${threadId}: ${String(error)}`);
-        return { outcome: "failed" as const, noted: null };
+        return { outcome: "failed" as const };
       }
       // The same ask the card was built from, file change diff and all, so a
       // choice the card couldn't offer is refused here too.
       const first = pendingAsk(interaction);
       const ask = namesFileChange(first) ? pendingAsk(interaction, await readFileChanges(threadId)) : first;
       if (ask === null || ask.kind !== "approval" || ask.interactionId !== interactionId) {
-        return { outcome: "stale" as const, noted: null };
+        return { outcome: "stale" as const };
       }
-      if (!ask.decisions.includes(decision)) return { outcome: "refused" as const, noted: null };
+      if (!ask.decisions.includes(decision)) return { outcome: "refused" as const };
       try {
         await bb.sdk.threads.interactions.resolve({
           threadId,
@@ -4460,20 +4456,11 @@ export default async function plugin(bb: BbPluginApi) {
         });
       } catch (error) {
         bb.log.error(`page: approval ${interactionId} failed on ${threadId}: ${String(error)}`);
-        return { outcome: "failed" as const, noted: null };
+        return { outcome: "failed" as const };
       }
       bb.log.info(`page: ${decision} on ${interactionId} (${ask.subject}) on ${threadId}`);
       pageChanged();
-      // Only Keep planning takes a note: the plan's agent revises with it.
-      if (note === undefined || ask.subject !== "plan" || decision !== "deny") {
-        return { outcome: "answered" as const, noted: null };
-      }
-      try {
-        return { outcome: "answered" as const, noted: await sendAsUser(threadId, [{ text: note }], "auto") };
-      } catch (error) {
-        bb.log.error(`page: kept planning on ${threadId} but the note did not go: ${String(error)}`);
-        return { outcome: "answered" as const, noted: "failed" as const };
-      }
+      return { outcome: "answered" as const };
     },
     page_reply: async ({ threadId, text }) => {
       try {

@@ -190,8 +190,9 @@ shows each file's diff, open, and where a renamed file goes. A permission
 shows the paths it reads and writes and whether it uses the network. A tool
 shows the tool's name, then its own title and detail, in red when bb marks it
 destructive. A plan is rendered as it is in chat, never folded. *Allow for
-session* says what else it allows, and *Keep planning* takes a note that is
-sent to the agent as it revises. Answering does exactly what bb's card does.
+session* says what else it allows. Answering does exactly what bb's card does,
+so *Keep planning* sends the plan back with no message, and the agent then
+asks what to change: that question gets its own card.
 
 The page answers only an approval its card can show whole, and sends anything
 else to the thread, saying why: a file change too big to show (more than ten

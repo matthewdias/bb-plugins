@@ -345,7 +345,7 @@ describe("approvals", () => {
       cards: [
         approval("thr_c", { kind: "command", command: "git push\n  --force", cwd: "/repo", actions: ["Reads a.ts"], sessionGrant: grant }, { reason: "To publish" }),
       ],
-      handlers: { page_approve: async () => ({ outcome: "answered", noted: null }) },
+      handlers: { page_approve: async () => ({ outcome: "answered" }) },
     });
     const block = await slot.findByText(/git push/);
     expect(block.textContent).toBe("$ git push\n  --force");
@@ -393,20 +393,21 @@ describe("approvals", () => {
     expect(slot.getByText(/hs\.gpj/).textContent).toContain("⟦U+202E⟧");
   });
 
-  it("calls a plan's choices Approve plan and Keep planning, and sends a note only with Keep planning", async () => {
+  it("calls a plan's choices Approve plan and Keep planning, and says the agent will ask what to change", async () => {
     const slot = renderPage({
       cards: [approval("thr_p", { kind: "plan", plan: "## Offline queue\n1. Store", planFilePath: "/plans/q.md" }, { decisions: ["allow_once", "deny"] })],
-      handlers: { page_approve: async () => ({ outcome: "answered", noted: "sent" }) },
+      handlers: { page_approve: async () => ({ outcome: "answered" }) },
     });
     expect((await slot.findByTestId("bb-markdown")).textContent).toBe("## Offline queue\n1. Store");
     expect(slot.getByText("/plans/q.md")).toBeTruthy();
-    fireEvent.change(slot.getByLabelText("Note for Keep planning"), { target: { value: "  Split it in two.  " } });
+    expect(slot.queryByRole("textbox")).toBeNull();
+    expect(slot.getByText(/the agent asks what to change/)).toBeTruthy();
     fireEvent.click(slot.getByRole("button", { name: "Approve plan" }));
     await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(1));
     expect(calls(slot, "page_approve")[0]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "allow_once" });
     fireEvent.click(slot.getByRole("button", { name: "Keep planning" }));
     await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(2));
-    expect(calls(slot, "page_approve")[1]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "deny", note: "Split it in two." });
+    expect(calls(slot, "page_approve")[1]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "deny" });
   });
 
   it("shows a long plan whole, never folded beside Approve plan", async () => {
@@ -469,7 +470,7 @@ describe("approvals", () => {
   it("says so when the approval was already answered", async () => {
     const slot = renderPage({
       cards: [approval("thr_c", { kind: "command", command: "ls", cwd: null, actions: [], sessionGrant: null })],
-      handlers: { page_approve: async () => ({ outcome: "stale", noted: null }) },
+      handlers: { page_approve: async () => ({ outcome: "stale" }) },
     });
     fireEvent.click(await slot.findByRole("button", { name: "Deny" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("That approval was already answered, or withdrawn."));
@@ -541,7 +542,7 @@ describe("Focus", () => {
     const slot = renderPage({
       subPath: "focus",
       cards: [approval("thr_a", { kind: "command", command: "ls", cwd: null, actions: [], sessionGrant: null })],
-      handlers: { page_approve: async () => ({ outcome: "answered", noted: null }) },
+      handlers: { page_approve: async () => ({ outcome: "answered" }) },
     });
     await slot.findByText("1 of 1");
     for (const k of ["1", "2", "3", "Enter"]) key(k);

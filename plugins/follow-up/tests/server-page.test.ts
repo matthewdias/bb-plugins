@@ -635,7 +635,7 @@ test("page: an approval is answered exactly as bb's card would answer it", async
   const page = await call("page_snapshot");
   assert.deepEqual([page.cards[0].lead, page.cards[0].asks[0].detail.command], ["approval", "git push"]);
   const result = await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision: "allow_for_session" });
-  assert.deepEqual(result, { outcome: "answered", noted: null });
+  assert.deepEqual(result, { outcome: "answered" });
   assert.deepEqual(calls("threads.interactions.resolve")[0], {
     threadId: "thr_cmd",
     interactionId: "int_c",
@@ -664,36 +664,18 @@ test("page: an answer goes only to the approval it was given for, whatever bb ha
   assert.equal(calls("threads.interactions.resolve").length, 0);
 });
 
-test("page: Keep planning denies the plan, then steers the note into the turn", async () => {
-  const { call, calls, harness } = await host({
+test("page: Keep planning only denies the plan, as bb's card does, and sends nothing", async () => {
+  const { call, calls } = await host({
     threads: [threadRow("thr_plan", { status: "active", hasPendingInteraction: true })],
     interactions: { thr_plan: [approvalInteraction("int_p", { kind: "plan", itemId: "x", plan: "## P", planFilePath: null }, { availableDecisions: ["allow_once", "deny"] })] },
   });
-  const order: string[] = [];
-  harness.sdk.stub("threads.interactions.resolve", () => {
-    order.push("resolve");
-    return {};
-  });
-  harness.sdk.stub("threads.send", () => {
-    order.push("send");
-    return { ok: true, delivery: "steered" };
-  });
-  const result = await call("page_approve", { threadId: "thr_plan", interactionId: "int_p", decision: "deny", note: "Split #183 in two." });
-  assert.deepEqual(result, { outcome: "answered", noted: "sent" });
-  assert.deepEqual(order, ["resolve", "send"], "the note follows the deny");
-  const sent = calls("threads.send")[0];
-  assert.equal(sent?.mode, "auto", "steer the live turn, else start one");
-  assert.equal((sent?.input as Row[])[0]?.text, "Split #183 in two.");
-});
-
-test("page: a note sent with an approval that isn't Keep planning is not sent", async () => {
-  const { call, calls } = await host({
-    threads: [threadRow("thr_plan", { hasPendingInteraction: true })],
-    interactions: { thr_plan: [approvalInteraction("int_p", { kind: "plan", itemId: "x", plan: "## P", planFilePath: null }, { availableDecisions: ["allow_once", "deny"] })] },
-  });
-  const result = await call("page_approve", { threadId: "thr_plan", interactionId: "int_p", decision: "allow_once", note: "ignored" });
-  assert.deepEqual(result, { outcome: "answered", noted: null });
+  assert.deepEqual(await call("page_approve", { threadId: "thr_plan", interactionId: "int_p", decision: "deny" }), { outcome: "answered" });
+  assert.deepEqual(calls("threads.interactions.resolve")[0]?.resolution, { decision: "deny" });
   assert.equal(calls("threads.send").length, 0);
+  await assert.rejects(
+    () => call("page_approve", { threadId: "thr_plan", interactionId: "int_p", decision: "deny", note: "Split #183." }),
+    "a note is no longer accepted",
+  );
 });
 
 test("page: a file change's approval carries its diff from the thread's events", async () => {
@@ -722,7 +704,7 @@ test("page: a file change whose diff can't be read is held for the thread, and r
   assert.equal(page.cards[0].asks[0].held, "Its diff couldn't be read here.");
   assert.deepEqual(page.cards[0].asks[0].decisions, []);
   const result = await call("page_approve", { threadId: "thr_edit", interactionId: "int_f", decision: "allow_once" });
-  assert.deepEqual(result, { outcome: "refused", noted: null });
+  assert.deepEqual(result, { outcome: "refused" });
   assert.equal(calls("threads.interactions.resolve").length, 0);
 });
 
@@ -735,7 +717,7 @@ test("page: answering a file change reads its diff again, and answers it when it
     },
   });
   const result = await call("page_approve", { threadId: "thr_edit", interactionId: "int_f", decision: "allow_once" });
-  assert.deepEqual(result, { outcome: "answered", noted: null });
+  assert.deepEqual(result, { outcome: "answered" });
   assert.equal(calls("threads.events.list").length, 1);
   assert.equal(calls("threads.interactions.resolve").length, 1);
 });
@@ -759,7 +741,7 @@ test("page: an approval that offers no choice can't be answered from the page", 
     interactions: { thr_cmd: [approvalInteraction("int_c", { kind: "command", command: "rm -rf build" }, { availableDecisions: [] })] },
   });
   for (const decision of ["allow_once", "deny"] as const) {
-    assert.deepEqual(await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision }), { outcome: "refused", noted: null });
+    assert.deepEqual(await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision }), { outcome: "refused" });
   }
   assert.equal(calls("threads.interactions.resolve").length, 0);
 });

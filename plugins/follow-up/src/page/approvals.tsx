@@ -35,22 +35,18 @@ export function decisionLabel(decision: Decision, subject: Approval["subject"]):
 export function ApprovalForm({ card, ask }: { card: Card; ask: Approval }) {
   const rpc = useRpc<typeof rpcContract>();
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
 
   const answer = async (decision: Decision) => {
     setBusy(true);
     try {
-      const trimmed = note.trim();
       const result = await rpc.call("page_approve", {
         threadId: card.threadId,
         interactionId: ask.interactionId,
         decision,
-        ...(ask.subject === "plan" && decision === "deny" && trimmed !== "" ? { note: trimmed } : {}),
       });
       if (result.outcome === "stale") toast.error("That approval was already answered, or withdrawn.");
       else if (result.outcome === "refused") toast.error("That choice isn't on offer any more. Open the thread.");
       else if (result.outcome === "failed") toast.error("The answer did not go through. Try again.");
-      else if (result.noted === "failed") toast.error("Kept planning, but your note did not go. Send it in the thread.");
     } catch {
       toast.error("The answer did not go through. Try again.");
     } finally {
@@ -74,16 +70,6 @@ export function ApprovalForm({ card, ask }: { card: Card; ask: Approval }) {
       )}
       <ApprovalDetail ask={ask} />
       {ask.reason !== null && <p className="text-xs text-muted-foreground">The agent says: “{ask.reason}”</p>}
-      {ask.subject === "plan" && ask.decisions.includes("deny") && (
-        <textarea
-          rows={2}
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Optional: what to change, sent with Keep planning"
-          aria-label="Note for Keep planning"
-          className="w-full resize-y rounded-md border border-dashed border-border bg-background px-2.5 py-1.5 text-sm outline-none focus-visible:border-solid focus-visible:ring-1 focus-visible:ring-ring"
-        />
-      )}
       <div className="flex flex-wrap items-center gap-1.5">
         {ask.decisions.map((decision) => (
           <Button
@@ -101,6 +87,11 @@ export function ApprovalForm({ card, ask }: { card: Card; ask: Approval }) {
       </div>
       {sessionGrant !== null && (
         <p className="text-xs text-muted-foreground">For session also allows: {grantText(sessionGrant)}</p>
+      )}
+      {/* bb's rejection tells the agent to ask what to change; that question
+          is where you say it, on its own card. */}
+      {ask.subject === "plan" && ask.decisions.includes("deny") && (
+        <p className="text-xs text-muted-foreground">Keep planning: the agent asks what to change, and the question comes here.</p>
       )}
     </div>
   );
