@@ -30,6 +30,12 @@ import { WrapUp } from "../wrap-up.tsx";
 import { setRows } from "../store.ts";
 import { isChangeSignal } from "../use-follow-ups.ts";
 import type { FollowUpRpc } from "../rpc.ts";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -182,16 +188,7 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
       main = (
         <>
           <Excerpt text={card.excerpt} />
-          {card.pageUrl !== null && (
-            <div>
-              <Button asChild size="sm">
-                <a href={card.pageUrl} target="_blank" rel="noreferrer">
-                  Open the page
-                  <Icon name="ArrowUpRight" aria-hidden />
-                </a>
-              </Button>
-            </div>
-          )}
+          {card.pageUrl !== null && <PageLink url={card.pageUrl} primary />}
         </>
       );
       break;
@@ -210,6 +207,9 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
   return (
     <>
       {main}
+      {card.pageUrl !== null && card.lead !== "page" && card.tier !== "blocked" && (
+        <PageLink url={card.pageUrl} primary={false} />
+      )}
       {more > 0 && (
         <p className="text-xs text-muted-foreground">
           {more === 1 ? "1 more ask is waiting in the thread." : `${more} more asks are waiting in the thread.`}
@@ -221,6 +221,20 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
         </div>
       )}
     </>
+  );
+}
+
+/** The thread's Thread Page, which its last reply pointed to. */
+function PageLink({ url, primary }: { url: string; primary: boolean }) {
+  return (
+    <div>
+      <Button asChild size="sm" variant={primary ? "default" : "outline"}>
+        <a href={url} target="_blank" rel="noreferrer">
+          Open its Thread Page
+          <Icon name="ArrowUpRight" aria-hidden />
+        </a>
+      </Button>
+    </div>
   );
 }
 
@@ -512,8 +526,8 @@ function NextStepsRow({ card, rpc }: { card: Card; rpc: Rpc }) {
     );
   }
   return (
-    <div className="flex flex-col gap-1">
-      <div role="group" aria-label="Next steps" className="flex flex-wrap items-center gap-1">
+    <div className="flex min-w-0 items-start gap-1">
+      <div role="group" aria-label="Next steps" className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
         {offer.steps.map((step, index) => (
           <Chip
             key={`${offer.offeredAt}-${step}`}
@@ -527,20 +541,37 @@ function NextStepsRow({ card, rpc }: { card: Card; rpc: Rpc }) {
           />
         ))}
       </div>
-      <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-        {offer.steps.map((step, index) => (
-          <button
-            key={`keep-${step}`}
-            type="button"
+      {/* The same ⋯ as the Next row's: keeping a step is the rarer choice,
+          and a line of "Keep … for later" per step crowded the card. */}
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0 text-muted-foreground"
             disabled={busy}
-            className="hover:text-foreground hover:underline"
-            onClick={() => void keep(index)}
-            aria-label={`Keep "${step}" as a follow-up`}
+            aria-label="More next-step actions"
           >
-            Keep “{step.length > 28 ? `${step.slice(0, 27)}…` : step}” for later
-          </button>
-        ))}
-      </div>
+            <Icon name="MoreHorizontal" className="size-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="max-w-[min(20rem,calc(100vw-2rem))]">
+          {offer.steps.map((step, index) => (
+            <DropdownMenuItem
+              key={`keep-${step}`}
+              className="items-start"
+              onSelect={() => void keep(index)}
+              aria-label={`Keep "${step}" as a follow-up`}
+            >
+              <Icon name="ListTodo" className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              <span className="flex min-w-0 flex-col">
+                <span>Keep for later</span>
+                <span className="whitespace-normal break-words text-xs text-muted-foreground">{step}</span>
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -625,9 +656,9 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
     pr.checks.failed > 0
       ? `✕ ${pr.checks.failed} of ${pr.checks.total} checks failed`
       : pr.checks.pending > 0
-        ? `${pr.checks.pending} checks running`
+        ? `${pr.checks.pending} ${pr.checks.pending === 1 ? "check" : "checks"} running`
         : pr.checks.total > 0
-          ? `✓ ${pr.checks.passed} checks`
+          ? `✓ ${pr.checks.passed} ${pr.checks.passed === 1 ? "check" : "checks"}`
           : "No checks";
   const status: Record<string, string> = {
     merge: "Ready to merge",

@@ -410,6 +410,10 @@ export function pageLinkIn(reply: string | null, threadId: string): string | nul
 export function excerptOf(reply: string | null, max = EXCERPT_MAX): string | null {
   if (reply === null) return null;
   const paragraphs = reply
+    // A Thread Page link is the card's own button, not something to quote:
+    // a reply that is only the link has nothing else to say.
+    .replace(/\[[^\]]*\]\([^)]*\/api\/v1\/plugins\/thread-pages\/http\/page\?[^)]*\)/g, "")
+    .replace(/(?:https?:\/\/[^\s)<>\]"']+)?\/api\/v1\/plugins\/thread-pages\/http\/page\?[^\s)<>\]"']*/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .split(/\n\s*\n/)
     .map((part) => part.replace(/\s+/g, " ").trim())

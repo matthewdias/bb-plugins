@@ -446,6 +446,13 @@ test("excerptOf: the last paragraph, cut from the front, links reduced to text",
   assert.equal(excerptOf(null), null);
 });
 
+test("excerptOf: a Thread Page link is left out, and a reply that is only the link has no excerpt", () => {
+  const link = "https://h/api/v1/plugins/thread-pages/http/page?session=thr_a";
+  assert.equal(excerptOf(`[Open the Thread Page](${link})`), null);
+  assert.equal(excerptOf(`Built the plan.\n\n[Open the Thread Page](${link})`), "Built the plan.");
+  assert.equal(excerptOf(`See ${link}`), "See");
+});
+
 // --- in motion -------------------------------------------------------------------
 
 test("activityLabel: bb's presentation first, then the item's kind", () => {

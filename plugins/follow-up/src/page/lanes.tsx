@@ -192,14 +192,50 @@ export function FollowUpsLane({ groups }: { groups: LaneGroup[] }) {
         detail={rows === 0 ? "none open" : `${rows} open in ${threads} ${threads === 1 ? "thread" : "threads"}`}
       />
       {groups.map((group) => (
-        <div key={group.projectId} className="mt-1.5 flex flex-col">
-          <h3 className="text-xs font-semibold text-foreground">{group.projectName}</h3>
-          {group.threads.map((thread) => (
-            <LaneThread key={thread.threadId} thread={thread} />
-          ))}
-        </div>
+        <LaneProject key={group.projectId} group={group} />
       ))}
     </section>
+  );
+}
+
+/** Rows shown per project before the rest fold behind "Show N more". */
+const ROWS_PER_PROJECT = 6;
+
+/**
+ * One project's rows, folded past the first few: a backlog of a hundred rows
+ * is a list to dip into, not one to scroll past on the way to the next project.
+ */
+function LaneProject({ group }: { group: LaneGroup }) {
+  const [all, setAll] = useState(false);
+  let budget = all ? Number.POSITIVE_INFINITY : ROWS_PER_PROJECT;
+  const shown: LaneGroup["threads"] = [];
+  for (const thread of group.threads) {
+    if (budget <= 0) break;
+    const rows = thread.rows.slice(0, budget);
+    budget -= rows.length;
+    shown.push({ ...thread, rows });
+  }
+  const total = group.threads.reduce((sum, thread) => sum + thread.rows.length, 0);
+  const hidden = total - shown.reduce((sum, thread) => sum + thread.rows.length, 0);
+  return (
+    <div className="mt-1.5 flex flex-col">
+      <h3 className="flex items-baseline gap-1.5 text-xs font-semibold text-foreground">
+        {group.projectName}
+        <span className="font-normal text-muted-foreground">{total}</span>
+      </h3>
+      {shown.map((thread) => (
+        <LaneThread key={thread.threadId} thread={thread} />
+      ))}
+      {(hidden > 0 || all) && total > ROWS_PER_PROJECT && (
+        <button
+          type="button"
+          className="self-start py-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+          onClick={() => setAll(!all)}
+        >
+          {all ? "Show fewer" : `Show ${hidden} more`}
+        </button>
+      )}
+    </div>
   );
 }
 

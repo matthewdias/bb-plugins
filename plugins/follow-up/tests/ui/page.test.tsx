@@ -228,6 +228,25 @@ describe("the page", () => {
   });
 });
 
+describe("the follow-ups lane", () => {
+  it("shows the first six rows of a project and folds the rest", async () => {
+    const rows = Array.from({ length: 9 }, (_, n) => ({
+      id: `r${n}`,
+      text: `Row number ${n}`,
+      reason: "deferred" as const,
+      lead: "do" as const,
+      inProgress: false,
+    }));
+    const slot = renderPage({
+      followUps: [{ projectId: "prj_1", projectName: "bb-plugins", threads: [{ threadId: "thr_a", title: "A", archived: false, rows }] }],
+    });
+    const lane = await slot.findByRole("region", { name: "Follow-ups" });
+    expect(within(lane).getAllByRole("button", { name: "Do" })).toHaveLength(6);
+    fireEvent.click(within(lane).getByRole("button", { name: "Show 3 more" }));
+    expect(within(lane).getAllByRole("button", { name: "Do" })).toHaveLength(9);
+  });
+});
+
 describe("the sidebar count and the new-thread strip", () => {
   const summary = {
     page_summary: async () => ({
