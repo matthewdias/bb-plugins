@@ -182,7 +182,16 @@ export const approvalDetailSchema = z.discriminatedUnion("kind", [
     writeScope: z.string().nullable(),
     sessionGrant: grantSchema.nullable(),
     /** The change itself, looked up from the thread's events; empty when it could not be. */
-    files: z.array(z.object({ path: z.string(), change: z.string(), patch: z.string(), cut: z.boolean() })),
+    files: z.array(
+      z.object({
+        path: z.string(),
+        change: z.string(),
+        patch: z.string(),
+        cut: z.boolean(),
+        /** Its path or diff held characters that don't draw; see `unseen` on the ask. */
+        unseen: z.boolean(),
+      }),
+    ),
   }),
   z.object({
     kind: z.literal("permission_grant"),
@@ -226,6 +235,12 @@ export const pendingAskSchema = z.discriminatedUnion("kind", [
     /** Why the agent asked, when it said. */
     reason: z.string().nullable(),
     detail: approvalDetailSchema,
+    /**
+     * Some of its text held characters that draw nothing or reorder what is
+     * around them. They are shown as ⟦U+…⟧ rather than removed, and the card
+     * says so: removing them would show something other than what runs.
+     */
+    unseen: z.boolean(),
   }),
   z.object({
     kind: z.literal("form"),
@@ -300,17 +315,19 @@ export function pendingAsk(interaction: unknown): PendingAsk | null {
     const subjectKind = subject?.kind;
     if (typeof subjectKind === "string" && (APPROVAL_SUBJECTS as readonly string[]).includes(subjectKind)) {
       const offered = Array.isArray(payload?.availableDecisions) ? payload.availableDecisions : [];
-      const decisions = DECISIONS.filter((decision) => offered.includes(decision));
+      const reason = typeof payload?.reason === "string" && payload.reason.trim() !== "" ? payload.reason.trim() : null;
       return {
         kind: "approval",
         interactionId,
         createdAt,
         subject: subjectKind as (typeof APPROVAL_SUBJECTS)[number],
-        summary: approvalSummary(subject ?? {}),
-        // An approval that names no choices still has the two every one has.
-        decisions: decisions.length > 0 ? decisions : ["allow_once", "deny"],
-        reason: typeof payload?.reason === "string" && payload.reason.trim() !== "" ? payload.reason.trim() : null,
+        summary: reveal(approvalSummary(subject ?? {})),
+        // Only the choices the approval offers. One that names none is
+        // answered in the thread; the page never offers what bb didn't.
+        decisions: DECISIONS.filter((decision) => offered.includes(decision)),
+        reason: reason === null ? null : reveal(reason),
         detail: approvalDetail(subject ?? {}),
+        unseen: hasUnseen(subject) || (reason !== null && hasUnseen(reason)),
       };
     }
   }
@@ -361,8 +378,56 @@ function approvalSummary(subject: Record<string, unknown>): string {
   }
 }
 
+/**
+ * Characters that draw nothing, or change how what is around them draws: the
+ * set next steps refuse (lib/next-steps.ts), less the newline and tab that a
+ * command or a plan legitimately holds. A bidi override can make a command
+ * read differently from what runs, and a zero-width character can hide part
+ * of a path, so in an approval each is shown, as ⟦U+202E⟧, never dropped.
+ */
+const UNSEEN = /[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+const PICTOGRAPH = /[\p{Extended_Pictographic}\p{Emoji_Modifier}]/u;
+
+/** Whether the character at `index` (of code points) draws nothing. */
+function unseenAt(chars: readonly string[], index: number): boolean {
+  const char = chars[index]!;
+  if (char === "\n" || char === "\t" || !UNSEEN.test(char)) return false;
+  // An emoji is drawn with these: a variation selector after a pictograph,
+  // and a joiner between two, belong to a symbol that does show.
+  const before = chars[index - 1] ?? "";
+  const after = chars[index + 1] ?? "";
+  if ((char === "\uFE0F" || char === "\uFE0E") && PICTOGRAPH.test(before)) return false;
+  if (char === "\u200D" && PICTOGRAPH.test(after)) {
+    return !(PICTOGRAPH.test(before) || (before === "\uFE0F" && PICTOGRAPH.test(chars[index - 2] ?? "")));
+  }
+  return true;
+}
+
+/** Text with every unseen character shown as ⟦U+XXXX⟧. */
+export function reveal(text: string): string {
+  const chars = [...text];
+  return chars
+    .map((char, index) =>
+      unseenAt(chars, index) ? `⟦U+${char.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}⟧` : char,
+    )
+    .join("");
+}
+
+/** Whether any string anywhere in a value holds an unseen character. */
+export function hasUnseen(value: unknown): boolean {
+  if (typeof value === "string") {
+    const chars = [...value];
+    return chars.some((_, index) => unseenAt(chars, index));
+  }
+  if (Array.isArray(value)) return value.some(hasUnseen);
+  const row = record(value);
+  return row !== null && Object.values(row).some(hasUnseen);
+}
+
 function strings(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string").map(reveal)
+    : [];
 }
 
 /** A permission object (`{ fileSystem: { read, write }, network: { enabled } }`) as a card shows it. */
@@ -382,14 +447,14 @@ function actionLabel(action: unknown): string | null {
   switch (row?.type) {
     case "read":
       return typeof row.name === "string" || typeof row.path === "string"
-        ? `Reads ${String(row.name ?? row.path)}`
+        ? reveal(`Reads ${String(row.name ?? row.path)}`)
         : null;
     case "listFiles":
-      return typeof row.path === "string" ? `Lists ${row.path}` : "Lists files";
+      return typeof row.path === "string" ? reveal(`Lists ${row.path}`) : "Lists files";
     case "search": {
       const query = typeof row.query === "string" ? ` for "${row.query}"` : "";
       const where = typeof row.path === "string" ? ` in ${row.path}` : "";
-      return `Searches${query}${where}`;
+      return reveal(`Searches${query}${where}`);
     }
     default:
       return null;
@@ -398,7 +463,9 @@ function actionLabel(action: unknown): string | null {
 
 /** An approval subject's detail, read defensively like everything from the host. */
 export function approvalDetail(subject: Record<string, unknown>): ApprovalDetail {
-  const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : null);
+  // Every string a card shows goes through reveal, so nothing it approves
+  // can hide behind a character that doesn't draw.
+  const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? reveal(value) : null);
   switch (subject.kind) {
     case "command":
       return {
@@ -413,7 +480,8 @@ export function approvalDetail(subject: Record<string, unknown>): ApprovalDetail
     case "file_change":
       return {
         kind: "file_change",
-        itemId: text(subject.itemId) ?? "",
+        // Not shown, only matched against the thread's events, so left as is.
+        itemId: typeof subject.itemId === "string" ? subject.itemId : "",
         writeScope: text(subject.writeScope),
         sessionGrant: grantOf(subject.sessionGrant),
         files: [],
@@ -454,13 +522,14 @@ export function fileChangesFor(itemId: string, events: readonly unknown[]): Chan
     return changes.slice(0, PATCH_FILES_MAX).flatMap((raw): ChangedFile[] => {
       const change = record(raw);
       if (change === null || typeof change.path !== "string") return [];
-      const patch = typeof change.diff === "string" ? change.diff : "";
+      const patch = typeof change.diff === "string" ? reveal(change.diff) : "";
       return [
         {
-          path: change.path,
+          path: reveal(change.path),
           change: typeof change.kind === "string" ? change.kind : "update",
           patch: patch.length > PATCH_MAX ? patch.slice(0, PATCH_MAX) : patch,
           cut: patch.length > PATCH_MAX,
+          unseen: hasUnseen(change.path) || hasUnseen(change.diff),
         },
       ];
     });

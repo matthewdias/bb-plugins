@@ -8,6 +8,7 @@ import {
   approvalDetail,
   approvalResolution,
   fileChangesFor,
+  hasUnseen,
   PATCH_MAX,
   asksFor,
   parsePutAway,
@@ -31,6 +32,7 @@ import {
   prRebaseMessage,
   prSummary,
   rank,
+  reveal,
   reviewPrompt,
   threadFacts,
   type Card,
@@ -227,9 +229,10 @@ test("pendingAsk: approvals say what is being approved", () => {
     createdAt: 1,
     subject: "command",
     summary: "git push --force",
-    decisions: ["allow_once", "deny"],
+    decisions: [],
     reason: null,
     detail: { kind: "command", command: "git push\n  --force", cwd: null, actions: [], sessionGrant: null },
+    unseen: false,
   });
   const plan = pendingAsk({
     id: "i",
@@ -256,6 +259,70 @@ test("pendingAsk: an approval carries its choices, in bb's order, and why the ag
   if (ask?.kind !== "approval") return;
   assert.deepEqual(ask.decisions, ["allow_once", "deny"]);
   assert.equal(ask.reason, "Run the suite");
+});
+
+test("pendingAsk: an approval offers only the choices bb lists, so one listing none offers none", () => {
+  for (const availableDecisions of [undefined, [], ["approve", "allow_always"]]) {
+    const ask = pendingAsk(approval({ kind: "command", command: "rm -rf build" }, { availableDecisions }));
+    assert.deepEqual(ask?.kind === "approval" ? ask.decisions : null, [], JSON.stringify(availableDecisions));
+  }
+});
+
+test("reveal: a character that draws nothing is shown as its code; newlines, tabs and emoji are kept", () => {
+  assert.equal(reveal("echo \u202Etxt.exe"), "echo ⟦U+202E⟧txt.exe");
+  assert.equal(reveal("rm -rf /tmp/a\u200B /"), "rm -rf /tmp/a⟦U+200B⟧ /");
+  assert.equal(reveal("cat \u2066x\u2069"), "cat ⟦U+2066⟧x⟦U+2069⟧");
+  assert.equal(reveal("a\u0007b"), "a⟦U+0007⟧b");
+  assert.equal(reveal("one\n\ttwo"), "one\n\ttwo");
+  assert.equal(reveal("⚠️ 👨‍👩‍👧 ❤️‍🔥"), "⚠️ 👨‍👩‍👧 ❤️‍🔥");
+  // A selector or joiner with no emoji to belong to is shown.
+  assert.equal(reveal("rm\uFE0F x\u200Dy"), "rm⟦U+FE0F⟧ x⟦U+200D⟧y");
+  assert.equal(hasUnseen({ a: [{ b: "ok" }, "fine ⚠️"] }), false);
+  assert.equal(hasUnseen({ a: [{ b: "x\u202Ey" }] }), true);
+});
+
+test("pendingAsk: what an approval shows can't hide behind characters that don't draw", () => {
+  const hidden = "\u202E";
+  const ask = pendingAsk(
+    approval(
+      { kind: "command", command: `ls ${hidden}gpj.sh`, cwd: `/repo${hidden}`, actions: [{ type: "read", name: `a${hidden}.ts`, path: "/a.ts" }], sessionGrant: { fileSystem: { read: [`/r${hidden}`], write: [] }, network: null } },
+      { reason: `fine${hidden}` },
+    ),
+  );
+  assert.equal(ask?.kind, "approval");
+  if (ask?.kind !== "approval" || ask.detail.kind !== "command") return;
+  assert.equal(ask.unseen, true);
+  assert.equal(ask.summary, "ls ⟦U+202E⟧gpj.sh");
+  assert.equal(ask.reason, "fine⟦U+202E⟧");
+  assert.equal(ask.detail.command, "ls ⟦U+202E⟧gpj.sh");
+  assert.equal(ask.detail.cwd, "/repo⟦U+202E⟧");
+  assert.deepEqual(ask.detail.actions, ["Reads a⟦U+202E⟧.ts"]);
+  assert.deepEqual(ask.detail.sessionGrant?.read, ["/r⟦U+202E⟧"]);
+  // The subject alone is enough to warn, and so is the reason alone.
+  const what = pendingAsk(approval({ kind: "tool_use", tool: "Bash", presentation: { title: `Tidy${hidden}` } }));
+  assert.equal(what?.kind === "approval" ? what.unseen : null, true);
+  const why = pendingAsk(approval({ kind: "command", command: "ls" }, { reason: `a\u200Bb` }));
+  assert.equal(why?.kind === "approval" ? why.unseen : null, true);
+  const clean = pendingAsk(approval({ kind: "plan", plan: "## Plan ✅\n- ship ⚠️" }));
+  assert.equal(clean?.kind === "approval" ? clean.unseen : null, false);
+  // What is granted is still exactly what bb asked for, never the shown form.
+  assert.deepEqual(approvalResolution(approval({ kind: "command", command: "x", sessionGrant: { fileSystem: { read: [`/r${hidden}`], write: [] }, network: null } }), "allow_for_session"), {
+    decision: "allow_for_session",
+    grantedPermissions: { fileSystem: { read: [`/r${hidden}`], write: [] }, network: null },
+  });
+});
+
+test("approvalDetail: a tool, a permission and a plan show unseen characters too", () => {
+  const z = "\u200B";
+  assert.deepEqual(
+    approvalDetail({ kind: "tool_use", tool: `rm${z}`, presentation: { title: `Tidy${z}`, detail: `rm -rf ${z}/`, badge: { tone: "neutral", label: `Safe${z}` } } }),
+    { kind: "tool_use", tool: "rm⟦U+200B⟧", title: "Tidy⟦U+200B⟧", detail: "rm -rf ⟦U+200B⟧/", destructive: false, badge: "Safe⟦U+200B⟧" },
+  );
+  assert.deepEqual(
+    approvalDetail({ kind: "permission_grant", toolName: `Bash${z}`, permissions: { fileSystem: { read: [], write: [`/etc${z}`] }, network: null } }),
+    { kind: "permission_grant", toolName: "Bash⟦U+200B⟧", asked: { read: [], write: ["/etc⟦U+200B⟧"], network: false } },
+  );
+  assert.deepEqual(approvalDetail({ kind: "plan", plan: `Step${z}`, planFilePath: `/p${z}.md` }), { kind: "plan", plan: "Step⟦U+200B⟧", planFilePath: "/p⟦U+200B⟧.md" });
 });
 
 test("approvalDetail: each kind shows what bb's card shows", () => {
@@ -313,10 +380,18 @@ test("fileChangesFor: finds the approval's item among the thread's events, and c
     { type: "item/started", data: { item: { id: "it_1", type: "fileChange", changes: [{ path: "/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }, { path: "/big.ts", kind: "add", diff: "x".repeat(PATCH_MAX + 5) }] } } },
   ];
   const files = fileChangesFor("it_1", events);
-  assert.deepEqual(files[0], { path: "/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false });
+  assert.deepEqual(files[0], { path: "/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false });
   assert.equal(files[1]?.patch.length, PATCH_MAX);
   assert.equal(files[1]?.cut, true);
   assert.deepEqual(fileChangesFor("missing", events), []);
+  const sly = [{ type: "item/started", data: { item: { id: "it_2", type: "fileChange", changes: [{ path: "/a\u202E.ts", kind: "update", diff: "+ok" }, { path: "/b.ts", kind: "add", diff: "+x\u200By" }] } } }];
+  assert.deepEqual(
+    fileChangesFor("it_2", sly).map(({ path, patch, unseen }) => ({ path, patch, unseen })),
+    [
+      { path: "/a⟦U+202E⟧.ts", patch: "+ok", unseen: true },
+      { path: "/b.ts", patch: "+x⟦U+200B⟧y", unseen: true },
+    ],
+  );
 });
 
 test("pendingAsk: a kind it cannot read is a form, so the thread still shows as blocked", () => {

@@ -310,6 +310,162 @@ describe("the page", () => {
   });
 });
 
+type Approval = Extract<Card["asks"][number], { kind: "approval" }>;
+
+const approval = (threadId: string, detail: Approval["detail"], extra: Partial<Approval> = {}): Card =>
+  card(threadId, {
+    tier: "blocked",
+    lead: "approval",
+    status: "active",
+    asks: [
+      {
+        kind: "approval",
+        interactionId: "int_a",
+        createdAt: NOW - 60_000,
+        subject: detail.kind,
+        summary: "summary",
+        decisions: ["allow_once", "allow_for_session", "deny"],
+        reason: null,
+        detail,
+        unseen: false,
+        ...extra,
+      },
+    ],
+  });
+
+const grant = { read: ["/repo"], write: ["/repo/out"], network: true };
+
+describe("approvals", () => {
+  it("shows a command whole, with where it runs, and answers with the choice pressed", async () => {
+    const slot = renderPage({
+      cards: [
+        approval("thr_c", { kind: "command", command: "git push\n  --force", cwd: "/repo", actions: ["Reads a.ts"], sessionGrant: grant }, { reason: "To publish" }),
+      ],
+      handlers: { page_approve: async () => ({ outcome: "answered", noted: null }) },
+    });
+    const block = await slot.findByText(/git push/);
+    expect(block.textContent).toBe("$ git push\n  --force");
+    expect(slot.getByText("/repo")).toBeTruthy();
+    expect(slot.getByText("· Reads a.ts")).toBeTruthy();
+    expect(slot.getByText("“To publish”")).toBeTruthy();
+    expect(slot.getByText("For session also allows: reads /repo; writes /repo/out; network")).toBeTruthy();
+    expect(slot.getAllByRole("button").map((b) => b.textContent).filter((t) => /Allow|Deny/.test(t ?? ""))).toEqual([
+      "Allow once",
+      "Allow for session",
+      "Deny",
+    ]);
+    fireEvent.click(slot.getByRole("button", { name: "Allow for session" }));
+    await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(1));
+    expect(calls(slot, "page_approve")[0]).toEqual({ threadId: "thr_c", interactionId: "int_a", decision: "allow_for_session" });
+  });
+
+  it("offers only the choices the approval lists, and no session line without Allow for session", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_c", { kind: "command", command: "ls", cwd: null, actions: [], sessionGrant: grant }, { decisions: ["allow_once", "deny"] })],
+    });
+    await slot.findByRole("button", { name: "Allow once" });
+    expect(slot.queryByRole("button", { name: "Allow for session" })).toBeNull();
+    expect(slot.queryByText(/For session also allows/)).toBeNull();
+  });
+
+  it("sends an approval that offers no choice to the thread, with nothing to press here", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_c", { kind: "command", command: "rm -rf build", cwd: null, actions: [], sessionGrant: null }, { decisions: [], summary: "rm -rf build" })],
+    });
+    fireEvent.click(await slot.findByRole("button", { name: /Answer in the thread/ }));
+    expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ threadId: "thr_c" });
+    expect(slot.queryByRole("button", { name: "Allow once" })).toBeNull();
+    expect(slot.queryByRole("button", { name: "Deny" })).toBeNull();
+  });
+
+  it("warns when what it shows held characters that don't draw", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_c", { kind: "command", command: "ls ⟦U+202E⟧hs.gpj", cwd: null, actions: [], sessionGrant: null }, { unseen: true })],
+    });
+    expect((await slot.findByRole("alert")).textContent).toMatch(/characters that don't show/);
+    expect(slot.getByText(/hs\.gpj/).textContent).toContain("⟦U+202E⟧");
+  });
+
+  it("calls a plan's choices Approve plan and Keep planning, and sends a note only with Keep planning", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_p", { kind: "plan", plan: "## Offline queue\n1. Store", planFilePath: "/plans/q.md" }, { decisions: ["allow_once", "deny"] })],
+      handlers: { page_approve: async () => ({ outcome: "answered", noted: "sent" }) },
+    });
+    expect((await slot.findByTestId("bb-markdown")).textContent).toBe("## Offline queue\n1. Store");
+    expect(slot.getByText("/plans/q.md")).toBeTruthy();
+    fireEvent.change(slot.getByLabelText("Note for Keep planning"), { target: { value: "  Split it in two.  " } });
+    fireEvent.click(slot.getByRole("button", { name: "Approve plan" }));
+    await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(1));
+    expect(calls(slot, "page_approve")[0]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "allow_once" });
+    fireEvent.click(slot.getByRole("button", { name: "Keep planning" }));
+    await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(2));
+    expect(calls(slot, "page_approve")[1]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "deny", note: "Split it in two." });
+  });
+
+  it("folds a long plan behind Show whole plan", async () => {
+    const plan = Array.from({ length: 30 }, (_, i) => `${i + 1}. step`).join("\n");
+    const slot = renderPage({ cards: [approval("thr_p", { kind: "plan", plan, planFilePath: null }, { decisions: ["allow_once", "deny"] })] });
+    fireEvent.click(await slot.findByRole("button", { name: "Show whole plan" }));
+    expect(slot.getByRole("button", { name: "Fold the plan" })).toBeTruthy();
+  });
+
+  it("shows a file change's diff, one file open at a time", async () => {
+    const slot = renderPage({
+      cards: [
+        approval("thr_f", {
+          kind: "file_change",
+          itemId: "it",
+          writeScope: "/repo",
+          sessionGrant: null,
+          files: [
+            { path: "/repo/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false },
+            { path: "/repo/b.ts", change: "add", patch: "+new", cut: true, unseen: false },
+          ],
+        }),
+      ],
+    });
+    const diff = await slot.findByTestId("bb-diff");
+    expect(diff.getAttribute("data-path")).toBe("/repo/a.ts");
+    expect(diff.textContent).toBe("@@ -1 +1 @@\n-a\n+b");
+    fireEvent.click(slot.getByRole("button", { name: /\/repo\/b\.ts/ }));
+    expect(slot.getAllByTestId("bb-diff").map((d) => d.getAttribute("data-path"))).toEqual(["/repo/b.ts"]);
+    expect(slot.getByText("The rest of this diff is in the thread.")).toBeTruthy();
+  });
+
+  it("says where a file change writes when its diff couldn't be read", async () => {
+    const slot = renderPage({ cards: [approval("thr_f", { kind: "file_change", itemId: "it", writeScope: "/repo", sessionGrant: null, files: [] })] });
+    expect((await slot.findByText(/couldn't be read here/)).textContent).toMatch(/Writes in \/repo/);
+  });
+
+  it("names the tool that runs beside its own title, and marks a destructive one", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_t", { kind: "tool_use", tool: "Bash", title: "Tidy the cache", detail: "rm -rf .cache", destructive: true, badge: "Destructive" })],
+    });
+    expect(await slot.findByText("Tidy the cache")).toBeTruthy();
+    expect(slot.getByText("Bash")).toBeTruthy();
+    expect(slot.getByText("Destructive")).toBeTruthy();
+    expect(slot.getByText("rm -rf .cache")).toBeTruthy();
+  });
+
+  it("lists what a permission asks for", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_g", { kind: "permission_grant", toolName: "Bash", asked: { read: ["/notes"], write: [], network: false } })],
+    });
+    expect(await slot.findByText("/notes")).toBeTruthy();
+    expect(slot.getByText("nothing")).toBeTruthy();
+    expect(slot.getByText("no")).toBeTruthy();
+  });
+
+  it("says so when the approval was already answered", async () => {
+    const slot = renderPage({
+      cards: [approval("thr_c", { kind: "command", command: "ls", cwd: null, actions: [], sessionGrant: null })],
+      handlers: { page_approve: async () => ({ outcome: "stale", noted: null }) },
+    });
+    fireEvent.click(await slot.findByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("That approval was already answered, or withdrawn."));
+  });
+});
+
 describe("families", () => {
   const merged = { ...pr("merged", { state: "merged" }), action: "merged" as const };
   const ready = { ...pr("ready_to_merge", { number: 13 }), action: "merge" as const };

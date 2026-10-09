@@ -3664,11 +3664,11 @@ export default async function plugin(bb: BbPluginApi) {
         types: ["item/started"],
       });
       const list = Array.isArray(events) ? events : [];
-      return asks.map((ask) =>
-        ask.kind === "approval" && ask.detail.kind === "file_change"
-          ? { ...ask, detail: { ...ask.detail, files: fileChangesFor(ask.detail.itemId, list) } }
-          : ask,
-      );
+      return asks.map((ask) => {
+        if (ask.kind !== "approval" || ask.detail.kind !== "file_change") return ask;
+        const files = fileChangesFor(ask.detail.itemId, list);
+        return { ...ask, unseen: ask.unseen || files.some((file) => file.unseen), detail: { ...ask.detail, files } };
+      });
     } catch (error) {
       bb.log.warn(`page: could not read ${threadId}'s file changes: ${String(error)}`);
       return asks;

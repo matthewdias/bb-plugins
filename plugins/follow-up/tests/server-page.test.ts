@@ -656,6 +656,14 @@ test("page: an approval no longer pending is stale, and a choice it doesn't offe
   assert.equal(calls("threads.interactions.resolve").length, 0);
 });
 
+test("page: an answer goes only to the approval it was given for, whatever bb hands back", async () => {
+  const { call, calls, harness } = await host({ threads: [threadRow("thr_cmd", { hasPendingInteraction: true })] });
+  harness.sdk.stub("threads.interactions.get", () => approvalInteraction("int_other", { kind: "command", command: "rm -rf /" }));
+  const result = await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision: "allow_once" });
+  assert.equal(result.outcome, "stale");
+  assert.equal(calls("threads.interactions.resolve").length, 0);
+});
+
 test("page: Keep planning denies the plan, then steers the note into the turn", async () => {
   const { call, calls, harness } = await host({
     threads: [threadRow("thr_plan", { status: "active", hasPendingInteraction: true })],
@@ -697,5 +705,30 @@ test("page: a file change's approval carries its diff from the thread's events",
     },
   });
   const page = await call("page_snapshot");
-  assert.deepEqual(page.cards[0].asks[0].detail.files, [{ path: "/repo/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false }]);
+  assert.deepEqual(page.cards[0].asks[0].detail.files, [{ path: "/repo/a.ts", change: "update", patch: "@@ -1 +1 @@\n-a\n+b", cut: false, unseen: false }]);
+  assert.equal(page.cards[0].asks[0].unseen, false);
+});
+
+test("page: a diff holding a character that doesn't draw warns on the whole approval", async () => {
+  const { call } = await host({
+    threads: [threadRow("thr_edit", { status: "active", hasPendingInteraction: true })],
+    interactions: { thr_edit: [approvalInteraction("int_f", { kind: "file_change", itemId: "it_7", writeScope: "/repo", sessionGrant: null })] },
+    events: {
+      thr_edit: [{ type: "item/started", data: { item: { id: "it_7", type: "fileChange", changes: [{ path: "/repo/a.ts", kind: "update", diff: "+if (admin\u202E) {" }] } } }],
+    },
+  });
+  const page = await call("page_snapshot");
+  assert.equal(page.cards[0].asks[0].unseen, true);
+  assert.equal(page.cards[0].asks[0].detail.files[0].patch, "+if (admin⟦U+202E⟧) {");
+});
+
+test("page: an approval that offers no choice can't be answered from the page", async () => {
+  const { call, calls } = await host({
+    threads: [threadRow("thr_cmd", { hasPendingInteraction: true })],
+    interactions: { thr_cmd: [approvalInteraction("int_c", { kind: "command", command: "rm -rf build" }, { availableDecisions: [] })] },
+  });
+  for (const decision of ["allow_once", "deny"] as const) {
+    assert.deepEqual(await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision }), { outcome: "refused", noted: null });
+  }
+  assert.equal(calls("threads.interactions.resolve").length, 0);
 });

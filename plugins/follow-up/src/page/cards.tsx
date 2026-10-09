@@ -33,6 +33,7 @@ import { WrapUp } from "../wrap-up.tsx";
 import { setRows } from "../store.ts";
 import { isChangeSignal } from "../use-follow-ups.ts";
 import { StillOpen } from "./rows.tsx";
+import { ApprovalForm } from "./approvals.tsx";
 import type { FollowUpRpc } from "../rpc.ts";
 import {
   DropdownMenu,
@@ -228,6 +229,14 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
         first?.kind === "question" ? <QuestionForm card={card} ask={first} rpc={rpc} /> : null;
       break;
     case "approval":
+      // One that offers no choice is answered where bb can say what it means.
+      main =
+        first?.kind === "approval" && first.decisions.length > 0 ? (
+          <ApprovalForm card={card} ask={first} />
+        ) : first === undefined ? null : (
+          <OpenToAnswer card={card} ask={first} />
+        );
+      break;
     case "form":
       main = first === undefined ? null : <OpenToAnswer card={card} ask={first} />;
       break;
@@ -615,7 +624,7 @@ function QuestionForm({
   );
 }
 
-// --- approvals and forms: answered in the thread for now ------------------------
+// --- forms, and approvals that offer no choice: answered in the thread -----------
 
 function OpenToAnswer({ card, ask }: { card: Card; ask: PendingAsk }) {
   const navigate = useBbNavigate();
