@@ -97,23 +97,27 @@ export function FollowUpPage(_props: PluginNavPanelProps) {
           <span className="text-xs text-destructive">Showing the last update; the newest did not load.</span>
         )}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {compact ? (
+      {compact ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-3 p-3">
             {tab === "asks" && <Cards snapshot={snapshot} now={now} />}
             {tab === "running" && <InMotion running={snapshot.running} now={now} />}
             {tab === "followups" && <FollowUpsLane groups={snapshot.followUps} />}
           </div>
-        ) : (
-          <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)_20rem] items-start gap-5 px-6 py-5">
+        </div>
+      ) : (
+        // Two scrollers, not one: a long follow-ups lane shouldn't carry the
+        // cards off screen, nor a long list of cards the lanes.
+        <div className="mx-auto grid min-h-0 w-full max-w-6xl flex-1 grid-cols-[minmax(0,1fr)_20rem] gap-5 px-6">
+          <div data-scroll="cards" className="min-h-0 overflow-y-auto py-5">
             <Cards snapshot={snapshot} now={now} />
-            <aside className="flex flex-col gap-3">
-              <InMotion running={snapshot.running} now={now} />
-              <FollowUpsLane groups={snapshot.followUps} />
-            </aside>
           </div>
-        )}
-      </div>
+          <aside data-scroll="lanes" className="flex min-h-0 flex-col gap-3 overflow-y-auto py-5">
+            <InMotion running={snapshot.running} now={now} />
+            <FollowUpsLane groups={snapshot.followUps} />
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

@@ -201,9 +201,10 @@ nobody comes back to.
 A pull request gets a card when bb's roll-up of its checks, review and
 mergeability says it wants you: ready to merge, review requested, changes
 requested, checks failed, conflicts, or merged. Only pull requests on a
-thread's own worktree count, since a shared checkout's branch belongs to no one
-thread, and only once the thread is idle, since a working agent is still
-pushing. They're looked up in the background, four at a time, cached for five
+worktree count, since a shared checkout's branch belongs to no one thread, and
+the card goes to the thread that opened the worktree, so a review thread or a
+hand-off started there later never takes it. It shows once that thread is idle,
+since a working agent is still pushing. They're looked up in the background, four at a time, cached for five
 minutes and looked up again when a turn ends, so the page never waits on
 GitHub.
 
@@ -236,7 +237,8 @@ out-of-scope row or one on an archived thread, and its ⋯ menu files it, marks
 it done or dismisses it.
 
 A Thread Page or GitHub link opens wherever your bb browser preference sends
-links. On a phone, the cards, In motion and Follow-ups are three tabs. The page
+links. On a wide window the cards and the two lanes scroll separately. On a phone,
+the cards, In motion and Follow-ups are three tabs. The page
 updates itself whenever a question arrives, a turn ends, a thread is read or
 archived, or a follow-up changes, without polling.
 

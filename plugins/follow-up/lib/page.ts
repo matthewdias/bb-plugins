@@ -73,6 +73,8 @@ export interface ThreadFacts {
   lastReadAt: number | null;
   latestAttentionAt: number;
   updatedAt: number;
+  /** When the thread was created: the first thread in a worktree opened it. */
+  createdAt: number;
   hasPendingInteraction: boolean;
   environmentId: string | null;
   environmentIsWorktree: boolean;
@@ -100,6 +102,7 @@ export function threadFacts(row: Record<string, unknown>): ThreadFacts | null {
     lastReadAt: num(row.lastReadAt),
     latestAttentionAt: num(row.latestAttentionAt) ?? 0,
     updatedAt: num(row.updatedAt) ?? 0,
+    createdAt: num(row.createdAt) ?? 0,
     hasPendingInteraction: row.hasPendingInteraction === true,
     environmentId: text(row.environmentId),
     environmentIsWorktree: row.environmentIsWorktree === true,
@@ -248,6 +251,18 @@ export function pendingAsk(interaction: unknown): PendingAsk | null {
   return { kind: "form", interactionId, createdAt, title };
 }
 
+/**
+ * The asks a thread is shown with. bb says the thread is waiting on you
+ * (`hasPendingInteraction`) but none could be read — the read failed, or
+ * came back empty in a race — so it gets one generic ask that opens the
+ * thread. A thread bb says is stopped on you never drops off the page: a
+ * busy one would otherwise be on neither the cards nor In motion.
+ */
+export function asksFor(thread: ThreadFacts, read: readonly PendingAsk[]): PendingAsk[] {
+  if (read.length > 0 || !thread.hasPendingInteraction) return [...read];
+  return [{ kind: "form", interactionId: "", createdAt: thread.updatedAt, title: "Waiting on you in the thread" }];
+}
+
 function approvalSummary(subject: Record<string, unknown>): string {
   switch (subject.kind) {
     case "command":
@@ -366,15 +381,21 @@ export function prAction(pr: PrSummary): PrAction | null {
  *
  * Only worktrees: a shared checkout's branch belongs to no one thread, and
  * asking for its pull request would hang the same one on every thread in the
- * project. And only one thread per worktree, the most recently active, so a
- * worktree two threads share shows its pull request once.
+ * project. And only one thread per worktree: the one that opened it, the
+ * earliest created. Not the most recently active — a review thread or a
+ * hand-off started in the same worktree is newer and busier, and owning the
+ * PR would send it "fix this" and "I merged it" meant for the author.
  */
 export function prOwners(threads: readonly ThreadFacts[]): Map<string, string> {
   const best = new Map<string, ThreadFacts>();
   for (const thread of threads) {
     if (thread.archived || !thread.environmentIsWorktree || thread.environmentId === null) continue;
     const current = best.get(thread.environmentId);
-    if (current === undefined || thread.updatedAt > current.updatedAt) {
+    if (
+      current === undefined ||
+      thread.createdAt < current.createdAt ||
+      (thread.createdAt === current.createdAt && thread.id < current.id)
+    ) {
       best.set(thread.environmentId, thread);
     }
   }
@@ -469,6 +490,12 @@ export const baseCardSchema = z.object({
   lead: z.enum(LEADS),
   /** Epoch ms: when the oldest ask arrived, or the turn ended. */
   since: z.number(),
+  /**
+   * The thread's own attention mark, which "Not now" hides it at. Not always
+   * `since`: a family card's `since` can be a worker's, and hiding the parent
+   * at that would bring the parent straight back.
+   */
+  attentionAt: z.number(),
   asks: z.array(pendingAskSchema),
   offer: offerSchema.nullable(),
   openFollowUps: z.number(),
@@ -567,6 +594,7 @@ export function cardFor(input: ThreadInputs): Card | null {
     tier,
     lead,
     since: blocked ? oldest(input.asks).createdAt : thread.latestAttentionAt,
+    attentionAt: thread.latestAttentionAt,
     asks: [...input.asks].sort((a, b) => a.createdAt - b.createdAt),
     offer,
     openFollowUps: input.openFollowUps,
@@ -677,6 +705,7 @@ export function combineFamilies(cards: readonly Card[], threads: readonly Thread
       tier,
       lead: "workers",
       since,
+      attentionAt: root.latestAttentionAt,
       asks: [],
       offer: null,
       openFollowUps: 0,

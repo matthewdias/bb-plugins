@@ -19,6 +19,7 @@ const threadRow = (id: string, extra: Row = {}): Row => ({
   lastReadAt: 100,
   latestAttentionAt: 100,
   updatedAt: NOW - 1000,
+  createdAt: NOW - 100_000,
   hasPendingInteraction: false,
   environmentId: null,
   environmentIsWorktree: false,
@@ -337,6 +338,29 @@ test("page: thread changes that can move a card signal once per burst; streamed 
   assert.equal(signals(), 1);
 });
 
+test("page: reparenting a thread or changing its environment signals open pages", async () => {
+  for (const kind of ["parent-changed", "environment-changed"]) {
+    const { change, signals } = await host();
+    change(kind);
+    await settle();
+    assert.equal(signals(), 1, kind);
+  }
+});
+
+test("page: the strip never shows a finished card, even with room to spare", async () => {
+  const { call } = await host({
+    threads: [
+      threadRow("thr_q", { hasPendingInteraction: true }),
+      threadRow("thr_done", { latestAttentionAt: 300, lastReadAt: 100 }),
+    ],
+    interactions: { thr_q: [questionInteraction("int_1")] },
+    outputs: { thr_done: "Done." },
+  });
+  const summary = await call("page_summary");
+  assert.deepEqual(summary.top.map((c: any) => c.threadId), ["thr_q"]);
+  assert.equal(summary.count, 1);
+});
+
 test("page: a new pending question signals open pages", async () => {
   const { harness, signals } = await host();
   await harness.emitThreadEvent("interaction.pending", { threadId: "thr_a" } as never);
@@ -359,6 +383,34 @@ test("page: a review thread starts unparented in the PR's worktree, and its card
   await settle();
   const page = await call("page_snapshot");
   assert.equal(page.cards[0].reviewThreadId, "thr_spawned1");
+});
+
+test("page: the review thread, newer and busier in the same worktree, never takes the author's PR", async () => {
+  const { call, w } = await host({
+    threads: [threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
+    prs: { env_w: prResponse("ready_to_merge") },
+  });
+  await call("page_pr_review", { threadId: "thr_pr", prompt: "Review PR #44." });
+  // The host lists the reviewer it just spawned, in the author's worktree.
+  w.threads.push(
+    threadRow("thr_spawned1", {
+      environmentId: "env_w",
+      environmentIsWorktree: true,
+      createdAt: NOW,
+      updatedAt: NOW,
+      latestAttentionAt: 900,
+      lastReadAt: 100,
+    }),
+  );
+  w.outputs.thr_spawned1 = "No findings.";
+  await call("page_snapshot");
+  await settle();
+  const page = await call("page_snapshot");
+  const author = page.cards.find((c: any) => c.threadId === "thr_pr");
+  const reviewer = page.cards.find((c: any) => c.threadId === "thr_spawned1");
+  assert.equal(author?.pr?.action, "merge", "the PR stays on the author's card");
+  assert.equal(author?.reviewThreadId, "thr_spawned1", "with its Review thread link");
+  assert.equal(reviewer?.pr ?? null, null, "the reviewer's card has no PR to merge or fix");
 });
 
 test("page: handing off from the lane spawns a thread and closes the row", async () => {
@@ -437,4 +489,38 @@ test("page: a reload stops the change feed and the pending signal, so nothing to
   } finally {
     process.off("uncaughtException", onError);
   }
+});
+
+test("page: a busy thread bb says is waiting stays on the page when its asks cannot be read", async () => {
+  const { call, harness } = await host({
+    threads: [threadRow("thr_stuck", { status: "active", hasPendingInteraction: true })],
+  });
+  harness.sdk.stub("threads.interactions.list", () => {
+    throw new Error("interactions unavailable");
+  });
+  const page = await call("page_snapshot");
+  assert.deepEqual(
+    page.cards.map((c: any) => [c.threadId, c.tier, c.lead, c.asks[0]?.title]),
+    [["thr_stuck", "blocked", "form", "Waiting on you in the thread"]],
+  );
+});
+
+test("page: archived threads in the follow-ups lane are looked up at once, not one after another", async () => {
+  const others = Object.fromEntries(
+    [1, 2, 3, 4].map((n) => [`thr_arch${n}`, threadRow(`thr_arch${n}`, { archivedAt: 5 })]),
+  );
+  const { call, record, harness } = await host({ threads: [], others });
+  for (const id of Object.keys(others)) await record(id, `Row on ${id}`);
+  let active = 0;
+  let most = 0;
+  harness.sdk.stub("threads.get", async (args: { threadId: string }) => {
+    active += 1;
+    most = Math.max(most, active);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    active -= 1;
+    return others[args.threadId];
+  });
+  const page = await call("page_snapshot");
+  assert.equal(page.followUps[0]?.threads.length, 4);
+  assert.ok(most > 1, `lookups overlapped (at most ${most} at once)`);
 });

@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activityLabel,
+  asksFor,
   capFinished,
   cardFor,
   combineFamilies,
@@ -46,6 +47,7 @@ const thread = (extra: Partial<ThreadFacts> = {}): ThreadFacts => ({
   lastReadAt: 100,
   latestAttentionAt: 100,
   updatedAt: 100,
+  createdAt: 100,
   hasPendingInteraction: false,
   environmentId: null,
   environmentIsWorktree: false,
@@ -116,6 +118,7 @@ test("threadFacts: reads a list row, falling back to the generated title", () =>
     lastReadAt: 5,
     latestAttentionAt: 9,
     updatedAt: 9,
+    createdAt: 3,
     hasPendingInteraction: true,
     environmentId: "env_1",
     environmentIsWorktree: true,
@@ -131,6 +134,7 @@ test("threadFacts: reads a list row, falling back to the generated title", () =>
     lastReadAt: 5,
     latestAttentionAt: 9,
     updatedAt: 9,
+    createdAt: 3,
     hasPendingInteraction: true,
     environmentId: "env_1",
     environmentIsWorktree: true,
@@ -230,6 +234,15 @@ test("pendingAsk: a kind it cannot read is a form, so the thread still shows as 
   const ask = pendingAsk({ id: "i", status: "pending", createdAt: 2, payload: { kind: "plugin", title: "Grill round" } });
   assert.deepEqual(ask, { kind: "form", interactionId: "i", createdAt: 2, title: "Grill round" });
   assert.equal(pendingAsk({ id: "i", status: "pending" })?.kind, "form");
+});
+
+test("asksFor: a thread bb flags as waiting gets a generic ask when none could be read", () => {
+  const waiting = thread({ hasPendingInteraction: true, updatedAt: 42 });
+  assert.deepEqual(asksFor(waiting, []), [
+    { kind: "form", interactionId: "", createdAt: 42, title: "Waiting on you in the thread" },
+  ]);
+  assert.deepEqual(asksFor(waiting, [question(7)]).map((ask) => ask.kind), ["question"]);
+  assert.deepEqual(asksFor(thread(), []), [], "nothing invented for a thread bb says is not waiting");
 });
 
 // --- cards ---------------------------------------------------------------------
@@ -413,14 +426,22 @@ test("prSummary: reads an available answer and treats anything else as nothing",
   assert.equal(prSummary(null), null);
 });
 
-test("prOwners: one thread per worktree, the most recently active, and no shared checkouts", () => {
+test("prOwners: one thread per worktree, the one that opened it, and no shared checkouts", () => {
   const owners = prOwners([
-    thread({ id: "old", environmentId: "env_w", environmentIsWorktree: true, updatedAt: 1 }),
-    thread({ id: "new", environmentId: "env_w", environmentIsWorktree: true, updatedAt: 9 }),
-    thread({ id: "shared", environmentId: "env_s", environmentIsWorktree: false, updatedAt: 9 }),
+    thread({ id: "later", environmentId: "env_w", environmentIsWorktree: true, createdAt: 5 }),
+    thread({ id: "opener", environmentId: "env_w", environmentIsWorktree: true, createdAt: 1 }),
+    thread({ id: "shared", environmentId: "env_s", environmentIsWorktree: false, createdAt: 1 }),
     thread({ id: "gone", environmentId: "env_g", environmentIsWorktree: true, archived: true }),
   ]);
-  assert.deepEqual([...owners], [["env_w", "new"]]);
+  assert.deepEqual([...owners], [["env_w", "opener"]]);
+});
+
+test("prOwners: a newer, busier review thread in the same worktree does not take the PR", () => {
+  const owners = prOwners([
+    thread({ id: "author", environmentId: "env_w", environmentIsWorktree: true, createdAt: 1, updatedAt: 1000 }),
+    thread({ id: "review", environmentId: "env_w", environmentIsWorktree: true, createdAt: 2, updatedAt: 2000 }),
+  ]);
+  assert.equal(owners.get("env_w"), "author");
 });
 
 test("PR messages name the PR and what is wrong", () => {
@@ -523,6 +544,24 @@ test("combineFamilies: a worker folds into its parent's card, which takes the mo
   assert.equal(combined[0]?.since, 30);
   assert.deepEqual(combined[0]?.workers.map((w) => w.threadId), ["w1", "w2"]);
   assert.equal(countOf(combined), 1, "a family counts once");
+});
+
+test("combineFamilies: the family card keeps the parent's own attention mark", () => {
+  // Parent unread and asking nothing at 300; a worker with steps at 200.
+  const threads = [fam("p", null, { latestAttentionAt: 300 }), fam("w", "p", { latestAttentionAt: 200 })];
+  const parent = famCard("p", null, "finished", 300, { attentionAt: 300 });
+  const worker = famCard("w", "p", "turn", 200, { attentionAt: 200 });
+  const [family] = combineFamilies([parent, worker], threads);
+  assert.equal(family?.since, 200, "the family sorts by its turn");
+  assert.equal(family?.attentionAt, 300, "but Not now hides the parent at its own mark");
+});
+
+test("combineFamilies: a parent with no card of its own carries its own attention mark", () => {
+  const [family] = combineFamilies(
+    [famCard("w", "p", "turn", 50)],
+    [fam("p", null, { latestAttentionAt: 70 }), fam("w", "p")],
+  );
+  assert.equal(family?.attentionAt, 70);
 });
 
 test("combineFamilies: a blocked worker keeps its own card", () => {

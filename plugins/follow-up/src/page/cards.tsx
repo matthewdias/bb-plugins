@@ -124,9 +124,10 @@ export function PageCard({
     try {
       // A family is put away whole: the parent and every worker folded into it,
       // each until something new happens on that thread.
+      // Each at its own attention mark, never the family's `since`.
       await Promise.all([
-        rpc.call("page_hide", { threadId: card.threadId, at: card.since }),
-        ...card.workers.map((worker) => rpc.call("page_hide", { threadId: worker.threadId, at: worker.since })),
+        rpc.call("page_hide", { threadId: card.threadId, at: card.attentionAt }),
+        ...card.workers.map((worker) => rpc.call("page_hide", { threadId: worker.threadId, at: worker.attentionAt })),
       ]);
     } catch {
       toast.error("It could not be hidden. Try again.");
@@ -945,6 +946,8 @@ function MergedActions({ card, rpc }: { card: Card; rpc: Rpc }) {
     try {
       const result = await rpc.call("page_archive", { threadId: card.threadId });
       if (result.outcome === "failed") toast.error("It could not be archived. Try again.");
+    } catch {
+      toast.error("It could not be archived. Try again.");
     } finally {
       setBusy(false);
     }

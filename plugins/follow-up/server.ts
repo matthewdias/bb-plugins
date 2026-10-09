@@ -106,6 +106,7 @@ import {
 } from "./lib/wrap-up.ts";
 import {
   activityLabel,
+  asksFor,
   capFinished,
   cardFor,
   cardSchema,
@@ -1039,6 +1040,10 @@ const PAGE_RELEVANT_CHANGES: ReadonlySet<string> = new Set([
   "thread-deleted",
   "title-changed",
   "queue-changed",
+  // Families fold by parent, and a worktree's PR goes to the thread that
+  // opened it: either can move a card without any of the above changing.
+  "parent-changed",
+  "environment-changed",
 ]);
 
 const TOOL_INSTRUCTIONS = [
@@ -3770,7 +3775,7 @@ export default async function plugin(bb: BbPluginApi) {
     const cards = (
       await Promise.all(
         threads.map(async (thread) => {
-          const asks = thread.hasPendingInteraction ? await readPendingAsks(thread.id) : [];
+          const asks = asksFor(thread, thread.hasPendingInteraction ? await readPendingAsks(thread.id) : []);
           const busy = isBusy(thread.status);
           if (asks.length === 0 && busy) return null;
           const [offer, wrapRecord, hiddenAt, review, { rows }] = await Promise.all([
@@ -3846,22 +3851,27 @@ export default async function plugin(bb: BbPluginApi) {
       bb.log.warn(`page: could not list projects: ${String(error)}`);
     }
 
-    const laneInputs: LaneInput[] = [];
-    for (const threadId of withItems) {
-      const { rows } = await rowsOf(threadId);
-      if (rows.length === 0) continue;
-      const live = byId.get(threadId);
-      const info = live ?? (await readArchivedThread(threadId));
-      if (info === null) continue;
-      laneInputs.push({
-        threadId,
-        title: info.title,
-        projectId: info.projectId,
-        archived: live === undefined,
-        updatedAt: info.updatedAt,
-        rows,
-      });
-    }
+    // In parallel: rows outlive archiving, so this is every thread that ever
+    // recorded one, and reading them in turn made each refetch wait on all.
+    const laneInputs = (
+      await Promise.all(
+        [...withItems].map(async (threadId): Promise<LaneInput | null> => {
+          const { rows } = await rowsOf(threadId);
+          if (rows.length === 0) return null;
+          const live = byId.get(threadId);
+          const info = live ?? (await readArchivedThread(threadId));
+          if (info === null) return null;
+          return {
+            threadId,
+            title: info.title,
+            projectId: info.projectId,
+            archived: live === undefined,
+            updatedAt: info.updatedAt,
+            rows,
+          };
+        }),
+      )
+    ).filter((input): input is LaneInput => input !== null);
 
     return {
       count,
@@ -4319,7 +4329,8 @@ export default async function plugin(bb: BbPluginApi) {
     },
     page_summary: async () => {
       const page = await buildPage(false);
-      return { count: page.count, top: page.ranked.slice(0, STRIP_MAX) };
+      // The strip shows what needs you, as the count does: never a finished card.
+      return { count: page.count, top: page.ranked.filter((card) => card.tier !== "finished").slice(0, STRIP_MAX) };
     },
     page_answer: async ({ threadId, interactionId, answers }) => {
       try {

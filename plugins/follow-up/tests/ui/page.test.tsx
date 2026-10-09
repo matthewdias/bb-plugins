@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import { toast } from "sonner";
 import { FollowUpPage, FollowUpPageCount, NeedsYouStrip } from "../../src/page/page.tsx";
 import type { Card, LaneGroup, PrSummary, Running } from "../../lib/page.ts";
 
@@ -23,6 +24,7 @@ const card = (threadId: string, extra: Partial<Card> = {}): Card => ({
   tier: "finished",
   lead: "finished",
   since: NOW - 5 * 60_000,
+  attentionAt: NOW - 5 * 60_000,
   asks: [],
   offer: null,
   openFollowUps: 0,
@@ -156,7 +158,7 @@ describe("the page", () => {
   });
 
   it("Not now hides a card at the attention it was showing", async () => {
-    const done = card("thr_done", { since: 12345 });
+    const done = card("thr_done", { since: 12345, attentionAt: 12345 });
     const slot = renderPage({ cards: [done] });
     fireEvent.click(await slot.findByRole("button", { name: /Not now/ }));
     await waitFor(() => expect(calls(slot, "page_hide")).toEqual([{ threadId: "thr_done", at: 12345 }]));
@@ -214,6 +216,19 @@ describe("the page", () => {
     fireEvent.click(toggle);
     fireEvent.click(slot.getByRole("button", { name: /^Merge$/ }));
     await waitFor(() => expect(merges).toEqual([{ threadId: "thr_pr" }]));
+  });
+
+  it("says so when archiving a merged PR's thread fails, rather than failing silently", async () => {
+    const slot = renderPage({
+      cards: [card("thr_pr", { lead: "pr", pr: { ...pr("merged", { state: "merged" }), action: "merged" } })],
+      handlers: {
+        page_archive: async () => {
+          throw new Error("server went away");
+        },
+      },
+    });
+    fireEvent.click(await slot.findByRole("button", { name: /Archive thread/ }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("It could not be archived. Try again."));
   });
 
   it("offers to tell the thread about a PR merged somewhere else", async () => {
@@ -326,6 +341,14 @@ describe("families", () => {
     );
   });
 
+  it("Not now hides the parent at its own attention mark, not the family's", async () => {
+    // The family's since is a worker's (200); the parent's own mark is 300.
+    const slot = renderPage({ cards: [{ ...family, since: 200, attentionAt: 300 }] });
+    fireEvent.click(await slot.findByRole("button", { name: /Not now/ }));
+    await waitFor(() => expect(calls(slot, "page_hide")).toHaveLength(4));
+    expect(calls(slot, "page_hide").find((input: any) => input.threadId === "thr_dev6")).toEqual({ threadId: "thr_dev6", at: 300 });
+  });
+
   it("Not now puts the whole family away", async () => {
     const slot = renderPage({ cards: [{ ...family, since: 500 }] });
     fireEvent.click(await slot.findByRole("button", { name: /Not now/ }));
@@ -351,6 +374,21 @@ describe("families", () => {
     fireEvent.click(within(motion).getByRole("button", { name: "Show actions" }));
     expect(within(motion).getByText("Editing app.tsx")).toBeTruthy();
     expect(within(motion).queryByRole("button", { name: /Stop/ })).toBeNull();
+  });
+});
+
+describe("layout", () => {
+  it("scrolls the cards and the lanes separately on a wide window", async () => {
+    const slot = renderPage({ cards: [card("thr_a")] });
+    await slot.findByRole("region", { name: "In motion" });
+    const cards = slot.container.querySelector('[data-scroll="cards"]');
+    const lanes = slot.container.querySelector('[data-scroll="lanes"]');
+    expect(cards?.className).toMatch(/\boverflow-y-auto\b/);
+    expect(lanes?.className).toMatch(/\boverflow-y-auto\b/);
+    expect(lanes?.contains(slot.getByRole("region", { name: "In motion" }))).toBe(true);
+    expect(cards?.contains(slot.getByRole("region", { name: "Finished" }))).toBe(true);
+    // Nothing above them scrolls, or the two would scroll together.
+    expect(cards?.parentElement?.parentElement?.className ?? "").not.toMatch(/\boverflow-y-auto\b/);
   });
 });
 
