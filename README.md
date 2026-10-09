@@ -1,9 +1,10 @@
 # bb-plugins
 
-Ten plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
+Eleven plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
 
 | Plugin | |
 | --- | --- |
+| **[Declutter](plugins/declutter)** | Choose which thread-header controls, composer banners and message actions show, bb's own and every plugin's. Switch one off and it is gone in every window. |
 | **[Follow Up](plugins/follow-up)** | Keeps the work an agent noticed but skipped, so nothing is lost when a turn ends. Triage what a thread accumulated above the composer. |
 | **[Mark Unread](plugins/mark-unread)** | Marks a thread unread from any message, as in Slack: from the message's action bar or with Option-click. A New line marks the spot, and coming back scrolls you to it. |
 | **[Plugin Triage](plugins/plugin-triage)** | Decide on plugins one card at a time from a Triage tab in bb's Plugins screen: queue newly published plugins to install, queue pending updates, and clear out plugins you turned off or don't use, then run the queue in the background. |
@@ -28,6 +29,9 @@ draw.
 One at a time, by subdirectory:
 
 ```sh
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
+  --subdirectory plugins/declutter --tag-prefix declutter/
+
 bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/follow-up --tag-prefix follow-up/
 
@@ -64,7 +68,7 @@ the newest release of that plugin alone and these lines never go stale. A caret
 range would: on a `0.x` version `^0.1.0` cannot reach `0.2.0` at all, which is
 how this page came to offer a plugin two minor versions behind.
 `--plugin <name>` works instead of `--subdirectory` — the repository carries a
-`.bb/plugins.json` index naming all ten.
+`.bb/plugins.json` index naming all eleven.
 
 See each plugin's README for what it does, its settings, and its agent surface.
 
