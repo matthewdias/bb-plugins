@@ -59,6 +59,7 @@ const inputs = (extra: Partial<ThreadInputs> = {}): ThreadInputs => ({
   reply: null,
   hiddenAt: null,
   parentTitle: null,
+  review: null,
   ...extra,
 });
 
@@ -363,6 +364,12 @@ test("capFinished: keeps every ask and only the newest finished cards", () => {
 });
 
 // --- pull requests ---------------------------------------------------------------
+
+test("cardFor: a review thread shows only for the pull request it was started for", () => {
+  const started = { prNumber: 44, threadId: "thr_review" };
+  assert.equal(cardFor(inputs({ pr: pr("ready_to_merge"), review: started }))?.reviewThreadId, "thr_review");
+  assert.equal(cardFor(inputs({ pr: pr("ready_to_merge", { number: 45 }), review: started }))?.reviewThreadId, null);
+});
 
 test("prAction: maps bb's attention roll-up to what the card offers", () => {
   assert.equal(prAction(pr("ready_to_merge")), "merge");

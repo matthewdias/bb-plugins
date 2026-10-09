@@ -51,6 +51,9 @@ export const EXCERPT_MAX = 320;
 /** How many cards the new-thread page's strip shows. */
 export const STRIP_MAX = 3;
 
+/** The longest message the page sends into a thread for you. */
+export const REPLY_MAX = 8000;
+
 export type Tier = "blocked" | "turn" | "finished";
 
 /** What the page needs to know about a thread, from one `threads.list` row. */
@@ -451,6 +454,8 @@ export const cardSchema = z.object({
   excerpt: z.string().nullable(),
   unread: z.boolean(),
   status: z.string(),
+  /** The review thread started from this card for its current pull request. */
+  reviewThreadId: z.string().nullable(),
 });
 export type Card = z.infer<typeof cardSchema>;
 
@@ -472,6 +477,8 @@ export interface ThreadInputs {
    */
   hiddenAt: number | null;
   parentTitle: string | null;
+  /** A review thread started for this pull request number, if any. */
+  review: { prNumber: number; threadId: string } | null;
 }
 
 /**
@@ -532,6 +539,10 @@ export function cardFor(input: ThreadInputs): Card | null {
     excerpt: excerptOf(input.reply),
     unread: isUnread(thread),
     status: thread.status,
+    reviewThreadId:
+      pr !== null && input.review !== null && input.review.prNumber === pr.number
+        ? input.review.threadId
+        : null,
   };
 }
 
