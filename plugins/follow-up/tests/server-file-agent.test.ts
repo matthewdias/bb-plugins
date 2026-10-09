@@ -42,6 +42,8 @@ test("filingPrompt: the recipe, the rows as a JSON array of data, and how to rep
   ]);
   assert.match(prompt, /bb follow-up filed <id> --thread thr_a --to "Jira 'ENG'" --ref "<url or key>"/);
   assert.match(prompt, /bb thread archive --self/);
+  // Its reply is what the user reads on a row it did not file.
+  assert.match(prompt, /your last reply shown on it as the\nreason/);
 });
 
 test("filingPrompt: a row cannot step out of the data block", () => {
@@ -187,6 +189,50 @@ test("agent: a helper that fails says how", async () => {
     (await lists()).followUps[0].filingNote,
     "The Jira ENG helper stopped: MCP server not connected",
   );
+});
+
+test("agent: a helper that files nothing and says why leaves its reason on the row", async () => {
+  const { harness, call, add, lists, flush } = await host();
+  await add("Fix the restore");
+  await add("Rate-limit the export");
+  await call("followups_file", { threadId: THREAD, ids: null, destinationId: "jira-eng" });
+  await flush();
+  await harness.emitThreadEvent("thread.idle", {
+    thread: { id: "thr_helper1" },
+    lastAssistantText: "I filed neither.\n\nThe recipe's skill only files to the  ENG-OPS project.\n",
+  } as never);
+  await pause();
+  assert.deepEqual(
+    (await lists()).followUps.map((entry: any) => entry.filingNote),
+    [
+      "The Jira ENG helper did not file this: I filed neither. The recipe's skill only files to the ENG-OPS project.",
+      "The Jira ENG helper did not file this: I filed neither. The recipe's skill only files to the ENG-OPS project.",
+    ],
+  );
+});
+
+test("agent: a long reason is cut to fit the row, and a blank reply falls back", async () => {
+  const { harness, call, add, lists, flush } = await host();
+  await add("Fix the restore");
+  await call("followups_file", { threadId: THREAD, ids: null, destinationId: "jira-eng" });
+  await flush();
+  await harness.emitThreadEvent("thread.idle", {
+    thread: { id: "thr_helper1" },
+    lastAssistantText: "why ".repeat(200),
+  } as never);
+  await pause();
+  const note = (await lists()).followUps[0].filingNote as string;
+  assert.equal(note.length, 300);
+  assert.ok(note.startsWith("The Jira ENG helper did not file this: why why"));
+
+  await call("followups_file", { threadId: THREAD, ids: null, destinationId: "jira-eng" });
+  await flush();
+  await harness.emitThreadEvent("thread.idle", {
+    thread: { id: "thr_helper2" },
+    lastAssistantText: " \n\n ",
+  } as never);
+  await pause();
+  assert.equal((await lists()).followUps[0].filingNote, "The Jira ENG helper finished without filing this.");
 });
 
 test("agent: a helper that cannot start leaves the rows open, saying so", async () => {

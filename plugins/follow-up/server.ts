@@ -1292,8 +1292,15 @@ export default async function plugin(bb: BbPluginApi) {
    * A filing helper stopped. Whatever it reported is filed already; whatever
    * it did not is open again, saying so. Archived either way, since a hidden
    * thread nobody archives is still a thread holding an environment.
+   *
+   * "Saying so" is the helper's own reply when it gave one: it was asked to
+   * say why it filed nothing, and a refusal with a reason ("that skill only
+   * files to another repo") is what the user needs to fix the recipe.
    */
-  async function onFilingSettled(helperThreadId: string, failure: string | null): Promise<void> {
+  async function onFilingSettled(
+    helperThreadId: string,
+    outcome: { failure: string } | { reply: string | null },
+  ): Promise<void> {
     const key = filingHelperKey(helperThreadId);
     const record = await bb.storage.kv.get<FilingHelperRecord>(key);
     if (record === undefined || record === null) return;
@@ -1308,10 +1315,13 @@ export default async function plugin(bb: BbPluginApi) {
       .filter((row) => record.ids.includes(row.id) && !isFiled(row) && row.filingSince)
       .map((row) => row.id);
     if (unfiled.length === 0) return;
+    const reply = "reply" in outcome ? (outcome.reply ?? "").replace(/\s+/g, " ").trim() : "";
     const note =
-      failure === null
-        ? `The ${record.destination} helper finished without filing this.`
-        : `The ${record.destination} helper stopped: ${failure}`.slice(0, 300);
+      "failure" in outcome
+        ? `The ${record.destination} helper stopped: ${outcome.failure}`.slice(0, 300)
+        : reply === ""
+          ? `The ${record.destination} helper finished without filing this.`
+          : `The ${record.destination} helper did not file this: ${reply}`.slice(0, 300);
     await setFiling(record.threadId, unfiled, { note });
   }
 
@@ -2410,10 +2420,10 @@ export default async function plugin(bb: BbPluginApi) {
     );
   }
 
-  bb.events.on("thread.idle", ({ thread }) => {
+  bb.events.on("thread.idle", ({ thread, lastAssistantText }) => {
     void onChildSettled(thread, "finished");
     void onExpansionSettled(thread.id, null);
-    void onFilingSettled(thread.id, null);
+    void onFilingSettled(thread.id, { reply: lastAssistantText });
   });
   bb.events.on("thread.failed", ({ thread, error }) => {
     void onChildSettled(thread, "failed");
@@ -2421,7 +2431,7 @@ export default async function plugin(bb: BbPluginApi) {
     // naming a provider that no longer exists ends up. The message is passed
     // through so the log names the real cause rather than "it stopped".
     void onExpansionSettled(thread.id, error ?? "no error message");
-    void onFilingSettled(thread.id, error ?? "no error message");
+    void onFilingSettled(thread.id, { failure: error ?? "no error message" });
   });
 
   /**
