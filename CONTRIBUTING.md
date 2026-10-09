@@ -38,7 +38,7 @@ What removal does *not* touch is the plugin's data directory under
 switch untouched. Settings are the only casualty, and the script rescues those.
 
 One thing it cannot carry: `bb plugin remove` also drops a plugin's secrets and
-schedules, and there is no read API to save those first. None of these ten
+schedules, and there is no read API to save those first. None of these eleven
 declares a secret. Background services and schedules are safe — they are
 declared in code, so they re-register on install (Plugin Triage's hourly usage
 sample came back after its release swap).

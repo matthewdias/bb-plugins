@@ -3,6 +3,7 @@
   "schemaVersion": 1,
   "name": "matthewdias-bb-plugins",
   "plugins": [
+    { "name": "declutter", "source": "./plugins/declutter" },
     { "name": "follow-up", "source": "./plugins/follow-up" },
     { "name": "mark-unread", "source": "./plugins/mark-unread" },
     { "name": "plugin-triage", "source": "./plugins/plugin-triage" },
