@@ -33,6 +33,7 @@ const card = (threadId: string, extra: Partial<Card> = {}): Card => ({
   unread: true,
   status: "idle",
   reviewThreadId: null,
+  workers: [],
   ...extra,
 });
 
@@ -266,7 +267,7 @@ describe("the page", () => {
   it("lists running threads with what they are doing, and follow-ups by project", async () => {
     const slot = renderPage({
       running: [
-        { threadId: "thr_run", title: "Updates deck", projectId: "prj_1", status: "active", startedAt: NOW - 12 * 60_000, now: "Running npm test", openFollowUps: 2, doneFollowUps: 1 },
+        { threadId: "thr_run", title: "Updates deck", projectId: "prj_1", status: "active", startedAt: NOW - 12 * 60_000, now: "Running npm test", openFollowUps: 2, doneFollowUps: 1, workers: [] },
       ],
       followUps: [
         {
@@ -284,6 +285,72 @@ describe("the page", () => {
     const lane = slot.getByRole("region", { name: "Follow-ups" });
     expect(within(lane).getByText("archived")).toBeTruthy();
     expect(within(lane).getByRole("button", { name: "Hand off" })).toBeTruthy();
+  });
+});
+
+describe("families", () => {
+  const merged = { ...pr("merged", { state: "merged" }), action: "merged" as const };
+  const ready = { ...pr("ready_to_merge", { number: 13 }), action: "merge" as const };
+  const worker = (threadId: string, extra: Partial<Card>) => {
+    const { workers: _none, ...base } = card(threadId, { parentThreadId: "thr_dev6", ...extra });
+    return base;
+  };
+  const family = card("thr_dev6", {
+    title: "Dev #6",
+    tier: "turn",
+    lead: "workers",
+    workers: [
+      worker("thr_w13", { title: "#13 model", tier: "turn", lead: "pr", pr: ready }),
+      worker("thr_w11", { title: "#11 docs", lead: "pr", pr: merged }),
+      worker("thr_w12", { title: "#12 co-leads", lead: "pr", pr: merged }),
+    ],
+  });
+
+  it("lists each worker with what it wants, and opens one into its own controls", async () => {
+    const slot = renderPage({ cards: [family] });
+    const section = await slot.findByRole("region", { name: "Workers" });
+    expect(within(section).getByText("ready to merge")).toBeTruthy();
+    expect(within(section).getAllByText("merged")).toHaveLength(2);
+    fireEvent.click(within(section).getByRole("button", { name: /#13 model/ }));
+    expect(within(section).getByRole("button", { name: /^Merge$/ })).toBeTruthy();
+  });
+
+  it("archives the merged workers it shows, and only those", async () => {
+    const slot = renderPage({
+      cards: [family],
+      handlers: { page_archive_workers: async () => ({ archived: 2, skipped: 0 }) },
+    });
+    fireEvent.click(await slot.findByRole("button", { name: "Archive the 2 merged workers" }));
+    await waitFor(() =>
+      expect(calls(slot, "page_archive_workers")).toEqual([{ parentThreadId: "thr_dev6", threadIds: ["thr_w11", "thr_w12"] }]),
+    );
+  });
+
+  it("Not now puts the whole family away", async () => {
+    const slot = renderPage({ cards: [{ ...family, since: 500 }] });
+    fireEvent.click(await slot.findByRole("button", { name: /Not now/ }));
+    await waitFor(() => expect(calls(slot, "page_hide")).toHaveLength(4));
+    expect(calls(slot, "page_hide").map((input: any) => input.threadId).sort()).toEqual(["thr_dev6", "thr_w11", "thr_w12", "thr_w13"]);
+  });
+
+  it("folds running workers under an idle parent, with no Stop for the parent", async () => {
+    const slot = renderPage({
+      running: [
+        {
+          threadId: "thr_dev6", title: "Dev #6", projectId: "prj_1", status: "idle", startedAt: NOW - 60_000,
+          now: "2 workers running", openFollowUps: 0, doneFollowUps: 0,
+          workers: [
+            { threadId: "thr_a", title: "#14 board", projectId: "prj_1", status: "active", startedAt: NOW - 60_000, now: "Running npm test", openFollowUps: 0, doneFollowUps: 0 },
+            { threadId: "thr_b", title: "#15 panel", projectId: "prj_1", status: "active", startedAt: NOW - 30_000, now: "Editing app.tsx", openFollowUps: 0, doneFollowUps: 0 },
+          ],
+        },
+      ],
+    });
+    const motion = await slot.findByRole("region", { name: "In motion" });
+    expect(within(motion).getByText("2 workers running")).toBeTruthy();
+    fireEvent.click(within(motion).getByRole("button", { name: "Show actions" }));
+    expect(within(motion).getByText("Editing app.tsx")).toBeTruthy();
+    expect(within(motion).queryByRole("button", { name: /Stop/ })).toBeNull();
   });
 });
 

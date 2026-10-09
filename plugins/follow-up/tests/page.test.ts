@@ -7,6 +7,9 @@ import {
   activityLabel,
   capFinished,
   cardFor,
+  combineFamilies,
+  foldRunning,
+  mergedWorkers,
   countOf,
   excerptOf,
   groupFollowUps,
@@ -495,4 +498,81 @@ test("groupFollowUps: by project, open threads newest first, archived after, emp
   assert.equal(groups[1]?.threads[1]?.rows[0]?.lead, "do");
   assert.equal(groups[0]?.threads[0]?.rows[0]?.inProgress, true);
   assert.equal(groups[1]?.threads[2]?.rows[0]?.lead, "handoff", "an archived thread's rows go to a new thread");
+});
+
+// --- families ------------------------------------------------------------------
+
+const fam = (id: string, parentThreadId: string | null, extra: Partial<ThreadFacts> = {}) =>
+  thread({ id, parentThreadId, title: `T ${id}`, ...extra });
+
+const famCard = (id: string, parent: string | null, tier: Card["tier"], since: number, extra: Partial<Card> = {}): Card => ({
+  ...card(id, tier, since),
+  parentThreadId: parent,
+  ...extra,
+});
+
+test("combineFamilies: a worker folds into its parent's card, which takes the more urgent tier", () => {
+  const threads = [fam("p", null), fam("w1", "p"), fam("w2", "p")];
+  const combined = combineFamilies(
+    [famCard("p", null, "finished", 10), famCard("w1", "p", "turn", 30), famCard("w2", "p", "finished", 20)],
+    threads,
+  );
+  assert.equal(combined.length, 1);
+  assert.equal(combined[0]?.threadId, "p");
+  assert.equal(combined[0]?.tier, "turn", "a worker's turn makes the family your turn");
+  assert.equal(combined[0]?.since, 30);
+  assert.deepEqual(combined[0]?.workers.map((w) => w.threadId), ["w1", "w2"]);
+  assert.equal(countOf(combined), 1, "a family counts once");
+});
+
+test("combineFamilies: a blocked worker keeps its own card", () => {
+  const threads = [fam("p", null), fam("w1", "p"), fam("w2", "p")];
+  const combined = combineFamilies(
+    [famCard("w1", "p", "blocked", 5), famCard("w2", "p", "turn", 30)],
+    threads,
+  );
+  assert.deepEqual(combined.map((c) => [c.threadId, c.lead === "workers"]).sort(), [["p", true], ["w1", false]]);
+  assert.equal(countOf(combined), 2, "a family and a blocked worker");
+});
+
+test("combineFamilies: a parent with nothing to ask gets a card led by its workers", () => {
+  const threads = [fam("p", null, { status: "active" }), fam("w1", "p"), fam("w2", "p")];
+  const combined = combineFamilies([famCard("w1", "p", "finished", 10), famCard("w2", "p", "finished", 40)], threads);
+  assert.equal(combined.length, 1);
+  assert.deepEqual([combined[0]?.lead, combined[0]?.tier, combined[0]?.since, combined[0]?.title], ["workers", "finished", 40, "T p"]);
+});
+
+test("combineFamilies: a worker whose parent is not open stands alone", () => {
+  const combined = combineFamilies([famCard("w1", "gone", "turn", 10)], [fam("w1", "gone")]);
+  assert.deepEqual(combined.map((c) => [c.threadId, c.workers.length]), [["w1", 0]]);
+});
+
+test("combineFamilies: a worker's worker folds into the topmost open ancestor", () => {
+  const threads = [fam("root", null), fam("mid", "root"), fam("leaf", "mid")];
+  const combined = combineFamilies([famCard("leaf", "mid", "turn", 10)], threads);
+  assert.deepEqual(combined.map((c) => [c.threadId, c.workers.map((w) => w.threadId)]), [["root", ["leaf"]]]);
+});
+
+test("mergedWorkers: only workers whose pull request merged", () => {
+  const merged = { ...pr("merged"), action: "merged" as const };
+  const ready = { ...pr("ready_to_merge"), action: "merge" as const };
+  const family = combineFamilies(
+    [famCard("w1", "p", "finished", 1, { lead: "pr", pr: merged }), famCard("w2", "p", "turn", 2, { lead: "pr", pr: ready })],
+    [fam("p", null), fam("w1", "p"), fam("w2", "p")],
+  )[0];
+  assert.deepEqual(family && mergedWorkers(family).map((w) => w.threadId), ["w1"]);
+});
+
+test("foldRunning: running workers fold under their parent's row, or a row made for an idle parent", () => {
+  const row = (threadId: string, startedAt: number | null) => ({
+    threadId, title: `T ${threadId}`, projectId: "prj_1", status: "active", startedAt, now: "Working", openFollowUps: 0, doneFollowUps: 0,
+  });
+  const threads = [fam("busy", null, { status: "active" }), fam("b1", "busy"), fam("idle", null), fam("i1", "idle"), fam("i2", "idle"), fam("solo", "gone")];
+  const folded = foldRunning([row("busy", 1), row("b1", 2), row("i1", 30), row("i2", 20), row("solo", 5)], threads);
+  const byId = new Map(folded.map((r) => [r.threadId, r]));
+  assert.deepEqual([...byId.keys()].sort(), ["busy", "idle", "solo"]);
+  assert.deepEqual(byId.get("busy")?.workers.map((w) => w.threadId), ["b1"]);
+  assert.equal(byId.get("idle")?.now, "2 workers running");
+  assert.equal(byId.get("idle")?.startedAt, 20, "the earliest worker's start");
+  assert.deepEqual(byId.get("solo")?.workers, []);
 });

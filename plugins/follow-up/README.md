@@ -182,9 +182,21 @@ which of three tiers it sits in:
   it. The end of the reply, with *Reply…*, *Mark read* and *Archive*. Newest
   first, up to 20; beyond that, the sidebar's unread dots have them.
 
-*Not now* puts a card away until something new happens on its thread. A
-blocked card has no *Not now*: the agent is stopped, and putting it off would
-leave a thread nobody comes back to.
+A thread's workers, the child threads it spawned (at any depth), fold into
+its card as a **Workers** list, so an orchestrator and the six workers it ran
+are one card rather than seven. Each line says what that worker wants and opens
+into its own card's controls. A parent with nothing of its own to ask still
+gets a card for its workers, and the card sits in the most urgent tier any of
+them is in, so the count counts the family once. A blocked worker keeps a card
+of its own, labelled with its parent, since a stopped agent shouldn't be buried
+in a list. A worker whose parent is archived stands alone. *Archive the N
+merged workers* archives, in one press, the workers the card lists whose pull
+request merged, and leaves any that moved on in the meantime.
+
+*Not now* puts a card away until something new happens on its thread, and a
+family's card puts the parent and its workers away together. A blocked card has
+no *Not now*: the agent is stopped, and putting it off would leave a thread
+nobody comes back to.
 
 A pull request gets a card when bb's roll-up of its checks, review and
 mergeability says it wants you: ready to merge, review requested, changes
@@ -215,7 +227,8 @@ Beside the cards, **In motion** lists what is running now: each thread, what
 it's doing ("Running npm test", "Editing app.tsx"), how long the turn has been
 going, and how many of its follow-ups are open. Expanding a row offers *Queue a
 message*, which runs after the current turn, and *Stop*, which asks once more
-before it stops anything. A thread that has sat waiting to start for a day is
+before it stops anything. Running workers fold under their parent's row, which
+shows how many are running even when the parent itself isn't. A thread that has sat waiting to start for a day is
 left out. **Follow-ups** lists every open row on every thread, by project.
 Archived threads are included, because archiving a thread is not deciding
 about its follow-ups. Each row leads with *Do*, or with *Hand off* for an

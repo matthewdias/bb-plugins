@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import type { rpcContract } from "../../server";
 import {
   MERGE_METHODS,
+  mergedWorkers,
   prFixMessage,
   prMergedMessage,
   prRebaseMessage,
@@ -54,7 +55,35 @@ const LEAD: Record<Card["lead"], { label: string; icon: IconName }> = {
   page: { label: "Page", icon: "Browser" },
   pr: { label: "PR", icon: "GitPullRequest" },
   finished: { label: "Finished", icon: "Check" },
+  workers: { label: "Workers", icon: "Workflow" },
 };
+
+/** What a worker wants, in a few words, for its line in a family card. */
+export function wantsLabel(card: { lead: Card["lead"]; pr: Card["pr"] }): string {
+  if (card.lead === "pr" && card.pr !== null) {
+    const byAction: Record<NonNullable<Card["pr"]>["action"], string> = {
+      merge: "ready to merge",
+      review: "wants review",
+      fix: card.pr.attention === "changes_requested" ? "changes requested" : "checks failed",
+      rebase: "has conflicts",
+      merged: "merged",
+    };
+    return byAction[card.pr.action];
+  }
+  const byLead: Record<Card["lead"], string> = {
+    question: "asks a question",
+    approval: "needs approval",
+    form: "waits on a form",
+    stopped: "stopped",
+    "wrap-up": "ready to wrap up",
+    next: "offers next steps",
+    page: "asks on its page",
+    pr: "has a PR",
+    finished: "finished",
+    workers: "has workers waiting",
+  };
+  return byLead[card.lead];
+}
 
 /** "2m", "3h", "4d": how long ago, short enough for a card's corner. */
 export function ago(since: number, now: number): string {
@@ -93,7 +122,12 @@ export function PageCard({
 
   const hide = async () => {
     try {
-      await rpc.call("page_hide", { threadId: card.threadId, at: card.since });
+      // A family is put away whole: the parent and every worker folded into it,
+      // each until something new happens on that thread.
+      await Promise.all([
+        rpc.call("page_hide", { threadId: card.threadId, at: card.since }),
+        ...card.workers.map((worker) => rpc.call("page_hide", { threadId: worker.threadId, at: worker.since })),
+      ]);
     } catch {
       toast.error("It could not be hidden. Try again.");
     }
@@ -129,6 +163,7 @@ export function PageCard({
       </header>
       <div className="mt-2 flex flex-col gap-2 text-sm">
         <CardBody card={card} rpc={rpc} />
+        {card.workers.length > 0 && <Workers card={card} rpc={rpc} />}
       </div>
       <footer className="mt-2 flex flex-wrap items-center gap-1 text-xs">
         {card.openFollowUps > 0 && card.lead !== "wrap-up" && (
@@ -208,6 +243,10 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
         </>
       );
       break;
+    case "workers":
+      // A parent with nothing of its own to ask: its workers are the card.
+      main = null;
+      break;
   }
   return (
     <>
@@ -226,6 +265,103 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
         </div>
       )}
     </>
+  );
+}
+
+// --- workers -----------------------------------------------------------------
+
+/**
+ * A family card's workers: one line each, saying what it wants, opening into
+ * its own card's controls. The merged ones can be archived together.
+ */
+function Workers({ card, rpc }: { card: Card; rpc: Rpc }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const merged = mergedWorkers(card);
+  const archiveMerged = async () => {
+    setBusy(true);
+    try {
+      const result = await rpc.call("page_archive_workers", {
+        parentThreadId: card.threadId,
+        threadIds: merged.map((worker) => worker.threadId),
+      });
+      if (result.skipped > 0) {
+        toast(`Archived ${result.archived}; ${result.skipped} had moved on and were left open.`);
+      } else {
+        toast.success(result.archived === 1 ? "Archived 1 worker." : `Archived ${result.archived} workers.`);
+      }
+    } catch {
+      toast.error("They could not be archived. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section aria-label="Workers" className="flex flex-col gap-1.5">
+      {card.lead !== "workers" && (
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Workers · {card.workers.length}
+        </h3>
+      )}
+      <ul className="overflow-hidden rounded-md border border-border">
+        {card.workers.map((worker) => {
+          const expanded = open === worker.threadId;
+          return (
+            <li key={worker.threadId} className="border-t border-border first:border-t-0">
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => setOpen(expanded ? null : worker.threadId)}
+                className="flex w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-[13px] hover:bg-state-hover"
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    worker.pr?.action === "merged"
+                      ? "bg-emerald-500"
+                      : worker.lead === "stopped"
+                        ? "bg-destructive"
+                        : worker.tier === "turn"
+                          ? "bg-sky-500"
+                          : "bg-muted-foreground/50",
+                  )}
+                />
+                <span className="min-w-0 flex-1 truncate text-foreground">{worker.title}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{wantsLabel(worker)}</span>
+                <Icon name={expanded ? "ChevronUp" : "ChevronDown"} className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              </button>
+              {expanded && (
+                <div className="flex flex-col gap-2 border-t border-border bg-background/50 px-2.5 py-2 text-sm">
+                  <CardBody card={{ ...worker, workers: [] }} rpc={rpc} />
+                  <WorkerOpen threadId={worker.threadId} />
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {merged.length > 0 && (
+        <div>
+          <Button size="sm" variant={card.tier === "finished" ? "default" : "outline"} disabled={busy} onClick={() => void archiveMerged()}>
+            <Icon name="Archive" aria-hidden />
+            {merged.length === 1 ? "Archive the merged worker" : `Archive the ${merged.length} merged workers`}
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WorkerOpen({ threadId }: { threadId: string }) {
+  const navigate = useBbNavigate();
+  return (
+    <div>
+      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => navigate.toThread(threadId)}>
+        Open this worker
+        <Icon name="ArrowUpRight" className="size-3.5" aria-hidden />
+      </Button>
+    </div>
   );
 }
 

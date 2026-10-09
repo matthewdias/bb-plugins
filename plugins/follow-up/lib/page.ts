@@ -447,6 +447,8 @@ export const LEADS = [
   "page",
   "pr",
   "finished",
+  /** A parent with no ask of its own, carrying its workers' cards. */
+  "workers",
 ] as const;
 export type Lead = (typeof LEADS)[number];
 
@@ -456,7 +458,8 @@ export const offerSchema = z.object({
   offeredAt: z.string(),
 });
 
-export const cardSchema = z.object({
+/** One thread's card, as it stands before families are combined. */
+export const baseCardSchema = z.object({
   threadId: z.string(),
   title: z.string(),
   projectId: z.string(),
@@ -477,6 +480,16 @@ export const cardSchema = z.object({
   status: z.string(),
   /** The review thread started from this card for its current pull request. */
   reviewThreadId: z.string().nullable(),
+});
+export type WorkerCard = z.infer<typeof baseCardSchema>;
+
+export const cardSchema = baseCardSchema.extend({
+  /**
+   * The cards of this thread's workers — child threads, at any depth — that
+   * want something other than an answer to a stopped agent. See
+   * `combineFamilies`.
+   */
+  workers: z.array(baseCardSchema),
 });
 export type Card = z.infer<typeof cardSchema>;
 
@@ -567,6 +580,7 @@ export function cardFor(input: ThreadInputs): Card | null {
       pr !== null && input.review !== null && input.review.prNumber === pr.number
         ? input.review.threadId
         : null,
+    workers: [],
   };
 }
 
@@ -583,6 +597,115 @@ export function rank(cards: readonly Card[]): Card[] {
     if (a.since !== b.since) return a.tier === "blocked" ? a.since - b.since : b.since - a.since;
     return a.threadId.localeCompare(b.threadId);
   });
+}
+
+/**
+ * The topmost open ancestor a thread folds into, or null when its parent is
+ * not open (archived, deleted, hidden) and it stands on its own.
+ */
+function familyRoot(thread: ThreadFacts, open: ReadonlyMap<string, ThreadFacts>): ThreadFacts | null {
+  let root: ThreadFacts | null = null;
+  const seen = new Set<string>([thread.id]);
+  let parentId = thread.parentThreadId;
+  while (parentId !== null && !seen.has(parentId)) {
+    const parent = open.get(parentId);
+    if (parent === undefined) break;
+    root = parent;
+    seen.add(parentId);
+    parentId = parent.parentThreadId;
+  }
+  return root;
+}
+
+/**
+ * One card per family. A worker — a child thread, at any depth — folds into
+ * its topmost open ancestor's card, so an orchestrator and the six workers it
+ * spawned are one thing to look at rather than seven.
+ *
+ * A blocked worker keeps a card of its own: its agent is stopped, and a
+ * question folded into a list is a question nobody answers. A worker whose
+ * parent is not open stands alone, as there is no card to fold into. A parent
+ * with no ask of its own still gets a card, led by its workers.
+ *
+ * The family sits in the most urgent tier any of it is in, so the count —
+ * which counts cards — counts a family once.
+ */
+export function combineFamilies(cards: readonly Card[], threads: readonly ThreadFacts[]): Card[] {
+  const open = new Map(threads.filter((thread) => !thread.archived).map((thread) => [thread.id, thread]));
+  const own = new Map(cards.map((card) => [card.threadId, card]));
+  const folded = new Map<string, WorkerCard[]>();
+  const standing: Card[] = [];
+  for (const card of cards) {
+    const thread = open.get(card.threadId);
+    const root = card.tier === "blocked" || thread === undefined ? null : familyRoot(thread, open);
+    if (root === null) {
+      standing.push(card);
+      continue;
+    }
+    const { workers: _nested, ...worker } = card;
+    const list = folded.get(root.id) ?? [];
+    list.push(worker);
+    folded.set(root.id, list);
+  }
+
+  const result = standing.filter((card) => !folded.has(card.threadId));
+  for (const [rootId, workers] of folded) {
+    const root = open.get(rootId) as ThreadFacts;
+    const parent = own.get(rootId) ?? null;
+    const ranked = rank(workers.map((worker) => ({ ...worker, workers: [] }))).map(
+      ({ workers: _none, ...worker }) => worker,
+    );
+    const tiers = [...(parent === null ? [] : [parent.tier]), ...ranked.map((worker) => worker.tier)];
+    const tier = tiers.reduce((a, b) => (TIER_ORDER[b] < TIER_ORDER[a] ? b : a));
+    const inTier = ranked.filter((worker) => worker.tier === tier).map((worker) => worker.since);
+    const since =
+      parent !== null && parent.tier === tier
+        ? parent.since
+        : tier === "blocked"
+          ? Math.min(...inTier)
+          : Math.max(...inTier);
+    if (parent !== null) {
+      result.push({ ...parent, tier, since, workers: ranked });
+      continue;
+    }
+    result.push({
+      threadId: root.id,
+      title: root.title,
+      projectId: root.projectId,
+      parentThreadId: null,
+      parentTitle: null,
+      tier,
+      lead: "workers",
+      since,
+      asks: [],
+      offer: null,
+      openFollowUps: 0,
+      wrapUp: null,
+      pr: null,
+      pageUrl: null,
+      excerpt: null,
+      unread: false,
+      status: root.status,
+      reviewThreadId: null,
+      workers: ranked,
+    });
+  }
+  return result;
+}
+
+/** The id of the family a thread folds into, or null when it stands alone. */
+export function familyOf(threadId: string, threads: readonly ThreadFacts[]): string | null {
+  const open = new Map(threads.filter((thread) => !thread.archived).map((thread) => [thread.id, thread]));
+  const thread = open.get(threadId);
+  return thread === undefined ? null : (familyRoot(thread, open)?.id ?? null);
+}
+
+/**
+ * The workers whose pull request merged: what "Archive the merged workers"
+ * archives. Only those, so the button never takes a worker still in flight.
+ */
+export function mergedWorkers(card: Card): WorkerCard[] {
+  return card.workers.filter((worker) => worker.pr?.action === "merged");
 }
 
 /** The sidebar's number: threads that want something from you. Not finished ones. */
@@ -607,7 +730,7 @@ export function capFinished(
 // ---------------------------------------------------------------------------
 // In motion
 
-export const runningSchema = z.object({
+export const baseRunningSchema = z.object({
   threadId: z.string(),
   title: z.string(),
   projectId: z.string(),
@@ -619,7 +742,48 @@ export const runningSchema = z.object({
   openFollowUps: z.number(),
   doneFollowUps: z.number(),
 });
+export type RunningWorker = z.infer<typeof baseRunningSchema>;
+
+export const runningSchema = baseRunningSchema.extend({
+  /** This thread's workers that are running too, folded under it. */
+  workers: z.array(baseRunningSchema),
+});
 export type Running = z.infer<typeof runningSchema>;
+
+/**
+ * The In motion lane, one row per family, as the cards are: running workers
+ * fold under their topmost open ancestor. A parent that is not running itself
+ * still gets a row, saying how many of its workers are.
+ */
+export function foldRunning(rows: readonly RunningWorker[], threads: readonly ThreadFacts[]): Running[] {
+  const open = new Map(threads.filter((thread) => !thread.archived).map((thread) => [thread.id, thread]));
+  const folded = new Map<string, RunningWorker[]>();
+  const standing: RunningWorker[] = [];
+  for (const row of rows) {
+    const thread = open.get(row.threadId);
+    const root = thread === undefined ? null : familyRoot(thread, open);
+    if (root === null) standing.push(row);
+    else folded.set(root.id, [...(folded.get(root.id) ?? []), row]);
+  }
+  const result: Running[] = standing.map((row) => ({ ...row, workers: folded.get(row.threadId) ?? [] }));
+  for (const [rootId, workers] of folded) {
+    if (standing.some((row) => row.threadId === rootId)) continue;
+    const root = open.get(rootId) as ThreadFacts;
+    const starts = workers.map((worker) => worker.startedAt).filter((at): at is number => at !== null);
+    result.push({
+      threadId: root.id,
+      title: root.title,
+      projectId: root.projectId,
+      status: root.status,
+      startedAt: starts.length === 0 ? null : Math.min(...starts),
+      now: workers.length === 1 ? "1 worker running" : `${workers.length} workers running`,
+      openFollowUps: 0,
+      doneFollowUps: 0,
+      workers,
+    });
+  }
+  return result;
+}
 
 const LABEL_MAX = 80;
 

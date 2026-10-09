@@ -383,3 +383,37 @@ test("page: reply, mark read, archive, retry and stop each call the host for tha
     assert.equal(calls(path)[0]?.threadId, "thr_a", path);
   }
 });
+
+test("page: workers fold into one family card, and archiving takes only merged workers it listed", async () => {
+  const { call, calls } = await host({
+    threads: [
+      threadRow("thr_dev6", { title: "Dev #6" }),
+      threadRow("thr_w11", { parentThreadId: "thr_dev6", environmentId: "env_11", environmentIsWorktree: true }),
+      threadRow("thr_w12", { parentThreadId: "thr_dev6", environmentId: "env_12", environmentIsWorktree: true }),
+      threadRow("thr_w13", { parentThreadId: "thr_dev6", environmentId: "env_13", environmentIsWorktree: true }),
+      threadRow("thr_other", { environmentId: "env_o", environmentIsWorktree: true }),
+    ],
+    prs: {
+      env_11: prResponse("merged", 11),
+      env_12: prResponse("merged", 12),
+      env_13: prResponse("ready_to_merge", 13),
+      env_o: prResponse("merged", 99),
+    },
+  });
+  await call("page_snapshot");
+  await settle();
+  const page = await call("page_snapshot");
+  const family = page.cards.find((c: any) => c.threadId === "thr_dev6");
+  assert.ok(family, "the parent has a family card");
+  assert.equal(family.lead, "workers");
+  assert.equal(family.tier, "turn", "the worker ready to merge makes it your turn");
+  assert.deepEqual(family.workers.map((w: any) => w.threadId).sort(), ["thr_w11", "thr_w12", "thr_w13"]);
+  assert.equal(page.cards.filter((c: any) => c.parentThreadId === "thr_dev6").length, 0, "no worker stands alone");
+
+  const result = await call("page_archive_workers", {
+    parentThreadId: "thr_dev6",
+    threadIds: ["thr_w11", "thr_w12", "thr_w13", "thr_other"],
+  });
+  assert.deepEqual(result, { archived: 2, skipped: 2 }, "not the unmerged worker, not another family's thread");
+  assert.deepEqual(calls("threads.archive").map((args) => args.threadId).sort(), ["thr_w11", "thr_w12"]);
+});

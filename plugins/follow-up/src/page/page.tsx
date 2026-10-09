@@ -241,4 +241,5 @@ const STRIP_LABEL: Record<Card["lead"], string> = {
   page: "asks on its page",
   pr: "has a PR for you",
   finished: "finished",
+  workers: "has workers waiting",
 };

@@ -62,8 +62,10 @@ request one of your threads opened can be merged, sent back to its thread to
 fix or rebase, or given a review thread. Every message the page sends for you
 is shown first, exactly as it will go. Beside the cards are the threads still
 working, with what each is doing, and every open follow-up by project,
-archived threads included. The sidebar item counts the threads that want
-something from you, and the new-thread page shows the first three.
+archived threads included. A thread's workers fold into its card,
+except one that is blocked, and merged workers can be archived together. The
+sidebar item counts the threads that want something from you, and the
+new-thread page shows the first three.
 
 ## How it works
 

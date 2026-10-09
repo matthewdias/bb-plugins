@@ -109,7 +109,10 @@ import {
   capFinished,
   cardFor,
   cardSchema,
+  combineFamilies,
   countOf,
+  familyOf,
+  foldRunning,
   groupFollowUps,
   inMotion,
   isBusy,
@@ -130,7 +133,7 @@ import {
   type MergeMethod,
   type PendingAsk,
   type PrSummary,
-  type Running,
+  type RunningWorker,
   type ThreadFacts,
 } from "./lib/page.ts";
 
@@ -858,6 +861,21 @@ export const rpcContract = defineRpcContract({
         spawnedThreadId: z.string().nullable(),
       })
       .strict(),
+  },
+  /**
+   * "Archive the merged workers" on a family card. Archives only the workers
+   * the card listed that are, still, workers of that family whose pull request
+   * merged — never one the card did not show, and never one that moved on in
+   * between.
+   */
+  page_archive_workers: {
+    input: z
+      .object({
+        parentThreadId: z.string().min(1).max(200),
+        threadIds: z.array(z.string().min(1).max(200)).min(1).max(100),
+      })
+      .strict(),
+    output: z.object({ archived: z.number().int(), skipped: z.number().int() }).strict(),
   },
   /**
    * Hand a follow-up to a new thread in its own thread's checkout, from the
@@ -3648,7 +3666,7 @@ export default async function plugin(bb: BbPluginApi) {
     thread: ThreadFacts,
     rows: readonly FollowUp[],
     done: number,
-  ): Promise<Running> {
+  ): Promise<RunningWorker> {
     let startedAt: number | null = null;
     let now = thread.status === "pending" ? "Waiting to start" : "Working";
     if (thread.status !== "pending") {
@@ -3783,19 +3801,23 @@ export default async function plugin(bb: BbPluginApi) {
       )
     ).filter((card) => card !== null);
 
-    const ranked = rank(cards);
+    // One card per family: workers fold into their parent's (lib/page.ts).
+    const ranked = rank(combineFamilies(cards, threads));
     const count = countOf(ranked);
     if (!withLanes) {
       return { count, ranked, running: [], followUps: [], projectNames: new Map<string, string>() };
     }
 
-    const running = await Promise.all(
-      threads
-        .filter((thread) => inMotion(thread, now))
-        .map(async (thread) => {
-          const { rows, done } = await rowsOf(thread.id);
-          return runningRow(thread, rows, done);
-        }),
+    const running = foldRunning(
+      await Promise.all(
+        threads
+          .filter((thread) => inMotion(thread, now))
+          .map(async (thread) => {
+            const { rows, done } = await rowsOf(thread.id);
+            return runningRow(thread, rows, done);
+          }),
+      ),
+      threads,
     );
 
     let projectNames = new Map<string, string>();
@@ -4377,6 +4399,32 @@ export default async function plugin(bb: BbPluginApi) {
         bb.log.error(`page: review thread failed for ${threadId}: ${String(error)}`);
         return { outcome: "failed" as const, spawnedThreadId: null };
       }
+    },
+    page_archive_workers: async ({ parentThreadId, threadIds }) => {
+      const threads = await listOpenThreads();
+      const owners = prOwners(threads);
+      const environmentOf = new Map([...owners].map(([environmentId, threadId]) => [threadId, environmentId]));
+      let archived = 0;
+      let skipped = 0;
+      for (const threadId of new Set(threadIds)) {
+        const environmentId = environmentOf.get(threadId);
+        const pr = environmentId === undefined ? null : (pullRequests.get(environmentId)?.pr ?? null);
+        const merged = pr !== null && prAction(pr) === "merged";
+        if (familyOf(threadId, threads) !== parentThreadId || !merged) {
+          skipped += 1;
+          continue;
+        }
+        try {
+          await bb.sdk.threads.archive({ threadId });
+          archived += 1;
+        } catch (error) {
+          bb.log.error(`page: archive failed on ${threadId}: ${String(error)}`);
+          skipped += 1;
+        }
+      }
+      bb.log.info(`page: archived ${archived} merged workers of ${parentThreadId} (${skipped} skipped)`);
+      pageChanged();
+      return { archived, skipped };
     },
     page_handoff: async ({ threadId, id }) => {
       const result = await handoffFollowUp(threadId, id, "thread", { kind: "prompt", skill: null });

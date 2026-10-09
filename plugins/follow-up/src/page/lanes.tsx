@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../server";
-import type { LaneGroup, Running } from "../../lib/page.ts";
+import { isBusy, type LaneGroup, type Running } from "../../lib/page.ts";
 import type { FollowUp, Reason } from "../../lib/followups.ts";
 import { FileToMenuItems, useDestinations, useFile, useOpenDestinationSetup } from "../filing.tsx";
 import { REFUSAL_DETAIL } from "../record-draft.ts";
@@ -81,6 +81,8 @@ function RunningRow({ row, now }: { row: Running; now: number }) {
   };
 
   const total = row.openFollowUps + row.doneFollowUps;
+  // A family row for a parent that is not running itself: its workers are.
+  const selfRunning = isBusy(row.status);
   return (
     <li className="border-t border-border py-2 first:border-t-0">
       <div className="flex items-start gap-2">
@@ -111,6 +113,9 @@ function RunningRow({ row, now }: { row: Running; now: number }) {
                 · {row.openFollowUps} of {total} follow-ups open
               </span>
             )}
+            {selfRunning && row.workers.length > 0 && (
+              <span>· {row.workers.length === 1 ? "1 worker running" : `${row.workers.length} workers running`}</span>
+            )}
           </div>
         </div>
         <Button
@@ -124,7 +129,28 @@ function RunningRow({ row, now }: { row: Running; now: number }) {
           <Icon name={open ? "ChevronUp" : "ChevronDown"} className="size-3.5" />
         </Button>
       </div>
-      {open && (
+      {open && row.workers.length > 0 && (
+        <ul aria-label="Workers running" className="mt-2 flex flex-col gap-1 border-l-2 border-border pl-3">
+          {row.workers.map((worker) => (
+            <li key={worker.threadId} className="flex min-w-0 flex-col text-xs">
+              <span className="flex items-baseline gap-2">
+                <button
+                  type="button"
+                  className="min-w-0 truncate text-left font-medium text-foreground hover:underline"
+                  onClick={() => navigate.toThread(worker.threadId)}
+                >
+                  {worker.title}
+                </button>
+                {worker.startedAt !== null && (
+                  <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">{ago(worker.startedAt, now)}</span>
+                )}
+              </span>
+              <span className="break-words text-muted-foreground">{worker.now}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && selfRunning && (
         <div className="mt-2 pl-4">
           {queueing ? (
             <MessageBox
