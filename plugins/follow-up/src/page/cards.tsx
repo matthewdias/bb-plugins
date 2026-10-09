@@ -34,6 +34,7 @@ import { setRows } from "../store.ts";
 import { isChangeSignal } from "../use-follow-ups.ts";
 import { StillOpen } from "./rows.tsx";
 import { ApprovalForm } from "./approvals.tsx";
+import { NoDeckKeys, useDeckKeys } from "./deck-keys.tsx";
 import type { FollowUpRpc } from "../rpc.ts";
 import {
   DropdownMenu,
@@ -106,6 +107,15 @@ export function wantsLabel(card: { lead: Card["lead"]; pr: Card["pr"] }): string
 }
 
 /** "2m", "3h", "4d": how long ago, short enough for a card's corner. */
+/** A key's number or symbol beside what it presses, in Focus. */
+export function Kbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="mr-1.5 inline-flex min-w-4 items-center justify-center rounded border border-border bg-background px-1 font-mono text-[10px] font-medium text-muted-foreground">
+      {children}
+    </kbd>
+  );
+}
+
 export function ago(since: number, now: number): string {
   const minutes = Math.max(0, Math.floor((now - since) / 60_000));
   if (minutes < 1) return "now";
@@ -126,10 +136,13 @@ export function PageCard({
   card,
   projectName,
   now,
+  onHide,
 }: {
   card: Card;
   projectName: string | null;
   now: number;
+  /** Focus puts a card away itself, so its Undo and its place in the deck agree. */
+  onHide?: () => void;
 }) {
   const navigate = useBbNavigate();
   const rpc = useRpc<typeof rpcContract>();
@@ -142,16 +155,7 @@ export function PageCard({
 
   const hide = async () => {
     try {
-      // A family is put away whole: the parent and every worker folded into it,
-      // each until something new happens on that thread or its PR changes.
-      // Each at its own attention mark, never the family's `since`.
-      await Promise.all([
-        rpc.call("page_hide", { threadId: card.threadId, at: card.attentionAt, pr: card.prKey }),
-        ...card.workers.map((worker) =>
-          rpc.call("page_hide", { threadId: worker.threadId, at: worker.attentionAt, pr: worker.prKey }),
-        ),
-      ]);
-      const threadIds = [card.threadId, ...card.workers.map((worker) => worker.threadId)];
+      const threadIds = await putAwayCard(rpc, card);
       toast("Put away until something new happens.", {
         action: { label: "Undo", onClick: () => void bringBack(rpc, threadIds) },
       });
@@ -190,7 +194,11 @@ export function PageCard({
       </header>
       <div className="mt-2 flex flex-col gap-2 text-sm">
         <CardBody card={card} rpc={rpc} />
-        {card.workers.length > 0 && <Workers card={card} rpc={rpc} />}
+        {card.workers.length > 0 && (
+          <NoDeckKeys>
+            <Workers card={card} rpc={rpc} />
+          </NoDeckKeys>
+        )}
       </div>
       <footer className="mt-2 flex flex-wrap items-center gap-1 text-xs">
         {card.openFollowUps > 0 && card.lead !== "wrap-up" && !closesOutWithRows(card) && (
@@ -200,7 +208,12 @@ export function PageCard({
         )}
         <span className="flex-1" />
         {card.tier !== "blocked" && (
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => void hide()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            onClick={() => (onHide === undefined ? void hide() : onHide())}
+          >
             <Icon name="EyeOff" className="size-3.5" aria-hidden />
             Not now
           </Button>
@@ -492,6 +505,22 @@ export function MessageBox({
 }
 
 /** Take cards out of the Put away fold: Undo, and Bring back. */
+/**
+ * Not now. A family is put away whole: the parent and every worker folded
+ * into it, each until something new happens on that thread or its PR
+ * changes, and each at its own attention mark, never the family's `since`.
+ * Returns the threads put away, for Undo; throws if any could not be.
+ */
+export async function putAwayCard(rpc: Rpc, card: Card): Promise<string[]> {
+  await Promise.all([
+    rpc.call("page_hide", { threadId: card.threadId, at: card.attentionAt, pr: card.prKey }),
+    ...card.workers.map((worker) =>
+      rpc.call("page_hide", { threadId: worker.threadId, at: worker.attentionAt, pr: worker.prKey }),
+    ),
+  ]);
+  return [card.threadId, ...card.workers.map((worker) => worker.threadId)];
+}
+
 export async function bringBack(rpc: Rpc, threadIds: string[]): Promise<void> {
   try {
     await rpc.call("page_unhide", { threadIds });
@@ -529,6 +558,8 @@ function QuestionForm({
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [other, setOther] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  /** The question Focus's number keys pick for; it moves on after a single choice. */
+  const [cursor, setCursor] = useState(0);
 
   const toggle = (question: Question, value: string) =>
     setPicked((previous) => {
@@ -546,6 +577,23 @@ function QuestionForm({
   const answered = ask.questions.every(
     (question) => (picked[question.id]?.length ?? 0) > 0 || (other[question.id] ?? "").trim() !== "",
   );
+
+  const keyed = useDeckKeys({
+    pick: (n) => {
+      const question = ask.questions[cursor];
+      const option = question?.options[n - 1];
+      if (question === undefined || option === undefined) return;
+      // A key picks; it never unpicks a single choice the way a second click does.
+      if (question.multiSelect) toggle(question, option.value);
+      else {
+        setPicked((previous) => ({ ...previous, [question.id]: [option.value] }));
+        setCursor(Math.min(cursor + 1, ask.questions.length - 1));
+      }
+    },
+    send: () => {
+      if (answered && !busy) void send();
+    },
+  });
 
   const send = async () => {
     setBusy(true);
@@ -575,13 +623,23 @@ function QuestionForm({
 
   return (
     <div className="flex flex-col gap-3">
-      {ask.questions.map((question) => (
-        <fieldset key={question.id} className="flex min-w-0 flex-col gap-1.5">
-          <legend className="mb-1.5 text-sm font-medium leading-snug text-foreground">{question.prompt}</legend>
+      {ask.questions.map((question, questionIndex) => (
+        <fieldset
+          key={question.id}
+          className="flex min-w-0 flex-col gap-1.5"
+          data-keys={keyed && questionIndex === cursor ? "" : undefined}
+        >
+          <legend className="mb-1.5 text-sm font-medium leading-snug text-foreground">
+            {question.prompt}
+            {keyed && ask.questions.length > 1 && questionIndex === cursor && (
+              <span className="ml-1.5 text-xs font-normal text-muted-foreground">· keys pick here</span>
+            )}
+          </legend>
           {question.multiSelect && <span className="-mt-1 text-xs text-muted-foreground">Choose any.</span>}
           <div role={question.multiSelect ? "group" : "radiogroup"} className="flex flex-col gap-1">
-            {question.options.map((option) => {
+            {question.options.map((option, optionIndex) => {
               const on = (picked[question.id] ?? []).includes(option.value);
+              const key = keyed && questionIndex === cursor && optionIndex < 9 ? optionIndex + 1 : null;
               return (
                 <button
                   key={option.value}
@@ -594,7 +652,10 @@ function QuestionForm({
                     on ? "border-sky-500 bg-sky-500/10" : "border-border hover:bg-state-hover",
                   )}
                 >
-                  <span className="text-sm font-medium text-foreground">{option.label}</span>
+                  <span className="text-sm font-medium text-foreground">
+                    {key !== null && <Kbd>{key}</Kbd>}
+                    {option.label}
+                  </span>
                   {option.description !== null && (
                     <span className="text-xs leading-snug text-muted-foreground">{option.description}</span>
                   )}
@@ -618,6 +679,7 @@ function QuestionForm({
         <Button size="sm" disabled={busy || !answered} onClick={() => void send()}>
           {busy && <Icon name="Spinner" className="animate-spin" aria-hidden />}
           Send answer
+          {keyed && <Kbd>⏎</Kbd>}
         </Button>
       </div>
     </div>
@@ -681,6 +743,20 @@ function NextStepsRow({ card, rpc }: { card: Card; rpc: Rpc }) {
   const offer = card.offer;
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * The step Focus's number key picked, sent by Enter, with the offer it was
+   * picked from: a pick made on the last offer is no choice of a new one's.
+   */
+  const [picked, setPicked] = useState<{ offeredAt: string; index: number } | null>(null);
+  const chosen = picked !== null && offer !== null && picked.offeredAt === offer.offeredAt ? picked.index : null;
+  const keyed = useDeckKeys({
+    pick: (n) => {
+      if (offer !== null && n <= offer.steps.length) setPicked({ offeredAt: offer.offeredAt, index: n - 1 });
+    },
+    send: () => {
+      if (chosen !== null && !busy && editing === null) void take(chosen);
+    },
+  });
   if (offer === null || offer.steps.length === 0) return null;
 
   const take = async (index: number) => {
@@ -724,16 +800,30 @@ function NextStepsRow({ card, rpc }: { card: Card; rpc: Rpc }) {
     <div className="flex min-w-0 items-start gap-1">
       <div role="group" aria-label="Next steps" className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
         {offer.steps.map((step, index) => (
-          <Chip
+          <span
             key={`${offer.offeredAt}-${step}`}
-            label={step}
-            hint="⌥-click to edit it first."
-            ariaLabel={`Send "${step}"`}
-            primary={index === 0}
-            disabled={busy}
-            onSend={() => void take(index)}
-            onEdit={() => setEditing(step)}
-          />
+            className={cn("inline-flex min-w-0 max-w-full rounded-md", chosen === index && "ring-2 ring-sky-500")}
+            data-chosen={chosen === index ? "" : undefined}
+          >
+            <Chip
+              label={
+                keyed && index < 9 ? (
+                  <>
+                    <Kbd>{index + 1}</Kbd>
+                    {step}
+                  </>
+                ) : (
+                  step
+                )
+              }
+              hint="⌥-click to edit it first."
+              ariaLabel={`Send "${step}"`}
+              primary={index === 0}
+              disabled={busy}
+              onSend={() => void take(index)}
+              onEdit={() => setEditing(step)}
+            />
+          </span>
         ))}
       </div>
       {/* The same ⋯ as the Next row's: keeping a step is the rarer choice,

@@ -22,6 +22,10 @@ const VENDORED = [
     "plugins/thread-badges/lib/complications.ts",
     "plugins/thread-summary/lib/complications.ts",
   ],
+  // Plugin Triage's swipe deck, reused by the Follow Up page's Focus deck so
+  // the two feel alike under a thumb.
+  ["plugins/plugin-triage/ui/haptics.ts", "plugins/follow-up/src/page/haptics.ts"],
+  ["plugins/plugin-triage/lib/gesture.ts", "plugins/follow-up/lib/gesture.ts"],
 ];
 
 let drifted = false;
