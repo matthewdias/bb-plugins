@@ -1,8 +1,8 @@
 // Thread Summary — a backend that holds settings.
 //
 // Everything visible happens in the app: the header button, its card, and the
-// Git and pull-request complications. Two settings live here. Whether the
-// header shows chips is a bb setting. Which providers the card hides cannot
+// Git and pull-request complications. Two settings live here. How the header
+// shows chips — text, icons only, or off — is a bb setting. Which providers the card hides cannot
 // be one, because providers are discovered in the app after this backend has
 // declared its settings; that list lives in this plugin's storage, behind the
 // two methods below, and every write tells every window.
@@ -12,7 +12,8 @@ import {
   COMPLICATION_ID,
   HIDDEN_CHANGED,
   MAX_HIDDEN,
-  SHOW_CHIPS_KEY,
+  CHIPS_KEY,
+  CHIP_STYLES,
   normalizeHidden,
   withHidden,
 } from "./lib/hidden";
@@ -37,13 +38,15 @@ export const rpcContract = defineRpcContract({
 
 export default function plugin(bb: BbPluginApi) {
   bb.settings.define({
-    [SHOW_CHIPS_KEY]: {
-      type: "boolean",
-      label: "Show chips in the thread header",
+    [CHIPS_KEY]: {
+      type: "select",
+      label: "Chips in the thread header",
       description:
         "Up to three of the thread's most urgent values beside the Thread Summary button. " +
-        "Off, the button shows a dot in the most urgent tone instead.",
-      default: true,
+        "Text shows each glyph with its text; Icons only shows the glyphs, with the text in " +
+        "their tooltips; Off shows a dot on the button in the most urgent tone instead.",
+      options: [CHIP_STYLES.text, CHIP_STYLES.icons, CHIP_STYLES.off],
+      default: CHIP_STYLES.text,
     },
   });
 

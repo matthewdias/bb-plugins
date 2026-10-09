@@ -29,8 +29,10 @@ this plugin's settings.
 
 **Chips beside the button.** Up to three of the thread's values, worst first,
 so you see a failing check without opening anything. Clicking one opens the
-card. Turn chips off in settings and the button carries a dot in the worst
-colour instead, and no dot when everything is quiet.
+card, and while the card shows the chips step aside. In settings choose Text,
+Icons only — just the coloured glyphs, with the text in their tooltips — or
+Off, where the button carries a dot in the worst colour instead, and no dot
+when everything is quiet.
 
 Each pane of a split layout has its own card.
 

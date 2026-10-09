@@ -38,7 +38,6 @@ function render() {
     { threadId, projectId: "proj_1", isCompactViewport: true },
     {
       pluginId: "thread-summary",
-      settings: { showChips: true },
       rpc: hiddenBackend() as never,
       sidebarThreads: { status: "ready", threads: [sidebarThread(threadId)] },
     },

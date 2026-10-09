@@ -6,8 +6,10 @@
 // across thread switches and reloads, in every pane.
 //
 // Beside the button sit up to three chips, the thread's worst values first,
-// unless the setting is off or the viewport is compact; then the button
-// carries a dot in the worst tone instead, and none when all is quiet.
+// with text or, set to Icons only, as glyphs alone. Set to Off, or on a
+// compact viewport, the button carries a dot in the worst tone instead, and
+// none when all is quiet. While the desktop card shows, neither: the card
+// already says it all.
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   experimental_useSidebarThreads,
@@ -17,7 +19,7 @@ import {
 import { PropertyNewIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ComplicationProviderInfo } from "../lib/complications";
-import { SHOW_CHIPS_KEY } from "../lib/hidden";
+import { CHIPS_KEY, chipStyleOf } from "../lib/hidden";
 import { chips, isShortText, orderedIds, present, worstTone } from "../lib/order";
 import { toneColor } from "../lib/tone";
 import { CardBody, type CardEntry } from "./card-body";
@@ -67,6 +69,11 @@ const CHIP = `${CONTROL} gap-1 px-1.5`;
 const SHORT_CHIP = `${CHIP} shrink-0`;
 const LONG_CHIP = `${CHIP} min-w-7 grow basis-0 max-w-max`;
 /**
+ * Icons only: the glyph in a 28px square, the text in its tooltip and name.
+ * It never shrinks, and three always fit in bb's 256px beside the button.
+ */
+const ICON_CHIP = `${CONTROL} size-7 shrink-0 justify-center p-0`;
+/**
  * The chips' row: one line high, wrapping, overflow hidden. If even the short
  * chips cannot all fit, the last — the least urgent — wraps onto a line no
  * one sees, whole, rather than pushing past bb's span.
@@ -83,7 +90,8 @@ const BUTTON = `${CONTROL} relative size-7 shrink-0 justify-center p-0`;
 export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeaderActionProps) {
   useSummaryStyle();
   const settings = useSettings();
-  const showChips = settings.values?.[SHOW_CHIPS_KEY] !== false && !isCompactViewport;
+  const chipStyle = chipStyleOf(settings.values?.[CHIPS_KEY]);
+  const showChips = chipStyle !== "off" && !isCompactViewport;
   const [device, updateDevice] = useDeviceState();
   const entries = useThreadEntries(threadId);
   const { threads } = experimental_useSidebarThreads();
@@ -133,7 +141,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
         {shownChips.map((entry) => (
           <button
             aria-label={chipLabel(entry)}
-            className={isShortText(entry.value.text) ? SHORT_CHIP : LONG_CHIP}
+            className={chipStyle === "icons" ? ICON_CHIP : isShortText(entry.value.text) ? SHORT_CHIP : LONG_CHIP}
             data-thread-summary-chip={entry.provider.id}
             key={entry.provider.id}
             onClick={show}
@@ -141,7 +149,7 @@ export function SummaryAction({ threadId, isCompactViewport }: PluginThreadHeade
             type="button"
           >
             <Glyph value={entry.value} />
-            {entry.value.text !== undefined ? (
+            {chipStyle !== "icons" && entry.value.text !== undefined ? (
               <span className="min-w-0 max-w-28 truncate tabular-nums">{entry.value.text}</span>
             ) : null}
           </button>

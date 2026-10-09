@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { HIDDEN_CHANGED, MAX_HIDDEN, SHOW_CHIPS_KEY, normalizeHidden, withHidden } from "../lib/hidden";
+import { CHIPS_KEY, CHIP_STYLES, HIDDEN_CHANGED, MAX_HIDDEN, chipStyleOf, normalizeHidden, withHidden } from "../lib/hidden";
 
 async function host() {
   const fake = createFakePluginHost();
@@ -17,12 +17,28 @@ const set = (harness: Harness, id: string, hidden: boolean) =>
   harness.callRpc("hiddenProviders_set", { id, hidden });
 
 describe("settings", () => {
-  it("declares the chips switch, on by default", async () => {
+  it("declares one three-way chips choice, Text by default, and no old switch", async () => {
     const { harness } = await host();
-    expect(harness.registrations.settingsDescriptors[SHOW_CHIPS_KEY]).toMatchObject({
-      type: "boolean",
-      default: true,
+    expect(CHIPS_KEY).toBe("chips");
+    expect(harness.registrations.settingsDescriptors[CHIPS_KEY]).toMatchObject({
+      type: "select",
+      options: ["Text", "Icons only", "Off"],
+      default: "Text",
     });
+    expect(Object.keys(harness.registrations.settingsDescriptors)).toEqual([CHIPS_KEY]);
+  });
+});
+
+describe("chipStyleOf", () => {
+  it("maps each choice", () => {
+    expect(CHIP_STYLES).toEqual({ text: "Text", icons: "Icons only", off: "Off" });
+    expect(chipStyleOf("Text")).toBe("text");
+    expect(chipStyleOf("Icons only")).toBe("icons");
+    expect(chipStyleOf("Off")).toBe("off");
+  });
+
+  it("reads anything else as Text, the default", () => {
+    for (const raw of [undefined, null, "", "off", "icons", false, true, 0]) expect(chipStyleOf(raw)).toBe("text");
   });
 });
 

@@ -72,8 +72,18 @@ in provider order. A chip is the glyph and its text, as wide as its text up to
 whose text is 8 characters or fewer — a count, `↑141 ↓26`, `merged` — never
 shrinks, so it shows whole or not at all; a chip with longer text gives way,
 cut to fit the room the others leave. If even the short chips cannot all fit,
-the least urgent is left out whole. The button never moves. With chips off — or on a phone or a coarse pointer — the button shows a
+the least urgent is left out whole. The button never moves.
+
+The chips setting has three choices. **Text**, the default, is as above.
+**Icons only** draws each chip as just its glyph in its tone, in a 28px square
+that never shrinks, with the full text in its tooltip and accessible name.
+**Off** — and a phone or a coarse pointer — draws no chips: the button shows a
 dot in the worst tone instead, and no dot when every value is `default`.
+
+While the card shows on a desktop it says everything the chips would, just
+below them, so the header draws neither chips nor a dot; the button's pressed
+state is enough. Hiding the card brings them back. Only controls to the left
+of the group shift; the button stays put.
 
 ### Phones and coarse pointers
 
@@ -137,7 +147,7 @@ A field that fails is dropped, not its row.
 
 ## Settings
 
-- **Show chips in the thread header** — on by default.
+- **Chips in the thread header** — Text (the default), Icons only, or Off.
 - **Hidden providers** — every live thread provider, one checkbox each. Stored
   in this plugin's storage behind an RPC, because providers are discovered in
   the app after bb's settings are declared.

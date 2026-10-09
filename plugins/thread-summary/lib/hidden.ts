@@ -9,8 +9,20 @@
 /** The realtime signal the backend sends after a write, to every window. */
 export const HIDDEN_CHANGED = "hidden-providers-changed";
 
-/** The declarative setting for the header's chips. */
-export const SHOW_CHIPS_KEY = "showChips";
+/** The declarative setting for the header's chips: one three-way choice. */
+export const CHIPS_KEY = "chips";
+
+/** The choices, as the settings page shows them. Text is the default. */
+export const CHIP_STYLES = { text: "Text", icons: "Icons only", off: "Off" } as const;
+
+export type ChipStyle = keyof typeof CHIP_STYLES;
+
+/** The setting's value as a style; anything unexpected is the default, Text. */
+export function chipStyleOf(raw: unknown): ChipStyle {
+  if (raw === CHIP_STYLES.icons) return "icons";
+  if (raw === CHIP_STYLES.off) return "off";
+  return "text";
+}
 
 /**
  * `<pluginId>/<name>` — the registry's own rule, repeated because the vendored

@@ -10,6 +10,7 @@ import { resetDeviceState } from "../../src/device-state";
 import { isOpen } from "../../src/open-cards";
 import { resetHiddenProviders } from "../../src/use-hidden-providers";
 import { GIT_ID, PULL_REQUEST_ID } from "../../lib/order";
+import { CHIPS_KEY } from "../../lib/hidden";
 import { glyphFill, pillColors } from "../../lib/tone";
 import { ROW_INDENT } from "../../src/card-body";
 import { disposeProviders, freshThread, hiddenBackend, provide, sidebarThread } from "./fixtures";
@@ -28,18 +29,19 @@ afterEach(() => {
 interface Options {
   threadId?: string;
   compact?: boolean;
-  showChips?: boolean;
+  /** The chips setting's raw value; omitted, it is unset and bb gives the default. */
+  chips?: string;
   hidden?: string[];
   openFilePreview?: (options: unknown) => boolean;
 }
 
-function render({ threadId = freshThread(), compact = false, showChips = true, hidden = [], openFilePreview }: Options = {}) {
+function render({ threadId = freshThread(), compact = false, chips, hidden = [], openFilePreview }: Options = {}) {
   const slot = renderSlot(
     { component: SummaryAction },
     { threadId, projectId: "proj_1", isCompactViewport: compact },
     {
       pluginId: "thread-summary",
-      settings: { showChips },
+      settings: chips === undefined ? {} : { [CHIPS_KEY]: chips },
       rpc: hiddenBackend(hidden) as never,
       sidebarThreads: { status: "ready", threads: [sidebarThread(threadId)] },
       ...(openFilePreview !== undefined ? { openFilePreview: openFilePreview as never } : {}),
@@ -194,7 +196,7 @@ describe("the header", () => {
   });
 
   it("with chips off, shows a dot in the worst tone instead", async () => {
-    const { threadId } = render({ showChips: false });
+    const { threadId } = render({ chips: "Off" });
     seed(threadId);
     await waitFor(() =>
       expect(document.querySelector("[data-thread-summary-dot]")?.getAttribute("data-thread-summary-dot")).toBe("error"),
@@ -203,14 +205,14 @@ describe("the header", () => {
   });
 
   it("with chips off, shows no dot when everything is quiet", async () => {
-    const { threadId } = render({ showChips: false });
+    const { threadId } = render({ chips: "Off" });
     provide({ id: GIT_ID, name: "Git" }, { [threadId]: { icon: "GitBranch", label: "main", text: "↑0" } });
     await waitFor(() => expect(chipIds()).toEqual([]));
     expect(document.querySelector("[data-thread-summary-dot]")).toBeNull();
   });
 
   it("on a compact viewport, shows only the button and its dot, whatever the setting", async () => {
-    const { threadId } = render({ compact: true, showChips: true });
+    const { threadId } = render({ compact: true, chips: "Text" });
     seed(threadId);
     await waitFor(() =>
       expect(document.querySelector("[data-thread-summary-dot]")?.getAttribute("data-thread-summary-dot")).toBe("error"),
@@ -390,6 +392,52 @@ describe("the card", () => {
   });
 });
 
+describe("the chips setting", () => {
+  it("draws text chips by default, with nothing stored", async () => {
+    const { threadId } = render();
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toHaveLength(3));
+    const pr = document.querySelector(`[data-thread-summary-chip="${PULL_REQUEST_ID}"]`)!;
+    expect(pr.textContent).toBe("checks failing");
+  });
+
+  it("draws icon chips, glyph only, keeping the full text as name and tooltip", async () => {
+    const { threadId } = render({ chips: "Icons only" });
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toEqual([PULL_REQUEST_ID, GIT_ID, "follow-up/progress"]));
+    for (const chip of Array.from(document.querySelectorAll<HTMLElement>("[data-thread-summary-chip]"))) {
+      expect(chip.textContent).toBe("");
+      expect(chip.querySelector("span.truncate")).toBeNull();
+      const classes = chip.className.split(" ");
+      // A 28px square that never shrinks: three always fit.
+      expect(classes).toEqual(expect.arrayContaining(["size-7", "shrink-0", "p-0"]));
+      expect(classes).not.toContain("grow");
+    }
+    const pr = document.querySelector<HTMLElement>(`[data-thread-summary-chip="${PULL_REQUEST_ID}"]`)!;
+    expect(pr.getAttribute("aria-label")).toBe("Pull request: #41 Thread Summary (checks failing)");
+    expect(pr.getAttribute("title")).toBe("Pull request: #41 Thread Summary (checks failing)");
+    expect(document.querySelector("[data-thread-summary-dot]")).toBeNull();
+  });
+
+  it("draws the dot instead when Off", async () => {
+    const { threadId } = render({ chips: "Off" });
+    seed(threadId);
+    await waitFor(() =>
+      expect(document.querySelector("[data-thread-summary-dot]")?.getAttribute("data-thread-summary-dot")).toBe("error"),
+    );
+    expect(chipIds()).toEqual([]);
+  });
+
+  it("hides icon chips too while the card shows", async () => {
+    const { slot, threadId } = render({ chips: "Icons only" });
+    seed(threadId);
+    await waitFor(() => expect(chipIds()).toHaveLength(3));
+    fireEvent.click(button(slot));
+    expect(chipIds()).toEqual([]);
+    expect(document.querySelector("[data-thread-summary-dot]")).toBeNull();
+  });
+});
+
 describe("the header while the card shows", () => {
   it("draws no chips while the card shows, and brings them back when it hides", async () => {
     const { slot, threadId } = render();
@@ -404,7 +452,7 @@ describe("the header while the card shows", () => {
   });
 
   it("draws no dot either while the card shows with chips off, and brings it back when it hides", async () => {
-    const { slot, threadId } = render({ showChips: false });
+    const { slot, threadId } = render({ chips: "Off" });
     seed(threadId);
     await waitFor(() => expect(document.querySelector("[data-thread-summary-dot]")).not.toBeNull());
     fireEvent.click(button(slot));
