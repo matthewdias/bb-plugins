@@ -17,7 +17,11 @@ import { fileURLToPath } from "node:url";
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const VENDORED = [
-  ["plugins/follow-up/lib/complications.ts", "plugins/thread-badges/lib/complications.ts"],
+  [
+    "plugins/follow-up/lib/complications.ts",
+    "plugins/thread-badges/lib/complications.ts",
+    "plugins/thread-summary/lib/complications.ts",
+  ],
 ];
 
 let drifted = false;

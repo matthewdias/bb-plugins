@@ -33,7 +33,7 @@ jobs:
         # workspace root would pass every check above and still be missing for
         # a real user, so prove each plugin installs standalone.
         run: |
-          for slug in follow-up thread-badges top-tabs workflow-stages; do
+          for slug in follow-up thread-badges thread-summary top-tabs workflow-stages; do
             work="$(mktemp -d)"
             cp -R "plugins/$slug" "$work/$slug"
             rm -rf "$work/$slug/node_modules" "$work/$slug/dist"

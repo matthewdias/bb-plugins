@@ -1,6 +1,6 @@
 # bb-plugins
 
-Nine plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
+Ten plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
 
 | Plugin | |
 | --- | --- |
@@ -10,15 +10,18 @@ Nine plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
 | **[Question Dock](plugins/question-dock)** | Moves an agent's question out of the chat's way: docked beside the thread on a wide window, floating where you drag it on a narrow one, and as a sheet on a phone. |
 | **[Side Chats](plugins/side-chats)** | Keeps a thread's side chats in one list: reopen one after closing its tab, see which have replied, archive them, or promote one to a thread of its own. |
 | **[Thread Badges](plugins/thread-badges)** | Shows pull-request state, CI attention, listening ports and badges other plugins publish, like Follow Up's progress, on sidebar rows, so you see what needs you without opening a thread. |
+| **[Thread Summary](plugins/thread-summary)** | A card under the thread header with the thread's branch, its pull request and what other plugins publish about it, like Follow Up's progress. The most urgent sit beside the button as chips. |
 | **[Swipe Controls](plugins/swipe-controls)** | Swipe sidebar threads to mark them read, pin or archive them, and swipe the page with two fingers to go back and forward, with haptic ticks in bb's phone app. |
 | **[Top Tabs](plugins/top-tabs)** | Opens destinations as tabs across the top of the window, beside a permanent Threads tab, so you can keep several open and switch without losing your place. |
 | **[Workflow Stages](plugins/workflow-stages)** | Files every thread under a workflow stage you define, and moves it as the work progresses. Requires the Ribbon sidebar. |
 
-Each is independent. Three soft connections exist and none is required: Thread
+Each is independent. A few soft connections exist and none is required: Thread
 Badges draws Follow Up's progress ring once you turn it on, and a ports plug
 when [Worktree Ports](https://github.com/to-infinity-labs/bb-plugin-worktree-ports)
-is installed, and Workflow Stages needs
-[Ribbon sidebar](https://github.com/ariofrio/ribbon) to have anywhere to draw.
+is installed; Thread Summary draws Follow Up's ring on its card, and its Git and
+pull-request values can be turned on in Thread Badges too; and Workflow Stages
+needs [Ribbon sidebar](https://github.com/ariofrio/ribbon) to have anywhere to
+draw.
 
 ## Install
 
@@ -44,6 +47,9 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/thread-badges --tag-prefix thread-badges/
 
 bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
+  --subdirectory plugins/thread-summary --tag-prefix thread-summary/
+
+bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/swipe-controls --tag-prefix swipe-controls/
 
 bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
@@ -58,7 +64,7 @@ the newest release of that plugin alone and these lines never go stale. A caret
 range would: on a `0.x` version `^0.1.0` cannot reach `0.2.0` at all, which is
 how this page came to offer a plugin two minor versions behind.
 `--plugin <name>` works instead of `--subdirectory` — the repository carries a
-`.bb/plugins.json` index naming all nine.
+`.bb/plugins.json` index naming all ten.
 
 See each plugin's README for what it does, its settings, and its agent surface.
 

@@ -10,6 +10,7 @@
     { "name": "side-chats", "source": "./plugins/side-chats" },
     { "name": "swipe-controls", "source": "./plugins/swipe-controls" },
     { "name": "thread-badges", "source": "./plugins/thread-badges" },
+    { "name": "thread-summary", "source": "./plugins/thread-summary" },
     { "name": "top-tabs", "source": "./plugins/top-tabs" },
     { "name": "workflow-stages", "source": "./plugins/workflow-stages" }
   ]
