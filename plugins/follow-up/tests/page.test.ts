@@ -648,6 +648,19 @@ test("cardFor: a form the agent asked with is your turn, ahead of what the threa
   assert.equal(cardFor(inputs({ form: made.form, thread: thread({ status: "active" }) })), null, "a working thread is not asked about");
 });
 
+test("cardFor: a checklist that stopped is your turn, after a form and ahead of an offer", () => {
+  const checklist = { id: "cl_1", name: "Ship issue", status: "paused" as const, done: 1, total: 3, next: "Plan", note: null, noteCut: false, error: null };
+  const offer = { steps: ["Go"], goalMet: true, offeredAt: "x" };
+  const read = thread({ lastReadAt: 99, latestAttentionAt: 10 });
+  const card = must(cardFor(inputs({ checklist, offer, openFollowUps: 2, thread: read })));
+  assert.deepEqual([card.tier, card.lead, card.checklist], ["turn", "checklist", checklist]);
+  const made = makeForm("T", [{ type: "item", id: "i", title: "I", choices: [{ label: "A" }] }], "2026-10-09T12:00:00.000Z");
+  if (!made.ok) throw new Error(made.problem);
+  assert.equal(must(cardFor(inputs({ checklist, form: made.form }))).lead, "ask");
+  assert.equal(must(cardFor(inputs({ checklist, thread: thread({ status: "error" }) }))).lead, "stopped");
+  assert.equal(must(cardFor(inputs({ checklist: null, offer }))).checklist, null);
+});
+
 // --- ranking and counting --------------------------------------------------------
 
 const card = (threadId: string, tier: Card["tier"], since: number): Card => ({

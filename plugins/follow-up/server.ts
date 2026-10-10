@@ -96,6 +96,14 @@ import {
   type Form,
 } from "./lib/ask.ts";
 import {
+  CHECKLIST_ACTIONS,
+  checklistCall,
+  checklistOffers,
+  CHECKLISTS_PLUGIN,
+  checklistSummary,
+  type ChecklistSummary,
+} from "./lib/checklist.ts";
+import {
   doAsk,
   isShowable,
   makeOffer,
@@ -891,6 +899,25 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
     output: z.object({ outcome: z.enum(["retrying", "failed"]) }).strict(),
   },
+  /**
+   * Act on a thread's waiting checklist, as Agent Checklists' own controls do:
+   * `continue` approves the continuation it waits on; `resume` restarts one
+   * that paused or ran out of continuations. `reply` goes with resuming a
+   * paused one: it is sent to the thread first, as the user's message.
+   * `checklistId` names the checklist the card showed, and its state is read
+   * again here, so a press on a card that has moved on is `stale`.
+   */
+  page_checklist: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        checklistId: z.string().min(1).max(200),
+        action: z.enum(CHECKLIST_ACTIONS),
+        reply: z.string().trim().min(1).max(REPLY_MAX).optional(),
+      })
+      .strict(),
+    output: z.object({ outcome: z.enum(["done", "stale", "unavailable", "failed"]) }).strict(),
+  },
   /** Stop a thread that is in motion. */
   page_stop: {
     input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
@@ -1118,6 +1145,16 @@ const reviewKey = (threadId: string) => `${REVIEW_PREFIX}${threadId}`;
 const PR_TTL_MS = 5 * 60 * 1000;
 /** Pull request lookups at once. 76 worktrees on one host is not unusual. */
 const PR_CONCURRENCY = 4;
+/**
+ * Checklists are read for threads that did something this recently. One that
+ * has waited longer than this has been seen waiting already, and reading every
+ * idle thread's would be a call each on a host with hundreds.
+ */
+const CHECKLIST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** A checklist read is good this long, unless its thread moves first. */
+const CHECKLIST_TTL_MS = 5 * 60 * 1000;
+/** After Agent Checklists fails to answer, how long before it is asked again. */
+const CHECKLIST_RETRY_MS = 5 * 60 * 1000;
 /** Events read to say what a running thread is doing. */
 const ACTIVITY_EVENTS = "60";
 /** Started items read to find a file change an approval is about. */
@@ -3893,6 +3930,87 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
+  /**
+   * Each thread's checklist, when it waits on a person, and what the thread
+   * looked like when it was read. Agent Checklists holds them; see
+   * lib/checklist.ts. Read in the background like pull requests, so the page
+   * never waits on another plugin.
+   */
+  const checklists = new Map<string, { mark: string; checkedAt: number; checklist: ChecklistSummary | null }>();
+  const checklistQueue: Array<{ threadId: string; mark: string }> = [];
+  const checklistQueued = new Set<string>();
+  let checklistActive = 0;
+  /** Set when Agent Checklists did not answer: not installed, disabled, or failing. */
+  let checklistsDownAt: number | null = null;
+
+  /** What a thread looked like when its checklist was read: it moves when the agent works. */
+  const checklistMark = (thread: ThreadFacts) => `${thread.latestAttentionAt}:${thread.status}`;
+
+  /** A thread's waiting checklist as last read, if the thread has not moved since. */
+  function checklistOf(thread: ThreadFacts): ChecklistSummary | null {
+    const entry = checklists.get(thread.id);
+    return entry !== undefined && entry.mark === checklistMark(thread) ? entry.checklist : null;
+  }
+
+  async function readChecklist(threadId: string): Promise<ChecklistSummary | null> {
+    const response: unknown = await bb.sdk.plugins.callRpc({
+      pluginId: CHECKLISTS_PLUGIN,
+      method: "getForThread",
+      input: { threadId },
+      outputSchema: z.unknown(),
+    });
+    return checklistSummary(response);
+  }
+
+  /**
+   * Read a thread's checklist in the background, unless it was read while the
+   * thread looked as it does now. A checklist changes when its agent works,
+   * which moves the thread; one changed from its own panel is caught when the
+   * read goes stale.
+   */
+  function queueChecklist(thread: ThreadFacts, now: number): void {
+    if (checklistsDownAt !== null && now - checklistsDownAt < CHECKLIST_RETRY_MS) return;
+    if (now - thread.latestAttentionAt > CHECKLIST_WINDOW_MS) return;
+    const mark = checklistMark(thread);
+    const cached = checklists.get(thread.id);
+    if (cached !== undefined && cached.mark === mark && now - cached.checkedAt < CHECKLIST_TTL_MS) return;
+    if (checklistQueued.has(thread.id)) return;
+    checklistQueued.add(thread.id);
+    checklistQueue.push({ threadId: thread.id, mark });
+    pumpChecklists();
+  }
+
+  function pumpChecklists(): void {
+    while (!disposed && checklistActive < PR_CONCURRENCY && checklistQueue.length > 0) {
+      const { threadId, mark } = checklistQueue.shift() as { threadId: string; mark: string };
+      checklistActive += 1;
+      void (async () => {
+        const before = checklists.get(threadId);
+        try {
+          const checklist = await readChecklist(threadId);
+          checklistsDownAt = null;
+          checklists.set(threadId, { mark, checkedAt: Date.now(), checklist });
+          if (JSON.stringify(before?.checklist ?? null) !== JSON.stringify(checklist)) pageChanged();
+        } catch (error) {
+          // Not installed, switched off, or broken: nothing to show, and no
+          // point asking for every other thread. Whatever was queued is dropped.
+          checklistsDownAt = Date.now();
+          checklistQueue.length = 0;
+          checklistQueued.clear();
+          if (before?.checklist != null) {
+            checklists.delete(threadId);
+            pageChanged();
+          }
+          if (!disposed) bb.log.info(`page: no checklists (${CHECKLISTS_PLUGIN} did not answer): ${String(error)}`);
+        } finally {
+          checklistQueued.delete(threadId);
+          checklistActive -= 1;
+          pumpChecklists();
+        }
+      })();
+    }
+  }
+
   async function readArchivedThread(
     threadId: string,
   ): Promise<{ title: string; projectId: string; updatedAt: number } | null> {
@@ -4008,6 +4126,8 @@ export default async function plugin(bb: BbPluginApi) {
       // An idle thread's pull request only: a working agent is still pushing.
       if (!isBusy(byId.get(threadId)?.status ?? "idle")) queuePullRequest(environmentId);
     }
+    // And an idle thread's checklist: one whose agent is working is not waiting.
+    for (const thread of threads) if (!isBusy(thread.status)) queueChecklist(thread, now);
 
     const cards = (
       await Promise.all(
@@ -4041,6 +4161,7 @@ export default async function plugin(bb: BbPluginApi) {
             asks,
             offer,
             form,
+            checklist: busy ? null : checklistOf(thread),
             wrapUp: wrapRecord === null ? null : { held: wrapRecord.held, running: wrapRecord.held === null },
             pr,
             reply,
@@ -4208,6 +4329,8 @@ export default async function plugin(bb: BbPluginApi) {
     pageTimer = null;
     prQueue.length = 0;
     prQueued.clear();
+    checklistQueue.length = 0;
+    checklistQueued.clear();
     try {
       unsubscribe?.();
     } catch {
@@ -4713,6 +4836,43 @@ export default async function plugin(bb: BbPluginApi) {
       } catch (error) {
         bb.log.error(`page: retry failed on ${threadId}: ${String(error)}`);
         return { outcome: "failed" as const };
+      }
+    },
+    page_checklist: async ({ threadId, checklistId, action, reply }) => {
+      let checklist: ChecklistSummary | null;
+      try {
+        // Read again, not from the cache: the card may be minutes old.
+        checklist = await readChecklist(threadId);
+      } catch (error) {
+        bb.log.warn(`page: checklist on ${threadId} could not be read: ${String(error)}`);
+        return { outcome: "unavailable" as const };
+      }
+      const call = checklist === null || checklist.id !== checklistId ? null : checklistCall(checklist, action);
+      if (checklist === null || call === null) {
+        checklists.delete(threadId);
+        pageChanged();
+        return { outcome: "stale" as const };
+      }
+      // A reply is the answer to what a paused checklist asked, and only that.
+      if (reply !== undefined && !checklistOffers(checklist.status).reply) return { outcome: "stale" as const };
+      try {
+        // The reply first: it starts the turn, so resuming then finds the
+        // agent already working and sends no reminder over the top of it.
+        if (reply !== undefined) await sendAsUser(threadId, [{ text: reply }]);
+        await bb.sdk.plugins.callRpc({
+          pluginId: CHECKLISTS_PLUGIN,
+          method: call.method,
+          input: call.input as never,
+          outputSchema: z.unknown(),
+        });
+        bb.log.info(`page: checklist ${action} on ${threadId}${reply === undefined ? "" : " with a reply"}`);
+        return { outcome: "done" as const };
+      } catch (error) {
+        bb.log.error(`page: checklist ${action} failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      } finally {
+        checklists.delete(threadId);
+        pageChanged();
       }
     },
     page_stop: async ({ threadId }) => {

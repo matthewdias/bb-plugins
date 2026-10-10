@@ -24,6 +24,7 @@
 // motion" lane, which says what it is doing rather than what it wants.
 import { z } from "zod";
 import { formSchema, isSpent, type Form } from "./ask.ts";
+import { checklistSchema, type ChecklistSummary } from "./checklist.ts";
 import { hasUnseen, reveal } from "./unseen.ts";
 import { mainActionFor, type FollowUp, type Reason, REASONS } from "./followups.ts";
 
@@ -804,6 +805,8 @@ export const LEADS = [
   "stopped",
   /** A form the agent asked with (`ask_form`), waiting between turns. */
   "ask",
+  /** An Agent Checklists checklist that has stopped to wait for a person. */
+  "checklist",
   "wrap-up",
   "next",
   "page",
@@ -865,6 +868,8 @@ export const baseCardSchema = z.object({
   asks: z.array(pendingAskSchema),
   /** The form the agent ended its turn with, while anything on it is unanswered. */
   form: formSchema.nullable(),
+  /** The thread's checklist, while it waits on a person. See lib/checklist.ts. */
+  checklist: checklistSchema.nullable(),
   offer: offerSchema.nullable(),
   openFollowUps: z.number(),
   /**
@@ -913,6 +918,8 @@ export interface ThreadInputs {
   offer: { steps: string[]; goalMet: boolean; offeredAt: string } | null;
   /** The agent's `ask_form`, if one is waiting. Absent means none. */
   form?: Form | null;
+  /** The thread's checklist, if it is waiting on a person. Absent means none. */
+  checklist?: ChecklistSummary | null;
   openFollowUps: number;
   /** The open rows themselves, in the thread's own order. */
   rows?: readonly FollowUp[];
@@ -983,6 +990,7 @@ export function cardFor(input: ThreadInputs): Card | null {
   const wrapsUp =
     input.wrapUp?.held != null || (offer?.goalMet === true && input.openFollowUps > 0);
   const form = input.form != null && !isSpent(input.form) ? input.form : null;
+  const checklist = input.checklist ?? null;
 
   let lead: Lead | null;
   if (blocked) lead = oldest(input.asks).kind;
@@ -990,6 +998,8 @@ export function cardFor(input: ThreadInputs): Card | null {
   // A form is the agent saying outright what it needs, so it leads what the
   // thread merely offers.
   else if (form !== null) lead = "ask";
+  // A checklist that stopped is a run that will not move until someone says so.
+  else if (checklist !== null) lead = "checklist";
   else if (wrapsUp) lead = "wrap-up";
   else if (offer !== null && offer.steps.length > 0) lead = "next";
   else if (pageUrl !== null) lead = "page";
@@ -1014,6 +1024,7 @@ export function cardFor(input: ThreadInputs): Card | null {
     attentionAt: thread.latestAttentionAt,
     asks: [...input.asks].sort((a, b) => a.createdAt - b.createdAt),
     form,
+    checklist,
     offer,
     openFollowUps: input.openFollowUps,
     followUps: (input.rows ?? []).map((row) => laneRow(row, false)),
@@ -1129,6 +1140,7 @@ export function combineFamilies(cards: readonly Card[], threads: readonly Thread
       attentionAt: root.latestAttentionAt,
       asks: [],
       form: null,
+      checklist: null,
       offer: null,
       openFollowUps: 0,
       followUps: [],

@@ -76,6 +76,7 @@ function renderPage(form: Form, subPath = "") {
     attentionAt: NOW - 60_000,
     asks: [],
     form,
+    checklist: null,
     offer: null,
     openFollowUps: 0,
     followUps: [],

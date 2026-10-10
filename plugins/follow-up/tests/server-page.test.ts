@@ -745,3 +745,163 @@ test("page: an approval that offers no choice can't be answered from the page", 
   }
   assert.equal(calls("threads.interactions.resolve").length, 0);
 });
+
+// --- checklists (Agent Checklists, read through its own RPC) --------------------
+
+const waitingChecklist = (status: string, extra: Row = {}) => ({
+  checklist: {
+    id: "cl_1",
+    name: "Ship issue",
+    status,
+    lastError: null,
+    steps: [
+      { position: 0, title: "Plan", checked: true },
+      { position: 1, title: "Mutation-test the guard", checked: false },
+    ],
+    notes: [{ stepId: null, content: "Should expired tokens retry?", createdAt: 5 }],
+    ...extra,
+  },
+});
+
+type RpcCall = { pluginId: string; method: string; input: Row };
+
+/** Agent Checklists, answering `getForThread` from `byThread` and accepting anything else. */
+function checklistsPlugin(
+  harness: Awaited<ReturnType<typeof host>>["harness"],
+  byThread: Record<string, unknown>,
+  fails: string[] = [],
+  delayMs = 0,
+) {
+  const made: RpcCall[] = [];
+  harness.sdk.stub("plugins.callRpc", async (args: RpcCall) => {
+    made.push(args);
+    // Another plugin answers over a call, never at once.
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (fails.includes(args.method)) throw new Error(`${args.method} is down`);
+    return args.method === "getForThread" ? (byThread[String(args.input.threadId)] ?? { checklist: null }) : {};
+  });
+  return made;
+}
+
+const recent = (id: string, extra: Row = {}) => threadRow(id, { latestAttentionAt: NOW - 60_000, lastReadAt: NOW, ...extra });
+
+test("page: a checklist that stopped to wait gets its thread a card, read in the background", async () => {
+  const { call, harness, signals } = await host({ threads: [recent("thr_cl"), recent("thr_none")] });
+  const made = checklistsPlugin(harness, { thr_cl: waitingChecklist("paused") }, [], 30);
+  assert.deepEqual((await call("page_snapshot")).cards, [], "the page never waits on another plugin");
+  await settle();
+  assert.ok(signals() >= 1, "a read that found something says so");
+  const page = await call("page_snapshot");
+  assert.deepEqual(page.cards.map((card: Row) => [card.threadId, card.tier, card.lead]), [["thr_cl", "turn", "checklist"]]);
+  assert.deepEqual(page.cards[0].checklist, { id: "cl_1", name: "Ship issue", status: "paused", done: 1, total: 2, next: "Mutation-test the guard", note: "Should expired tokens retry?", noteCut: false, error: null });
+  assert.equal(page.count, 1);
+  assert.deepEqual(made.map((entry) => [entry.pluginId, entry.method, entry.input.threadId]).sort(), [
+    ["agent-checklists", "getForThread", "thr_cl"],
+    ["agent-checklists", "getForThread", "thr_none"],
+  ]);
+  // Read once: a second look at an unmoved thread asks nothing.
+  await call("page_snapshot");
+  await settle();
+  assert.equal(made.length, 2);
+});
+
+test("page: checklists are read only for idle threads that did something lately", async () => {
+  const { call, harness } = await host({
+    threads: [recent("thr_busy", { status: "active" }), threadRow("thr_old", { latestAttentionAt: NOW - 8 * 24 * 60 * 60 * 1000 }), recent("thr_idle")],
+  });
+  const made = checklistsPlugin(harness, {});
+  await call("page_snapshot");
+  await settle();
+  assert.deepEqual(made.map((entry) => entry.input.threadId), ["thr_idle"]);
+});
+
+test("page: a checklist read before its thread moved is not shown, and is read again", async () => {
+  const { call, harness, w } = await host({ threads: [recent("thr_cl")] });
+  const byThread: Record<string, unknown> = { thr_cl: waitingChecklist("paused") };
+  const made = checklistsPlugin(harness, byThread, [], 30);
+  await call("page_snapshot");
+  await settle();
+  assert.equal((await call("page_snapshot")).cards.length, 1);
+  // The agent worked and stopped again: its attention mark moved.
+  w.threads = [recent("thr_cl", { latestAttentionAt: NOW - 1000 })];
+  byThread.thr_cl = { checklist: null };
+  assert.deepEqual((await call("page_snapshot")).cards, [], "what was read about the thread as it was is not shown");
+  await settle();
+  assert.equal(made.length, 2);
+  assert.deepEqual((await call("page_snapshot")).cards, []);
+});
+
+test("page: without Agent Checklists there are no checklist cards, and it is not asked thread by thread", async () => {
+  const { call, harness } = await host({ threads: Array.from({ length: 12 }, (_, n) => recent(`thr_${n}`)) });
+  const made = checklistsPlugin(harness, {}, ["getForThread"]);
+  assert.deepEqual((await call("page_snapshot")).cards, []);
+  await settle();
+  assert.ok(made.length >= 1 && made.length <= 4, `asked ${made.length} times: the first few in flight, then no more`);
+  const asked = made.length;
+  await call("page_snapshot");
+  await settle();
+  assert.equal(made.length, asked, "not asked again until the retry interval has passed");
+});
+
+test("page: Continue approves the continuation a checklist waits on", async () => {
+  const { call, harness, calls } = await host({ threads: [recent("thr_cl")] });
+  const made = checklistsPlugin(harness, { thr_cl: waitingChecklist("awaiting_approval") });
+  assert.deepEqual(await call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "continue" }), { outcome: "done" });
+  assert.deepEqual(made.map((entry) => [entry.method, entry.input]), [
+    ["getForThread", { threadId: "thr_cl" }],
+    ["continue", { checklistId: "cl_1" }],
+  ]);
+  assert.equal(calls("threads.send").length, 0);
+});
+
+test("page: Reply and resume sends the reply first, then sets a paused checklist active", async () => {
+  const { call, harness, calls } = await host({ threads: [recent("thr_cl")] });
+  const made = checklistsPlugin(harness, { thr_cl: waitingChecklist("paused") });
+  // What Agent Checklists had been told to do by the time the reply went.
+  let actedBeforeReply: string[] | null = null;
+  harness.sdk.stub("threads.send", () => {
+    actedBeforeReply = made.filter((entry) => entry.method !== "getForThread").map((entry) => entry.method);
+    return { ok: true, delivery: "sent" };
+  });
+  const result = await call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume", reply: " Yes, retry once. " });
+  assert.deepEqual(result, { outcome: "done" });
+  assert.deepEqual(actedBeforeReply, [], "the reply goes first, so resuming finds the agent already working");
+  assert.deepEqual(made.filter((entry) => entry.method !== "getForThread").map((entry) => entry.method), ["updateSettings"]);
+  assert.equal((calls("threads.send")[0]?.input as Row[])[0]?.text, "Yes, retry once.");
+  assert.equal(calls("threads.send")[0]?.mode, "queue-if-active");
+  assert.deepEqual(made.at(-1)?.input, { checklistId: "cl_1", status: "active" });
+});
+
+test("page: Resume restarts a checklist that ran out of continuations, by its own method", async () => {
+  const { call, harness } = await host({ threads: [recent("thr_cl")] });
+  const made = checklistsPlugin(harness, { thr_cl: waitingChecklist("limit_reached") });
+  assert.deepEqual(await call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume" }), { outcome: "done" });
+  assert.deepEqual([made.at(-1)?.method, made.at(-1)?.input], ["resume", { checklistId: "cl_1" }]);
+});
+
+test("page: a press on a checklist that has moved on does nothing", async () => {
+  const { call, harness, calls } = await host({ threads: [recent("thr_cl")] });
+  const byThread: Record<string, unknown> = { thr_cl: waitingChecklist("paused") };
+  const made = checklistsPlugin(harness, byThread);
+  const acted = () => made.filter((entry) => entry.method !== "getForThread").length;
+  const press = (input: Row) => call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume", ...input });
+  assert.deepEqual(await press({ checklistId: "cl_other" }), { outcome: "stale" }, "another checklist is attached now");
+  assert.deepEqual(await press({ action: "continue" }), { outcome: "stale" }, "its state does not offer that");
+  byThread.thr_cl = waitingChecklist("limit_reached");
+  assert.deepEqual(await press({ reply: "Yes" }), { outcome: "stale" }, "a reply answers a paused checklist only");
+  byThread.thr_cl = waitingChecklist("active");
+  assert.deepEqual(await press({}), { outcome: "stale" }, "it is running again");
+  byThread.thr_cl = { checklist: null };
+  assert.deepEqual(await press({}), { outcome: "stale" });
+  assert.equal(acted(), 0);
+  assert.equal(calls("threads.send").length, 0);
+});
+
+test("page: a checklist action says when Agent Checklists cannot be reached, and when it refuses", async () => {
+  const down = await host({ threads: [recent("thr_cl")] });
+  checklistsPlugin(down.harness, {}, ["getForThread"]);
+  assert.deepEqual(await down.call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume" }), { outcome: "unavailable" });
+  const refusing = await host({ threads: [recent("thr_cl")] });
+  checklistsPlugin(refusing.harness, { thr_cl: waitingChecklist("limit_reached") }, ["resume"]);
+  assert.deepEqual(await refusing.call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume" }), { outcome: "failed" });
+});

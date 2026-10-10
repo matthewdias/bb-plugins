@@ -27,6 +27,7 @@ const card = (threadId: string, extra: Partial<Card> = {}): Card => ({
   attentionAt: NOW - 5 * 60_000,
   asks: [],
   form: null,
+  checklist: null,
   offer: null,
   openFollowUps: 0,
   followUps: [],
@@ -692,6 +693,70 @@ describe("Focus", () => {
     expect(slot.getByText("1 of 2")).toBeTruthy();
     swipe("touch");
     await waitFor(() => expect(slot.getByText("2 of 2")).toBeTruthy());
+  });
+});
+
+describe("a waiting checklist", () => {
+  const waiting = (status: "awaiting_approval" | "paused" | "limit_reached", extra: Partial<NonNullable<Card["checklist"]>> = {}): Card =>
+    card("thr_cl", {
+      tier: "turn",
+      lead: "checklist",
+      checklist: { id: "cl_1", name: "Ship issue", status, done: 5, total: 8, next: "Mutation-test the guard", note: "Should expired tokens retry?", noteCut: false, error: null, ...extra },
+    });
+  const done = { page_checklist: async () => ({ outcome: "done" }) };
+
+  it("shows where it stands: progress, the next step, and what the agent said", async () => {
+    const slot = renderPage({ cards: [waiting("paused", { noteCut: true, error: "Provider is down" })] });
+    const section = await slot.findByRole("region", { name: "Checklist: Ship issue" });
+    expect(section.textContent).toContain("Ship issue · 5 of 8 steps · paused");
+    expect(within(section).getByRole("progressbar").getAttribute("aria-valuenow")).toBe("5");
+    expect(within(section).getByText("Mutation-test the guard")).toBeTruthy();
+    expect(within(section).getByText(/Should expired tokens retry\?/).textContent).toContain("The rest is in the thread.");
+    expect(within(section).getByText("Last try failed: Provider is down")).toBeTruthy();
+  });
+
+  it("replies and resumes a paused one, or just resumes it", async () => {
+    const slot = renderPage({ cards: [waiting("paused")], handlers: done });
+    const section = await slot.findByRole("region", { name: "Checklist: Ship issue" });
+    const replyAndResume = within(section).getByRole("button", { name: "Reply and resume" }) as HTMLButtonElement;
+    expect(replyAndResume.disabled).toBe(true);
+    fireEvent.change(within(section).getByLabelText("Reply to the thread"), { target: { value: "  Yes, once.  " } });
+    fireEvent.click(replyAndResume);
+    await waitFor(() => expect(calls(slot, "page_checklist")).toHaveLength(1));
+    expect(calls(slot, "page_checklist")[0]).toEqual({ threadId: "thr_cl", checklistId: "cl_1", action: "resume", reply: "Yes, once." });
+    // Resume alone sends no reply, even with one typed.
+    fireEvent.click(within(section).getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(calls(slot, "page_checklist")).toHaveLength(2));
+    expect(calls(slot, "page_checklist")[1]).toEqual({ threadId: "thr_cl", checklistId: "cl_1", action: "resume" });
+  });
+
+  it("offers Continue for one awaiting your go-ahead, with no reply box", async () => {
+    const slot = renderPage({ cards: [waiting("awaiting_approval")], handlers: done });
+    const section = await slot.findByRole("region", { name: "Checklist: Ship issue" });
+    expect(section.textContent).toContain("waiting for your go-ahead");
+    expect(within(section).queryByLabelText("Reply to the thread")).toBeNull();
+    expect(within(section).queryByRole("button", { name: "Reply and resume" })).toBeNull();
+    fireEvent.click(within(section).getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(calls(slot, "page_checklist")).toHaveLength(1));
+    expect(calls(slot, "page_checklist")[0]).toEqual({ threadId: "thr_cl", checklistId: "cl_1", action: "continue" });
+  });
+
+  it("offers Resume alone for one out of continuations", async () => {
+    const slot = renderPage({ cards: [waiting("limit_reached")], handlers: done });
+    const section = await slot.findByRole("region", { name: "Checklist: Ship issue" });
+    expect(section.textContent).toContain("out of continuations");
+    expect(within(section).queryByLabelText("Reply to the thread")).toBeNull();
+    expect(within(section).getAllByRole("button").map((button) => button.textContent)).toEqual(["Resume"]);
+  });
+
+  it.each([
+    ["stale", "That checklist has moved on. Nothing was done."],
+    ["unavailable", "Agent Checklists did not answer. Open the thread."],
+    ["failed", "It did not go through. Open the thread to see why."],
+  ])("says so when the action comes back %s", async (outcome, message) => {
+    const slot = renderPage({ cards: [waiting("limit_reached")], handlers: { page_checklist: async () => ({ outcome }) } });
+    fireEvent.click(await slot.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(message));
   });
 });
 
