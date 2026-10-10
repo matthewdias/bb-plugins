@@ -93,6 +93,31 @@ marked in the list while you do. That cut is made from the row's own words
 rather than written separately, so it can never say something the row does
 not.
 
+**Forms.** An agent that would end its turn with a list of questions, or a
+list of things for you to decide one by one, shows them as a form instead.
+The form sits above the composer between turns, and on the Follow Up page as
+a card. It is built from fixed parts that Follow Up draws: text, code or a
+diff, a table and a link for context; a choice, a list to tick from, a
+ranking and a typed answer to ask with; and items, each with its own choices
+and, where there is text to edit first, a draft. What the agent recommends is
+picked in advance for a question and marked on an item, with *Take the
+recommendations* to accept an item list in one press.
+
+Answering sends one message, as you. It is composed by Follow Up from the
+form's own labels and what you typed, and the form shows it in full above
+*Send* before it goes: nothing travels behind a choice. The agent also gets
+the same answers keyed by each part, so it need not parse prose. The
+questions are answered together. Items can be decided a few at a time, and
+the rest stay on the form.
+
+A form waits as long as you take, unlike a question the agent stops on, and
+it goes when you answer it, when the agent asks again, or when you type a
+message of your own instead. In the thread, the × drops it unanswered.
+
+A form's text is drawn by Follow Up itself rather than as general Markdown:
+paragraphs, lists, bold, italics, code and links. There are no images and no
+HTML, whatever the text holds, and a link is followed only when you press it.
+
 **File to….** Some follow-ups belong in your tracker or backlog, not in this
 thread. Filing one moves it to Done saying where it went — "→ Jira ENG ·
 ENG-1482", a URL opening through bb — and, like dismissal, its text is not
@@ -174,9 +199,11 @@ which of three tiers it sits in:
   nothing. An approval is answered on the card too, with the choices bb's own
   approval card offers and in its words (below). A plugin form opens the
   thread.
-- **Your turn**: the turn ended with something for you, newest first. The
-  agent's next steps work the way the Next row's do: press to send, ⌥-click to
-  edit first, or keep one for later. Wrap up is the same sheet as in the
+- **Your turn**: the turn ended with something for you, newest first. A form
+  the agent asked with (above) is filled in on the card. A checklist that
+  stopped to wait gets a card too (below). The agent's next steps work the
+  way the Next row's do: press to send, ⌥-click to edit first, or keep one
+  for later. Wrap up is the same sheet as in the
   composer. A reply ending on the thread's Thread Page link opens the page. A
   failed thread has *Retry*, bb's own. A pull request one of your threads
   opened shows its checks and offers what it needs (below).
@@ -201,6 +228,17 @@ grant holding anything the card can't list. Any character that draws nothing
 or reorders the text around it is shown as its code, like ⟦U+202E⟧, and the
 card warns, so a command can't look like something other than what runs.
 Approvals are click only: no key or swipe answers one.
+
+With [Agent Checklists](https://github.com/patleeman/bb-plugins) installed,
+a thread whose checklist has stopped to wait for a person gets a card: the
+checklist's name, how many steps are done, the next one, and the agent's
+latest note. The card does what that plugin's own controls do. *Continue*
+approves the continuation it is waiting on. *Resume* restarts one that the
+agent paused or that ran out of continuations. On a paused one, *Reply and
+resume* sends your reply to the thread first. Checklists are read in the
+background, for idle threads that did something in the last week, so the
+page never waits on another plugin; the checklist is read again before
+anything is done, and a card that has moved on says so.
 
 A thread's workers, the child threads it spawned (at any depth), fold into
 its card as a **Workers** list, so an orchestrator and the six workers it ran
@@ -232,7 +270,7 @@ nobody comes back to.
 first, then your turn, in the page's order. Open it with the *Focus* button in
 the page's header, and leave with *All of them*, Escape, or Back. It stays
 live: a card answered anywhere leaves, and a new ask joins. Number keys pick a
-question's option or a next step, and Enter sends it. J or → skips, K or ←
+question's option, a form's choice or a next step, and Enter sends it. J or → skips, K or ←
 goes back, S or ↑ puts a card away (*Not now*), Z undoes a skip or a put-away,
 and Esc leaves. Approvals, merges and wrap-ups have no key: they're click
 only. On a phone, swipe left to skip and up to put away, with the same feel
@@ -240,7 +278,7 @@ and haptics as Plugin Triage's deck; a swipe never answers anything.
 
 A pull request gets a card when bb's roll-up of its checks, review and
 mergeability says it wants you: ready to merge, review requested, changes
-requested, checks failed, conflicts, or merged. Only pull requests on a
+requested, checks failed, conflicts, or merged. A draft gets none. Only pull requests on a
 worktree count, since a shared checkout's branch belongs to no one thread, and
 the card goes to the thread that opened the worktree, so a review thread or a
 hand-off started there later never takes it. It shows once that thread is idle,
@@ -259,6 +297,20 @@ GitHub.
   send a message to the thread that opened the pull request. A box shows the
   message first, prefilled with the failing checks or the base branch, and
   what's in the box when you press send is exactly what goes.
+- *Review changes* opens the pull request's files on the card, against its
+  base branch, in bb's own diff view. Press a line's number to comment on
+  it; the comment sits under that line. *Request changes* then puts every
+  comment, each with its file, its line and the line it is about, into one
+  message to the thread that opened the pull request, shown in the box
+  first. Comments are drafts until then, kept while bb stays open. The
+  changes are read from the thread's worktree as committed there, which can
+  be ahead of or behind what is pushed: GitHub has what will merge, and the
+  card says so. Up to 50 files and 40,000 characters a file are shown.
+  Anything past that, a binary file, or a file bb could not load is counted
+  in a notice above the changes and marked on its file, with a link to
+  GitHub, because reading part of a change is not reviewing it. Where bb's
+  diff will not take a comment row, the file gets a comment box under it
+  that takes a line number instead.
 - *Start a review thread* opens a new thread in the same worktree with a
   review prompt naming the pull request, also shown in a box first. It is a
   child of the author's thread: it reports back there, sits in the author's
@@ -337,6 +389,7 @@ and can ask the agent to fill in a missing file anchor or detail.
 | --- | --- |
 | Remind agents to record follow-ups | on |
 | Let agents offer next steps | on |
+| Let agents ask with a form | on |
 | Let agents file follow-ups without asking | off |
 | List follow-ups in the `@` menu | on |
 | Mentioning a follow-up claims it | on |
@@ -364,7 +417,7 @@ the plugin adds nothing to it.
 
 ## For agents
 
-Seven tools:
+Eight tools:
 
 | | |
 | --- | --- |
@@ -374,6 +427,7 @@ Seven tools:
 | `prioritize_follow_up` | move a row to the front |
 | `amend_follow_up` | add detail to a row without rewording it |
 | `offer_next_steps` | offer what it would do next here, as buttons under its reply |
+| `ask_form` | end a turn with several questions, or items to decide, as a form |
 | `file_follow_ups` | file rows to a destination you set up, when you ask it to |
 
 An agent filing — through `file_follow_ups`, or by running `bb follow-up file`
@@ -382,6 +436,14 @@ going and all of what each one sends, unless you turn on *Let agents file
 follow-ups without asking*. Run from a terminal outside any thread, the
 command is you, and does not ask: filing writes outside bb, and an agent steered by something it read
 could otherwise open issues nobody asked for.
+
+`ask_form` takes a `title` and up to 40 `parts`, each one of `text`, `code`,
+`table`, `link`, `choice`, `pick`, `rank`, `answer` or `item`. A part that
+asks has an `id`, and the answers come back keyed by it. A label is the
+answer that comes back, and the only thing that does, so a form is refused,
+with the reason, if a label, prompt, title or draft holds a character that
+does not show on screen, if two parts share an id, or if a recommendation
+names an option that is not there.
 
 `record_follow_up` takes `text` (a title naming the specific thing, ≤50 chars), `reason`
 (`out-of-scope`, `blocked`, `deferred`, `risk`, or `cleanup`), an optional
@@ -429,8 +491,9 @@ is still in Done.
 
 ## For other plugins
 
-Two things here are contracts rather than internal calls: a live value for a
-plugin drawing progress, and a batch call for one that only needs to ask.
+Three things here are contracts rather than internal calls: a live value for a
+plugin drawing progress, a batch call for one that only needs to ask, and a
+capability for Thread Pages.
 
 ### The progress complication
 
@@ -485,6 +548,24 @@ The shape follows Ribbon's `getGroupingCatalogV1`, which is the closest thing bb
 has to a convention for one plugin reading another. Validate it on arrival: this
 plugin is optional, and a consumer that treats a missing or unrecognised answer
 as "draw nothing" keeps working when it is not installed.
+
+### The Thread Pages capability
+
+With [Thread Pages](https://github.com/unifedev/bb-thread-pages) installed, a
+session's page can call `follow-up.list` to show that session's open
+follow-ups:
+
+```ts
+{ followUps: [{ id, text, reason, file, detail, createdAt, inProgress }],
+  open: 2, done: 5 }
+```
+
+It is a read and takes no parameters. The session is whichever one Thread
+Pages says is calling, so a page cannot read another thread's list, and the
+home page, which has no session, is refused with the reason `no_session`.
+Follow Up contributes nothing that records, closes, files or answers
+anything: Thread Pages runs a contributed call with no dialog, from any
+page.
 
 ## Development
 

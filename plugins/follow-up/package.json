@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-follow-up",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -28,7 +28,7 @@
   },
   "bb": {
     "name": "Follow Up",
-    "description": "Keeps the work an agent noticed but skipped, so nothing is lost when a turn ends. Triage what a thread accumulated above the composer.",
+    "description": "Keeps the work an agent noticed but skipped, so nothing is lost when a turn ends. Triage what a thread accumulated above the composer, and answer every thread that needs you from one page.",
     "branding": {
       "icon": "TextWrap"
     },

@@ -83,6 +83,37 @@ import {
   type Destination,
 } from "./lib/destinations.ts";
 import {
+  answerProblem,
+  answerSchema,
+  ASK_PARTS_MAX,
+  ASK_TITLE_MAX,
+  composeAnswer,
+  formSchema,
+  isSpent,
+  makeForm,
+  parseForm,
+  partInput,
+  type Form,
+} from "./lib/ask.ts";
+import {
+  CHECKLIST_ACTIONS,
+  checklistCall,
+  checklistOffers,
+  CHECKLISTS_PLUGIN,
+  checklistSummary,
+  type ChecklistSummary,
+} from "./lib/checklist.ts";
+import { reviewDiff, reviewDiffSchema, reviewFileList, reviewPatches } from "./lib/review.ts";
+import {
+  calledMethod,
+  callingSession,
+  LIST_METHOD,
+  listReply,
+  NO_SESSION,
+  THREAD_PAGES_DECLARATION,
+  unknownMethod,
+} from "./lib/thread-pages.ts";
+import {
   doAsk,
   isShowable,
   makeOffer,
@@ -382,6 +413,45 @@ export const rpcContract = defineRpcContract({
   followups_next_clear: {
     input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
     output: z.object({ ok: z.literal(true) }).strict(),
+  },
+  /**
+   * Thread Pages' contributor contract: the declaration of what a page may
+   * call, and one call. The names and shapes are Thread Pages', which
+   * validates both sides itself. See lib/thread-pages.ts.
+   */
+  threadPagesContributions: { input: z.unknown(), output: z.unknown() },
+  threadPagesInvoke: { input: z.unknown(), output: z.unknown() },
+  /** The form this thread's agent asked with, while anything on it is unanswered. See lib/ask.ts. */
+  ask_get: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z.object({ form: formSchema.nullable() }).strict(),
+  },
+  /**
+   * Answer a form: send the answers as the user's message. `askedAt` names the
+   * form the answers were given on, so one that lands after the agent asked
+   * again is `stale` rather than answering the new form's parts by id. The
+   * message is composed here, from the stored form and these answers alone;
+   * `invalid` says what does not fit, in `problem`.
+   */
+  ask_answer: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        askedAt: z.string().min(1).max(60),
+        answers: z.record(z.string().min(1).max(80), answerSchema),
+      })
+      .strict(),
+    output: z
+      .object({
+        outcome: z.enum(["sent", "queued", "stale", "invalid", "failed"]),
+        problem: z.string().nullable(),
+      })
+      .strict(),
+  },
+  /** Drop a form unanswered, to answer in chat instead. */
+  ask_clear: {
+    input: z.object({ threadId: z.string().min(1).max(200), askedAt: z.string().min(1).max(60) }).strict(),
+    output: z.object({ outcome: z.enum(["cleared", "stale"]) }).strict(),
   },
   /**
    * "Do" on the top follow-up: hand it to this thread's agent now, the way a
@@ -846,6 +916,25 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
     output: z.object({ outcome: z.enum(["retrying", "failed"]) }).strict(),
   },
+  /**
+   * Act on a thread's waiting checklist, as Agent Checklists' own controls do:
+   * `continue` approves the continuation it waits on; `resume` restarts one
+   * that paused or ran out of continuations. `reply` goes with resuming a
+   * paused one: it is sent to the thread first, as the user's message.
+   * `checklistId` names the checklist the card showed, and its state is read
+   * again here, so a press on a card that has moved on is `stale`.
+   */
+  page_checklist: {
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        checklistId: z.string().min(1).max(200),
+        action: z.enum(CHECKLIST_ACTIONS),
+        reply: z.string().trim().min(1).max(REPLY_MAX).optional(),
+      })
+      .strict(),
+    output: z.object({ outcome: z.enum(["done", "stale", "unavailable", "failed"]) }).strict(),
+  },
   /** Stop a thread that is in motion. */
   page_stop: {
     input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
@@ -886,6 +975,21 @@ export const rpcContract = defineRpcContract({
    * there, folds into the author's card on the page, and its findings, if
    * recorded as follow-ups, carry up to the author.
    */
+  /**
+   * A pull request's changes, to review on its card: the thread's worktree
+   * against the pull request's base branch, a file at a time, capped (see
+   * lib/review.ts). `none` when the thread has no worktree or no pull
+   * request, `unavailable` when bb could not read the diff.
+   */
+  page_pr_diff: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z
+      .object({
+        outcome: z.enum(["ok", "none", "unavailable"]),
+        diff: reviewDiffSchema.nullable(),
+      })
+      .strict(),
+  },
   page_pr_review: {
     input: z
       .object({
@@ -1026,6 +1130,12 @@ const tombsKey = (threadId: string) => `${TOMBS_PREFIX}${threadId}`;
 const expandingKey = (helperThreadId: string) => `${EXPANDING_PREFIX}${helperThreadId}`;
 const seenKey = (threadId: string) => `${SEEN_PREFIX}${threadId}`;
 const nextKey = (threadId: string) => `${NEXT_PREFIX}${threadId}`;
+/**
+ * The form a thread's agent asked with (`ask_form`), waiting for an answer;
+ * see lib/ask.ts. One a thread: asking again replaces it.
+ */
+const ASK_PREFIX = "ask:";
+const askKey = (threadId: string) => `${ASK_PREFIX}${threadId}`;
 /** Which rows a filing helper thread was given, so its settling can be noticed. */
 const FILING_HELPER_PREFIX = "filing-helper:";
 const filingHelperKey = (helperThreadId: string) => `${FILING_HELPER_PREFIX}${helperThreadId}`;
@@ -1037,6 +1147,9 @@ const filedKey = (threadId: string) => `${FILED_PREFIX}${threadId}`;
  * signal would refetch every row twice a turn to learn nothing.
  */
 const NEXT_CHANGED = "followups-next-changed";
+
+/** Frontend refetch signal for a thread's form. */
+const ASK_CHANGED = "followups-ask-changed";
 
 /** Destinations or a project's default changed: menus that list them refetch. */
 const DESTINATIONS_CHANGED = "followups-destinations-changed";
@@ -1064,6 +1177,16 @@ const reviewKey = (threadId: string) => `${REVIEW_PREFIX}${threadId}`;
 const PR_TTL_MS = 5 * 60 * 1000;
 /** Pull request lookups at once. 76 worktrees on one host is not unusual. */
 const PR_CONCURRENCY = 4;
+/**
+ * Checklists are read for threads that did something this recently. One that
+ * has waited longer than this has been seen waiting already, and reading every
+ * idle thread's would be a call each on a host with hundreds.
+ */
+const CHECKLIST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** A checklist read is good this long, unless its thread moves first. */
+const CHECKLIST_TTL_MS = 5 * 60 * 1000;
+/** After Agent Checklists fails to answer, how long before it is asked again. */
+const CHECKLIST_RETRY_MS = 5 * 60 * 1000;
 /** Events read to say what a running thread is doing. */
 const ACTIVITY_EVENTS = "60";
 /** Started items read to find a file change an approval is about. */
@@ -1247,6 +1370,40 @@ const NEXT_RULE = [
   "the same work as both.",
 ].join("\n");
 
+const ASK_TOOL_INSTRUCTIONS = [
+  "When your turn would end with questions that take more than a line to ask —",
+  "several decisions at once, a choice between options that need explaining, a",
+  "list of findings or issues to decide one by one, things to put in order —",
+  "call ask_form with them instead of writing them out, as the last thing you",
+  "do in the turn, then stop. The user fills it in when they get to it, and",
+  "their answers arrive as their next message, with an exact copy keyed by each",
+  "part's id. Do not repeat the questions in your reply.",
+  "",
+  "A form is built from parts. Give every decision a `choice` and set",
+  "`recommended` to what you would pick, so agreeing with you is one press. For",
+  "a list of things that each need their own decision (issues to triage, review",
+  "findings, drafts to post), use one `item` each: a title, a summary, its",
+  "choices, and a `draft` when there is text the user should edit before you",
+  "use it. Use `text`, `code` and `table` for the context a decision needs.",
+  "",
+  "A label is what comes back as the answer, and the only thing that does: no",
+  "hidden text travels with a choice. So write labels that say what will",
+  "happen — \"Close it\", not \"Option A\". The questions are answered together",
+  "in the first message; items may come back a few at a time, and the message",
+  "says which are still undecided.",
+  "",
+  "When you cannot continue the turn without one answer, ask with the question",
+  "tool instead. ask_form is for when you are done until the user answers.",
+].join("\n");
+
+/** The standing rule for forms, injected beside NEXT_RULE when the setting is on. */
+const ASK_RULE = [
+  "Forms: when you would end a turn with several questions, or with a list of",
+  "items the user has to decide one by one, call `ask_form` rather than writing",
+  "a numbered list in your reply. One question that fits in a line can stay in",
+  "the reply.",
+].join("\n");
+
 export default async function plugin(bb: BbPluginApi) {
   bb.log.info("loaded");
 
@@ -1280,6 +1437,17 @@ export default async function plugin(bb: BbPluginApi) {
         "appear as buttons under it. Pressing one sends it as your " +
         "message; nothing is sent until you do. Turn it off and agents are not " +
         "told about the buttons, and any offer they make anyway is refused.",
+      default: true,
+    },
+    askForms: {
+      type: "boolean",
+      label: "Let agents ask with a form",
+      description:
+        "When an agent would end its turn with several questions, or a list of " +
+        "items to decide, it can show them as a form above the composer and on " +
+        "the Follow Up page. Answering sends one message, which you see first. " +
+        "Turn it off and agents are not told about forms, and any they make " +
+        "anyway is refused.",
       default: true,
     },
     agentFileWithoutAsking: {
@@ -2070,6 +2238,34 @@ export default async function plugin(bb: BbPluginApi) {
       await bb.storage.kv.set(nextKey(threadId), offer);
     }
     bb.realtime.publish(NEXT_CHANGED, { threadId });
+  }
+
+  async function readForm(threadId: string): Promise<Form | null> {
+    return parseForm(await bb.storage.kv.get<unknown>(askKey(threadId)));
+  }
+
+  /** Store a thread's form, or with null drop it, and tell the surfaces showing it. */
+  async function writeForm(threadId: string, form: Form | null): Promise<void> {
+    if (form === null) {
+      if ((await bb.storage.kv.get<unknown>(askKey(threadId))) === undefined) return;
+      await bb.storage.kv.delete(askKey(threadId));
+    } else {
+      await bb.storage.kv.set(askKey(threadId), form);
+    }
+    bb.realtime.publish(ASK_CHANGED, { threadId });
+    pageChanged();
+  }
+
+  /**
+   * A turn is starting on a thread with a form. A form answers the reply it
+   * came with, so a turn anyone else starts clears it, as it clears an offer.
+   * The one exception is the turn the form's own answer starts while items on
+   * it are still undecided: `keepThrough` lets exactly that turn pass.
+   */
+  async function clearFormForTurn(threadId: string): Promise<void> {
+    const form = await readForm(threadId);
+    if (form === null) return;
+    await writeForm(threadId, form.keepThrough ? { ...form, keepThrough: false } : null);
   }
 
   /**
@@ -3555,6 +3751,43 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
+  bb.agents.registerTool({
+    name: "ask_form",
+    description:
+      "Ask the user several questions at once, or hand them a list of items to " +
+      "decide one by one, as a form they fill in rather than a list in chat. " +
+      "Call it as the last thing in a turn that would otherwise end with questions.",
+    instructions: ASK_TOOL_INSTRUCTIONS,
+    presentation: {
+      label: { pending: "Asking with a form", completed: "Asked with a form" },
+      icon: { glyph: "MessageSquare" },
+    },
+    parameters: z.object({
+      title: z.string().max(ASK_TITLE_MAX).describe("What the form is about, in a few words: 'Offline queue'."),
+      parts: z
+        .array(partInput)
+        .min(1)
+        .max(ASK_PARTS_MAX)
+        .describe("In the order they are shown. At least one must ask something."),
+    }),
+    async execute({ title, parts }, { threadId }) {
+      if (!(await settings.get()).askForms) {
+        return "The user has turned forms off, so nothing was shown. Ask in your reply instead.";
+      }
+      const made = makeForm(title, parts, new Date().toISOString());
+      if (!made.ok) {
+        return `Not shown: ${made.problem} Fix that and call ask_form again, or ask in your reply instead.`;
+      }
+      await writeForm(threadId, made.form);
+      bb.log.info(`asked with a form on ${threadId}: ${made.form.parts.length} part(s)`);
+      return (
+        "Shown, above the user's composer and on their Follow Up page. End your turn " +
+        "now without repeating the questions. Their answers arrive as their next " +
+        "message, with an exact copy keyed by each part's id."
+      );
+    },
+  });
+
   // An offer answers the reply it sits under, so it goes the moment the next
   // turn starts — whoever starts it: a pressed button, a typed message, a
   // queued one, or another plugin. Clearing here rather than when a button is
@@ -3569,6 +3802,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.events.on("thread.active", ({ thread }) => {
     void writeOffer(thread.id, null);
     void holdWrapUpForTurn(thread.id);
+    void clearFormForTurn(thread.id);
   });
 
   /**
@@ -3728,6 +3962,87 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
+  /**
+   * Each thread's checklist, when it waits on a person, and what the thread
+   * looked like when it was read. Agent Checklists holds them; see
+   * lib/checklist.ts. Read in the background like pull requests, so the page
+   * never waits on another plugin.
+   */
+  const checklists = new Map<string, { mark: string; checkedAt: number; checklist: ChecklistSummary | null }>();
+  const checklistQueue: Array<{ threadId: string; mark: string }> = [];
+  const checklistQueued = new Set<string>();
+  let checklistActive = 0;
+  /** Set when Agent Checklists did not answer: not installed, disabled, or failing. */
+  let checklistsDownAt: number | null = null;
+
+  /** What a thread looked like when its checklist was read: it moves when the agent works. */
+  const checklistMark = (thread: ThreadFacts) => `${thread.latestAttentionAt}:${thread.status}`;
+
+  /** A thread's waiting checklist as last read, if the thread has not moved since. */
+  function checklistOf(thread: ThreadFacts): ChecklistSummary | null {
+    const entry = checklists.get(thread.id);
+    return entry !== undefined && entry.mark === checklistMark(thread) ? entry.checklist : null;
+  }
+
+  async function readChecklist(threadId: string): Promise<ChecklistSummary | null> {
+    const response: unknown = await bb.sdk.plugins.callRpc({
+      pluginId: CHECKLISTS_PLUGIN,
+      method: "getForThread",
+      input: { threadId },
+      outputSchema: z.unknown(),
+    });
+    return checklistSummary(response);
+  }
+
+  /**
+   * Read a thread's checklist in the background, unless it was read while the
+   * thread looked as it does now. A checklist changes when its agent works,
+   * which moves the thread; one changed from its own panel is caught when the
+   * read goes stale.
+   */
+  function queueChecklist(thread: ThreadFacts, now: number): void {
+    if (checklistsDownAt !== null && now - checklistsDownAt < CHECKLIST_RETRY_MS) return;
+    if (now - thread.latestAttentionAt > CHECKLIST_WINDOW_MS) return;
+    const mark = checklistMark(thread);
+    const cached = checklists.get(thread.id);
+    if (cached !== undefined && cached.mark === mark && now - cached.checkedAt < CHECKLIST_TTL_MS) return;
+    if (checklistQueued.has(thread.id)) return;
+    checklistQueued.add(thread.id);
+    checklistQueue.push({ threadId: thread.id, mark });
+    pumpChecklists();
+  }
+
+  function pumpChecklists(): void {
+    while (!disposed && checklistActive < PR_CONCURRENCY && checklistQueue.length > 0) {
+      const { threadId, mark } = checklistQueue.shift() as { threadId: string; mark: string };
+      checklistActive += 1;
+      void (async () => {
+        const before = checklists.get(threadId);
+        try {
+          const checklist = await readChecklist(threadId);
+          checklistsDownAt = null;
+          checklists.set(threadId, { mark, checkedAt: Date.now(), checklist });
+          if (JSON.stringify(before?.checklist ?? null) !== JSON.stringify(checklist)) pageChanged();
+        } catch (error) {
+          // Not installed, switched off, or broken: nothing to show, and no
+          // point asking for every other thread. Whatever was queued is dropped.
+          checklistsDownAt = Date.now();
+          checklistQueue.length = 0;
+          checklistQueued.clear();
+          if (before?.checklist != null) {
+            checklists.delete(threadId);
+            pageChanged();
+          }
+          if (!disposed) bb.log.info(`page: no checklists (${CHECKLISTS_PLUGIN} did not answer): ${String(error)}`);
+        } finally {
+          checklistQueued.delete(threadId);
+          checklistActive -= 1;
+          pumpChecklists();
+        }
+      })();
+    }
+  }
+
   async function readArchivedThread(
     threadId: string,
   ): Promise<{ title: string; projectId: string; updatedAt: number } | null> {
@@ -3800,11 +4115,12 @@ export default async function plugin(bb: BbPluginApi) {
    */
   async function buildPage(withLanes: boolean) {
     const now = Date.now();
-    const [threads, current, offerKeys, wrapKeys, hiddenKeys, reviewKeys, itemKeys] =
+    const [threads, current, offerKeys, askKeys, wrapKeys, hiddenKeys, reviewKeys, itemKeys] =
       await Promise.all([
         listOpenThreads(),
         settings.get(),
         bb.storage.kv.list(NEXT_PREFIX),
+        bb.storage.kv.list(ASK_PREFIX),
         bb.storage.kv.list(WRAP_UP_PREFIX),
         bb.storage.kv.list(HIDDEN_PREFIX),
         bb.storage.kv.list(REVIEW_PREFIX),
@@ -3813,6 +4129,7 @@ export default async function plugin(bb: BbPluginApi) {
     const idsOf = (keys: readonly string[], prefix: string) =>
       new Set(keys.map((key) => key.slice(prefix.length)));
     const withOffer = idsOf(offerKeys, NEXT_PREFIX);
+    const withForm = idsOf(askKeys, ASK_PREFIX);
     const withWrapUp = idsOf(wrapKeys, WRAP_UP_PREFIX);
     const withHidden = idsOf(hiddenKeys, HIDDEN_PREFIX);
     const withReview = idsOf(reviewKeys, REVIEW_PREFIX);
@@ -3841,6 +4158,8 @@ export default async function plugin(bb: BbPluginApi) {
       // An idle thread's pull request only: a working agent is still pushing.
       if (!isBusy(byId.get(threadId)?.status ?? "idle")) queuePullRequest(environmentId);
     }
+    // And an idle thread's checklist: one whose agent is working is not waiting.
+    for (const thread of threads) if (!isBusy(thread.status)) queueChecklist(thread, now);
 
     const cards = (
       await Promise.all(
@@ -3848,8 +4167,9 @@ export default async function plugin(bb: BbPluginApi) {
           const asks = asksFor(thread, thread.hasPendingInteraction ? await readPendingAsks(thread.id) : []);
           const busy = isBusy(thread.status);
           if (asks.length === 0 && busy) return null;
-          const [offer, wrapRecord, hiddenAt, review] = await Promise.all([
+          const [offer, form, wrapRecord, hiddenAt, review] = await Promise.all([
             current.offerNextSteps && withOffer.has(thread.id) ? readOffer(thread.id) : null,
+            current.askForms && withForm.has(thread.id) ? readForm(thread.id) : null,
             withWrapUp.has(thread.id) ? readWrapUp(thread.id) : null,
             withHidden.has(thread.id) ? bb.storage.kv.get<unknown>(hiddenKey(thread.id)) : undefined,
             withReview.has(thread.id)
@@ -3872,6 +4192,8 @@ export default async function plugin(bb: BbPluginApi) {
             thread,
             asks,
             offer,
+            form,
+            checklist: busy ? null : checklistOf(thread),
             wrapUp: wrapRecord === null ? null : { held: wrapRecord.held, running: wrapRecord.held === null },
             pr,
             reply,
@@ -4039,6 +4361,8 @@ export default async function plugin(bb: BbPluginApi) {
     pageTimer = null;
     prQueue.length = 0;
     prQueued.clear();
+    checklistQueue.length = 0;
+    checklistQueued.clear();
     try {
       unsubscribe?.();
     } catch {
@@ -4256,6 +4580,55 @@ export default async function plugin(bb: BbPluginApi) {
     followups_next_clear: async ({ threadId }) => {
       await writeOffer(threadId, null);
       return { ok: true as const };
+    },
+    threadPagesContributions: async () => THREAD_PAGES_DECLARATION,
+    threadPagesInvoke: async (call) => {
+      // A read, and only of the session Thread Pages says is calling.
+      const method = calledMethod(call);
+      if (method !== LIST_METHOD) return unknownMethod(method);
+      const threadId = callingSession(call);
+      if (threadId === null) return NO_SESSION;
+      try {
+        const { followUps, done } = await bothLists(threadId);
+        return listReply(followUps, done.length);
+      } catch (error) {
+        bb.log.error(`thread-pages: ${LIST_METHOD} failed for ${threadId}: ${String(error)}`);
+        return { ok: false as const, error: { code: "handler_error", message: "The follow-ups could not be read." } };
+      }
+    },
+    ask_get: async ({ threadId }) => {
+      // Off means no form, including one stored before the switch was flipped.
+      if (!(await settings.get()).askForms) return { form: null };
+      // A form with nothing left on it is never stored; see ask_answer.
+      return { form: await readForm(threadId) };
+    },
+    ask_answer: async ({ threadId, askedAt, answers }) => {
+      const form = await readForm(threadId);
+      if (form === null || form.askedAt !== askedAt) return { outcome: "stale" as const, problem: null };
+      const problem = answerProblem(form, answers);
+      if (problem !== null) return { outcome: "invalid" as const, problem };
+      const composed = composeAnswer(form, answers);
+      // Stored before sending, not after: a double press must not send twice,
+      // and the turn the send starts reads `keepThrough` to know it may pass.
+      await writeForm(threadId, isSpent(composed.form) ? null : composed.form);
+      try {
+        // What the user read in the form's send box, and for the agent alone
+        // the same answers keyed by id.
+        const outcome = await sendAsUser(threadId, [{ text: composed.text }, { text: composed.exact, agentOnly: true }]);
+        bb.log.info(`answered a form on ${threadId} (${outcome}): ${Object.keys(answers).length} part(s)`);
+        return { outcome, problem: null };
+      } catch (error) {
+        // Put it back as it was, so the answers can be sent again.
+        await writeForm(threadId, form);
+        bb.log.error(`form answer failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const, problem: null };
+      }
+    },
+    ask_clear: async ({ threadId, askedAt }) => {
+      const form = await readForm(threadId);
+      if (form === null || form.askedAt !== askedAt) return { outcome: "stale" as const };
+      await writeForm(threadId, null);
+      return { outcome: "cleared" as const };
     },
     followups_destinations: async ({ projectId, threadId }) => ({
       destinations: await readDestinations(),
@@ -4512,6 +4885,43 @@ export default async function plugin(bb: BbPluginApi) {
         return { outcome: "failed" as const };
       }
     },
+    page_checklist: async ({ threadId, checklistId, action, reply }) => {
+      let checklist: ChecklistSummary | null;
+      try {
+        // Read again, not from the cache: the card may be minutes old.
+        checklist = await readChecklist(threadId);
+      } catch (error) {
+        bb.log.warn(`page: checklist on ${threadId} could not be read: ${String(error)}`);
+        return { outcome: "unavailable" as const };
+      }
+      const call = checklist === null || checklist.id !== checklistId ? null : checklistCall(checklist, action);
+      if (checklist === null || call === null) {
+        checklists.delete(threadId);
+        pageChanged();
+        return { outcome: "stale" as const };
+      }
+      // A reply is the answer to what a paused checklist asked, and only that.
+      if (reply !== undefined && !checklistOffers(checklist.status).reply) return { outcome: "stale" as const };
+      try {
+        // The reply first: it starts the turn, so resuming then finds the
+        // agent already working and sends no reminder over the top of it.
+        if (reply !== undefined) await sendAsUser(threadId, [{ text: reply }]);
+        await bb.sdk.plugins.callRpc({
+          pluginId: CHECKLISTS_PLUGIN,
+          method: call.method,
+          input: call.input as never,
+          outputSchema: z.unknown(),
+        });
+        bb.log.info(`page: checklist ${action} on ${threadId}${reply === undefined ? "" : " with a reply"}`);
+        return { outcome: "done" as const };
+      } catch (error) {
+        bb.log.error(`page: checklist ${action} failed on ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
+      } finally {
+        checklists.delete(threadId);
+        pageChanged();
+      }
+    },
     page_stop: async ({ threadId }) => {
       try {
         await bb.sdk.threads.stop({ threadId });
@@ -4520,6 +4930,39 @@ export default async function plugin(bb: BbPluginApi) {
       } catch (error) {
         bb.log.error(`page: stop failed on ${threadId}: ${String(error)}`);
         return { outcome: "failed" as const };
+      }
+    },
+    page_pr_diff: async ({ threadId }) => {
+      const none = { outcome: "none" as const, diff: null };
+      try {
+        const thread = await bb.sdk.threads.get({ threadId });
+        if (thread.environmentId === null) return none;
+        const environmentId = thread.environmentId;
+        const pr = prSummary(await bb.sdk.environments.pullRequest({ environmentId }));
+        if (pr === null || pr.baseRefName === "") return none;
+        const list = reviewFileList(
+          await bb.sdk.environments.diffFiles({ environmentId, target: "branch_committed", mergeBaseBranch: pr.baseRefName }),
+        );
+        if (list === null) return { outcome: "unavailable" as const, diff: null };
+        // Binary files have no patch to read; the rest are asked for by name.
+        const paths = list.files.filter((file) => !file.binary).map((file) => file.path);
+        const patches =
+          paths.length === 0
+            ? new Map<string, { patch: string; truncated: boolean }>()
+            : reviewPatches(
+                await bb.sdk.environments.diffPatch({
+                  environmentId,
+                  paths,
+                  target: { type: "branch_committed", mergeBaseBranch: pr.baseRefName },
+                }),
+              );
+        // No patches at all is a read that failed: said as that, never as a
+        // list of files each too large to show.
+        if (patches === null) return { outcome: "unavailable" as const, diff: null };
+        return { outcome: "ok" as const, diff: reviewDiff(list, patches, pr.baseRefName) };
+      } catch (error) {
+        bb.log.warn(`page: could not read the changes of ${threadId}'s pull request: ${String(error)}`);
+        return { outcome: "unavailable" as const, diff: null };
       }
     },
     page_pr_merge: async ({ threadId, method, tell }) => {
@@ -4588,11 +5031,12 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Standing rules in every thread's instructions. Synchronous and
   // allocation-free on the hot path: this runs at thread.start and turn.submit,
-  // so the four possible answers are built once, whenever a switch moves.
-  const standingRules = (values: { captureRule: boolean; offerNextSteps: boolean }) => {
+  // so the possible answers are built once, whenever a switch moves.
+  const standingRules = (values: { captureRule: boolean; offerNextSteps: boolean; askForms: boolean }) => {
     const rules = [
       values.captureRule ? CAPTURE_RULE : null,
       values.offerNextSteps ? NEXT_RULE : null,
+      values.askForms ? ASK_RULE : null,
     ].filter((rule): rule is string => rule !== null);
     return rules.length === 0 ? null : rules.join("\n\n");
   };
