@@ -68,8 +68,10 @@ describe("a pull request's changes on its card", () => {
     const review = await slot.findByRole("region", { name: "Changes in #71" });
     expect(within(review).getByRole("button", { name: /src\/old\.ts → src\/new\.ts/ })).toBeTruthy();
     expect(within(review).getByText("The rest of this file's changes are on GitHub.")).toBeTruthy();
-    expect(within(review).getByText("A binary file.")).toBeTruthy();
-    expect(within(review).getByText("Too large to show here. It is on GitHub.")).toBeTruthy();
+    expect(within(review).getByText("A binary file. What changed in it can't be read here.")).toBeTruthy();
+    expect(within(review).getByText("Not shown here. It is on GitHub.")).toBeTruthy();
+    expect(within(review).getByRole("button", { name: /logo\.png/ }).textContent).toContain("binary");
+    expect(within(review).getByRole("alert").textContent).toContain("2 files are cut short or not shown, 1 binary file can't be read here.");
     expect(within(review).getAllByTestId("bb-diff")).toHaveLength(1);
   });
 

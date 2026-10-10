@@ -23,9 +23,9 @@ test("reviewFileList: bb's files in its order, capped, and nothing when it has n
   const list = reviewFileList({ outcome: "available", files: [fileRow("src/a.ts"), fileRow("old.png", { binary: true, changeKind: "deleted" }), fileRow("src/new.ts", { previousPath: "src/old.ts", changeKind: "renamed" }), { nope: 1 }, fileRow("")] });
   assert.deepEqual(list, {
     files: [
-      { path: "src/a.ts", previousPath: null, change: "modified", additions: 2, deletions: 1, binary: false },
-      { path: "old.png", previousPath: null, change: "deleted", additions: 2, deletions: 1, binary: true },
-      { path: "src/new.ts", previousPath: "src/old.ts", change: "renamed", additions: 2, deletions: 1, binary: false },
+      { path: "src/a.ts", previousPath: null, change: "modified", additions: 2, deletions: 1, binary: false, tooLarge: false },
+      { path: "old.png", previousPath: null, change: "deleted", additions: 2, deletions: 1, binary: true, tooLarge: false },
+      { path: "src/new.ts", previousPath: "src/old.ts", change: "renamed", additions: 2, deletions: 1, binary: false, tooLarge: false },
     ],
     more: 0,
     // Two entries it could not read: how much is missing is unknown.
@@ -74,7 +74,32 @@ test("reviewDiff: a long patch is cut on a line, and says so; so does one bb cut
   assert.deepEqual([by.get("img.png")?.cut, by.get("img.png")?.patch], [false, ""], "a binary file has none to miss");
   assert.deepEqual([by.get("ok.ts")?.cut, by.get("ok.ts")?.patch], [false, "+ok⟦U+200B⟧\n"], "a character that draws nothing is shown");
   assert.deepEqual([diff.base, diff.more, diff.partial], ["main", 0, false]);
-  assert.deepEqual(reviewGaps(diff), { more: 0, cut: 3, partial: false });
+  assert.deepEqual(reviewGaps(diff), { more: 0, cut: 3, binary: 1, partial: false });
+});
+
+test("reviewDiff: changed lines with no patch to show for them is a gap, whatever the reason", () => {
+  const list = reviewFileList({
+    outcome: "available",
+    files: [
+      fileRow("empty-patch.ts", { additions: 4, deletions: 0 }),
+      fileRow("moved.ts", { previousPath: "was.ts", changeKind: "renamed", additions: 0, deletions: 0 }),
+      fileRow("huge.json", { additions: 0, deletions: 0, loadMode: "too_large" }),
+      fileRow("blank.txt", { changeKind: "added", additions: 0, deletions: 0 }),
+    ],
+  });
+  if (list === null) throw new Error("no list");
+  const none = { patch: "", truncated: false };
+  const diff = reviewDiff(list, new Map([["empty-patch.ts", none], ["moved.ts", none], ["huge.json", none], ["blank.txt", none]]), "main");
+  assert.deepEqual(
+    diff.files.map((file) => [file.path, file.cut]),
+    [
+      ["empty-patch.ts", true],
+      ["moved.ts", false],
+      ["huge.json", true],
+      ["blank.txt", false],
+    ],
+  );
+  assert.equal("tooLarge" in diff.files[0]!, false, "bb's loading hint is not part of what the card is sent");
 });
 
 test("reviewDiff: a path with a character that draws nothing is shown as it is, and still finds its patch", () => {
@@ -88,9 +113,10 @@ test("reviewDiff: a path with a character that draws nothing is shown as it is, 
 test("reviewGaps: nothing to say when the whole change is shown, and each kind of gap counted when not", () => {
   const whole = { files: [{ path: "a.ts", previousPath: null, change: "modified", additions: 1, deletions: 0, binary: false, patch: "+a\n", cut: false }], more: 0, partial: false, base: "main" };
   assert.equal(reviewGaps(whole), null);
-  assert.deepEqual(reviewGaps({ ...whole, more: 2 }), { more: 2, cut: 0, partial: false });
-  assert.deepEqual(reviewGaps({ ...whole, partial: true }), { more: 0, cut: 0, partial: true });
-  assert.deepEqual(reviewGaps({ ...whole, files: [{ ...whole.files[0]!, cut: true }] }), { more: 0, cut: 1, partial: false });
+  assert.deepEqual(reviewGaps({ ...whole, more: 2 }), { more: 2, cut: 0, binary: 0, partial: false });
+  assert.deepEqual(reviewGaps({ ...whole, partial: true }), { more: 0, cut: 0, binary: 0, partial: true });
+  assert.deepEqual(reviewGaps({ ...whole, files: [{ ...whole.files[0]!, cut: true }] }), { more: 0, cut: 1, binary: 0, partial: false });
+  assert.deepEqual(reviewGaps({ ...whole, files: [...whole.files, { ...whole.files[0]!, path: "logo.png", binary: true, patch: "" }] }), { more: 0, cut: 0, binary: 1, partial: false }, "a binary file changed, and cannot be read here");
 });
 
 const PATCH = ["diff --git a/src/queue.ts b/src/queue.ts", "--- a/src/queue.ts", "+++ b/src/queue.ts", "@@ -12,3 +12,4 @@ function run() {", "   const max = 5;", "-  retry(job);", "+  retry(job, { backoff: true });", "+  log(job);", "   return job;", "\\ No newline at end of file", "@@ -40 +41,0 @@", "-gone();"].join("\n");

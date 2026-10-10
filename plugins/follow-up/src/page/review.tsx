@@ -163,6 +163,7 @@ export function Review({
             {[
               gaps.more > 0 ? (gaps.more === 1 ? "1 more file is not shown" : `${gaps.more} more files are not shown`) : null,
               gaps.cut > 0 ? (gaps.cut === 1 ? "1 file is cut short or not shown" : `${gaps.cut} files are cut short or not shown`) : null,
+              gaps.binary > 0 ? (gaps.binary === 1 ? "1 binary file can't be read here" : `${gaps.binary} binary files can't be read here`) : null,
               gaps.partial ? "bb listed only part of it" : null,
             ]
               .filter((part): part is string => part !== null)
@@ -318,6 +319,7 @@ function ReviewFileView({
           {file.path}
         </span>
         {file.cut && <span className="shrink-0 rounded bg-amber-500/10 px-1.5 text-amber-700 dark:text-amber-300">partial</span>}
+        {file.binary && <span className="shrink-0 rounded bg-amber-500/10 px-1.5 text-amber-700 dark:text-amber-300">binary</span>}
         {comments.length > 0 && <span className="shrink-0 rounded bg-sky-500/10 px-1.5 text-sky-700 dark:text-sky-300">{comments.length}</span>}
         <span className="shrink-0 tabular-nums text-emerald-600 dark:text-emerald-400">+{file.additions}</span>
         <span className="shrink-0 tabular-nums text-destructive">−{file.deletions}</span>
@@ -325,7 +327,9 @@ function ReviewFileView({
       {open && (
         <div className="flex flex-col">
           {!readable ? (
-            <p className="px-2.5 py-1.5 text-xs text-muted-foreground">{file.binary ? "A binary file." : "Too large to show here. It is on GitHub."}</p>
+            <p className="px-2.5 py-1.5 text-xs text-muted-foreground">
+              {file.binary ? "A binary file. What changed in it can't be read here." : file.cut ? "Not shown here. It is on GitHub." : "No lines changed."}
+            </p>
           ) : (
             <div ref={wrapper} className="max-h-[32rem] overflow-auto">
               <Diff patch={file.patch} path={file.path} view="unified" />

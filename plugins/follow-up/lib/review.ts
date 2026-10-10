@@ -31,7 +31,10 @@ export const reviewFileSchema = z.object({
   binary: z.boolean(),
   /** A unified patch for this one file; empty when it is binary or too large to load. */
   patch: z.string(),
-  /** The patch was cut, here or by bb: comment on GitHub for the rest. */
+  /**
+   * Not all of this file's change is here: its patch was cut, here or by bb,
+   * or it has changed lines and no patch came for them.
+   */
   cut: z.boolean(),
 });
 export type ReviewFile = z.infer<typeof reviewFileSchema>;
@@ -54,7 +57,8 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 export interface ReviewFileList {
-  files: Omit<ReviewFile, "patch" | "cut">[];
+  /** `tooLarge` is bb saying it will not load this file's patch. */
+  files: Array<Omit<ReviewFile, "patch" | "cut"> & { tooLarge?: boolean }>;
   more: number;
   partial: boolean;
 }
@@ -81,6 +85,7 @@ export function reviewFileList(response: unknown): ReviewFileList | null {
         additions: typeof file.additions === "number" ? file.additions : 0,
         deletions: typeof file.deletions === "number" ? file.deletions : 0,
         binary: file.binary === true,
+        tooLarge: file.loadMode === "too_large",
       },
     ];
   });
@@ -127,21 +132,30 @@ export function reviewDiff(
       const whole = reveal(found?.patch ?? "");
       const over = whole.length > REVIEW_PATCH_MAX;
       const patch = over ? whole.slice(0, whole.lastIndexOf("\n", REVIEW_PATCH_MAX) + 1) : whole;
+      const { tooLarge, ...shown } = file;
+      // Changed lines with nothing to show for them is a gap, whatever the
+      // reason no patch came. A rename or an empty file changes no lines.
+      const unshown = !file.binary && patch === "" && (found === undefined || tooLarge === true || file.additions + file.deletions > 0);
       return {
-        ...file,
+        ...shown,
         path: reveal(file.path),
         previousPath: file.previousPath === null ? null : reveal(file.previousPath),
         patch,
-        cut: over || found?.truncated === true || (found === undefined && !file.binary),
+        cut: over || found?.truncated === true || unshown,
       };
     }),
   };
 }
 
-/** How much of a change the card does not show, for saying so before anything else. */
-export function reviewGaps(diff: ReviewDiff): { more: number; cut: number; partial: boolean } | null {
+/**
+ * How much of a change the card does not show, for saying so before anything
+ * else. A binary file counts: it changed, and what changed in it cannot be
+ * read here.
+ */
+export function reviewGaps(diff: ReviewDiff): { more: number; cut: number; binary: number; partial: boolean } | null {
   const cut = diff.files.filter((file) => file.cut).length;
-  return diff.more === 0 && cut === 0 && !diff.partial ? null : { more: diff.more, cut, partial: diff.partial };
+  const binary = diff.files.filter((file) => file.binary).length;
+  return diff.more === 0 && cut === 0 && binary === 0 && !diff.partial ? null : { more: diff.more, cut, binary, partial: diff.partial };
 }
 
 // --- lines ------------------------------------------------------------------------
