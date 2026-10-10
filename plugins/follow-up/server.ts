@@ -103,6 +103,7 @@ import {
   checklistSummary,
   type ChecklistSummary,
 } from "./lib/checklist.ts";
+import { reviewDiff, reviewDiffSchema, reviewFileList, reviewPatches } from "./lib/review.ts";
 import {
   calledMethod,
   callingSession,
@@ -974,6 +975,21 @@ export const rpcContract = defineRpcContract({
    * there, folds into the author's card on the page, and its findings, if
    * recorded as follow-ups, carry up to the author.
    */
+  /**
+   * A pull request's changes, to review on its card: the thread's worktree
+   * against the pull request's base branch, a file at a time, capped (see
+   * lib/review.ts). `none` when the thread has no worktree or no pull
+   * request, `unavailable` when bb could not read the diff.
+   */
+  page_pr_diff: {
+    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    output: z
+      .object({
+        outcome: z.enum(["ok", "none", "unavailable"]),
+        diff: reviewDiffSchema.nullable(),
+      })
+      .strict(),
+  },
   page_pr_review: {
     input: z
       .object({
@@ -4914,6 +4930,36 @@ export default async function plugin(bb: BbPluginApi) {
       } catch (error) {
         bb.log.error(`page: stop failed on ${threadId}: ${String(error)}`);
         return { outcome: "failed" as const };
+      }
+    },
+    page_pr_diff: async ({ threadId }) => {
+      const none = { outcome: "none" as const, diff: null };
+      try {
+        const thread = await bb.sdk.threads.get({ threadId });
+        if (thread.environmentId === null) return none;
+        const environmentId = thread.environmentId;
+        const pr = prSummary(await bb.sdk.environments.pullRequest({ environmentId }));
+        if (pr === null || pr.baseRefName === "") return none;
+        const list = reviewFileList(
+          await bb.sdk.environments.diffFiles({ environmentId, target: "branch_committed", mergeBaseBranch: pr.baseRefName }),
+        );
+        if (list === null) return { outcome: "unavailable" as const, diff: null };
+        // Binary files have no patch to read; the rest are asked for by name.
+        const paths = list.files.filter((file) => !file.binary).map((file) => file.path);
+        const patches =
+          paths.length === 0
+            ? new Map<string, { patch: string; truncated: boolean }>()
+            : reviewPatches(
+                await bb.sdk.environments.diffPatch({
+                  environmentId,
+                  paths,
+                  target: { type: "branch_committed", mergeBaseBranch: pr.baseRefName },
+                }),
+              );
+        return { outcome: "ok" as const, diff: reviewDiff(list, patches, pr.baseRefName) };
+      } catch (error) {
+        bb.log.warn(`page: could not read the changes of ${threadId}'s pull request: ${String(error)}`);
+        return { outcome: "unavailable" as const, diff: null };
       }
     },
     page_pr_merge: async ({ threadId, method, tell }) => {

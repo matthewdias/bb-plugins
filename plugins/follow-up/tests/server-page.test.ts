@@ -905,3 +905,49 @@ test("page: a checklist action says when Agent Checklists cannot be reached, and
   checklistsPlugin(refusing.harness, { thr_cl: waitingChecklist("limit_reached") }, ["resume"]);
   assert.deepEqual(await refusing.call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume" }), { outcome: "failed" });
 });
+
+// --- reviewing a pull request's changes ----------------------------------------
+
+test("page: a pull request's changes are read from its worktree, against its base branch", async () => {
+  const { call, calls, harness } = await host({
+    threads: [threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
+    prs: { env_w: prResponse("ready_to_merge") },
+  });
+  harness.sdk.stub("environments.diffFiles", () => ({
+    outcome: "available",
+    files: [
+      { path: "src/a.ts", previousPath: null, changeKind: "modified", additions: 1, deletions: 1, binary: false },
+      { path: "logo.png", previousPath: null, changeKind: "added", additions: 0, deletions: 0, binary: true },
+    ],
+    initialPatches: [],
+    mergeBaseRef: "abc",
+    shortstat: "",
+    truncated: false,
+  }));
+  harness.sdk.stub("environments.diffPatch", () => ({ outcome: "available", patches: [{ path: "src/a.ts", patch: "@@ -1 +1 @@\n-a\n+b\n", truncated: false }] }));
+  const result = await call("page_pr_diff", { threadId: "thr_pr" });
+  assert.equal(result.outcome, "ok");
+  assert.equal(result.diff.base, "main");
+  assert.deepEqual(result.diff.files.map((file: Row) => [file.path, file.patch, file.cut, file.binary]), [
+    ["src/a.ts", "@@ -1 +1 @@\n-a\n+b\n", false, false],
+    ["logo.png", "", false, true],
+  ]);
+  assert.deepEqual(calls("environments.diffFiles")[0], { environmentId: "env_w", target: "branch_committed", mergeBaseBranch: "main" });
+  assert.deepEqual(calls("environments.diffPatch")[0], { environmentId: "env_w", paths: ["src/a.ts"], target: { type: "branch_committed", mergeBaseBranch: "main" } }, "a binary file has no patch to ask for");
+});
+
+test("page: with no worktree or no pull request there are no changes to read, and a failed read says so", async () => {
+  const { call, calls, harness } = await host({
+    threads: [threadRow("thr_bare"), threadRow("thr_nopr", { environmentId: "env_n", environmentIsWorktree: true }), threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
+    prs: { env_w: prResponse("ready_to_merge") },
+  });
+  assert.deepEqual(await call("page_pr_diff", { threadId: "thr_bare" }), { outcome: "none", diff: null });
+  assert.deepEqual(await call("page_pr_diff", { threadId: "thr_nopr" }), { outcome: "none", diff: null });
+  assert.equal(calls("environments.diffFiles").length, 0);
+  harness.sdk.stub("environments.diffFiles", () => ({ outcome: "unavailable", failure: { code: "unknown", message: "git failed", workspacePath: "/w" } }));
+  assert.deepEqual(await call("page_pr_diff", { threadId: "thr_pr" }), { outcome: "unavailable", diff: null });
+  harness.sdk.stub("environments.diffFiles", () => {
+    throw new Error("host is down");
+  });
+  assert.deepEqual(await call("page_pr_diff", { threadId: "thr_pr" }), { outcome: "unavailable", diff: null });
+});

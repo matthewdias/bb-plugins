@@ -36,6 +36,7 @@ import { StillOpen } from "./rows.tsx";
 import { AskForm } from "../ask-form.tsx";
 import { ApprovalForm } from "./approvals.tsx";
 import { ChecklistCard } from "./checklist.tsx";
+import { clearReviewDrafts, Review } from "./review.tsx";
 import { NoDeckKeys, useDeckKeys } from "./deck-keys.tsx";
 import type { FollowUpRpc } from "../rpc.ts";
 import {
@@ -492,6 +493,7 @@ export function MessageBox({
         rows={3}
         autoFocus
         placeholder={placeholder}
+        aria-label="The message to send"
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && text.trim() !== "") {
@@ -921,7 +923,9 @@ const METHOD_LABEL: Record<MergeMethod, string> = {
 function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
   const navigate = useBbNavigate();
   const pr = card.pr;
-  const [box, setBox] = useState<{ kind: "message" | "review"; text: string; label: string } | null>(null);
+  const [box, setBox] = useState<{ kind: "message" | "review"; text: string; label: string; comments?: boolean } | null>(null);
+  /** The pull request's changes are open on the card, to read and comment on. */
+  const [reviewing, setReviewing] = useState(false);
   const [askMethod, setAskMethod] = useState(false);
   const [wrapping, setWrapping] = useState(false);
   // On by default: the thread that opened the PR is usually waiting to hear.
@@ -1002,13 +1006,30 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
           note={pr.action === "merge" ? MERGE_NOTE : ARCHIVE_NOTE}
         />
       )}
+      {reviewing && pr.action !== "merged" && (
+        <Review
+          card={card}
+          pr={pr}
+          onRequest={(message) => setBox({ kind: "message", text: message, label: "Send to the thread", comments: true })}
+          onClose={() => setReviewing(false)}
+        />
+      )}
       {wrapping ? (
         <WrapUpInline card={card} rpc={rpc} onClose={() => setWrapping(false)} />
       ) : box !== null ? (
         <MessageBox
           initial={box.text}
           sendLabel={box.label}
-          onSend={(text) => (box.kind === "review" ? startReview(text) : reply(rpc, card.threadId, text))}
+          onSend={async (text) => {
+            if (box.kind === "review") return startReview(text);
+            const sent = await reply(rpc, card.threadId, text);
+            // The line comments went in that message: they are drafts no longer.
+            if (sent && box.comments === true) {
+              clearReviewDrafts(card.threadId, pr.number);
+              setReviewing(false);
+            }
+            return sent;
+          }}
           onCancel={() => setBox(null)}
         />
       ) : askMethod ? (
@@ -1044,6 +1065,12 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
           {pr.action === "rebase" && (
             <Button size="sm" onClick={() => setBox({ kind: "message", text: prRebaseMessage(pr), label: "Send to the thread" })}>
               Ask the thread to rebase
+            </Button>
+          )}
+          {pr.action !== "merged" && !reviewing && (
+            <Button size="sm" variant="outline" onClick={() => setReviewing(true)}>
+              <Icon name="FileDiff" aria-hidden />
+              Review changes
             </Button>
           )}
           {(pr.action === "merge" || pr.action === "review") && (
