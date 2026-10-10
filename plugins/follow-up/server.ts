@@ -104,6 +104,15 @@ import {
   type ChecklistSummary,
 } from "./lib/checklist.ts";
 import {
+  calledMethod,
+  callingSession,
+  LIST_METHOD,
+  listReply,
+  NO_SESSION,
+  THREAD_PAGES_DECLARATION,
+  unknownMethod,
+} from "./lib/thread-pages.ts";
+import {
   doAsk,
   isShowable,
   makeOffer,
@@ -404,6 +413,13 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
     output: z.object({ ok: z.literal(true) }).strict(),
   },
+  /**
+   * Thread Pages' contributor contract: the declaration of what a page may
+   * call, and one call. The names and shapes are Thread Pages', which
+   * validates both sides itself. See lib/thread-pages.ts.
+   */
+  threadPagesContributions: { input: z.unknown(), output: z.unknown() },
+  threadPagesInvoke: { input: z.unknown(), output: z.unknown() },
   /** The form this thread's agent asked with, while anything on it is unanswered. See lib/ask.ts. */
   ask_get: {
     input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
@@ -4548,6 +4564,21 @@ export default async function plugin(bb: BbPluginApi) {
     followups_next_clear: async ({ threadId }) => {
       await writeOffer(threadId, null);
       return { ok: true as const };
+    },
+    threadPagesContributions: async () => THREAD_PAGES_DECLARATION,
+    threadPagesInvoke: async (call) => {
+      // A read, and only of the session Thread Pages says is calling.
+      const method = calledMethod(call);
+      if (method !== LIST_METHOD) return unknownMethod(method);
+      const threadId = callingSession(call);
+      if (threadId === null) return NO_SESSION;
+      try {
+        const { followUps, done } = await bothLists(threadId);
+        return listReply(followUps, done.length);
+      } catch (error) {
+        bb.log.error(`thread-pages: ${LIST_METHOD} failed for ${threadId}: ${String(error)}`);
+        return { ok: false as const, error: { code: "handler_error", message: "The follow-ups could not be read." } };
+      }
     },
     ask_get: async ({ threadId }) => {
       // Off means no form, including one stored before the switch was flipped.
