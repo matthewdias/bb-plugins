@@ -33,6 +33,7 @@ import { WrapUp } from "../wrap-up.tsx";
 import { setRows } from "../store.ts";
 import { isChangeSignal } from "../use-follow-ups.ts";
 import { StillOpen } from "./rows.tsx";
+import { AskForm } from "../ask-form.tsx";
 import { ApprovalForm } from "./approvals.tsx";
 import { NoDeckKeys, useDeckKeys } from "./deck-keys.tsx";
 import type { FollowUpRpc } from "../rpc.ts";
@@ -53,6 +54,7 @@ const LEAD: Record<Card["lead"], { label: string; icon: IconName }> = {
   approval: { label: "Approval", icon: "SecurityCheck" },
   form: { label: "Form", icon: "ListTodo" },
   stopped: { label: "Stopped", icon: "AlertTriangle" },
+  ask: { label: "Asks", icon: "MessageSquare" },
   "wrap-up": { label: "Wrap up", icon: "Archive" },
   next: { label: "Next", icon: "ArrowRight" },
   page: { label: "Page", icon: "Browser" },
@@ -96,6 +98,7 @@ export function wantsLabel(card: { lead: Card["lead"]; pr: Card["pr"] }): string
     approval: "needs approval",
     form: "waits on a form",
     stopped: "stopped",
+    ask: "asks with a form",
     "wrap-up": "ready to wrap up",
     next: "offers next steps",
     page: "asks on its page",
@@ -255,6 +258,9 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
       break;
     case "stopped":
       main = <Stopped card={card} rpc={rpc} />;
+      break;
+    case "ask":
+      main = card.form === null ? null : <AskForm threadId={card.threadId} form={card.form} />;
       break;
     case "wrap-up":
       main = (

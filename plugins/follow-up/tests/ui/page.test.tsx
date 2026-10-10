@@ -26,6 +26,7 @@ const card = (threadId: string, extra: Partial<Card> = {}): Card => ({
   since: NOW - 5 * 60_000,
   attentionAt: NOW - 5 * 60_000,
   asks: [],
+  form: null,
   offer: null,
   openFollowUps: 0,
   followUps: [],

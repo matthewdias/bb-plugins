@@ -42,6 +42,7 @@ import {
   type ThreadFacts,
   type ThreadInputs,
 } from "../lib/page.ts";
+import { makeForm } from "../lib/ask.ts";
 import type { FollowUp, Reason } from "../lib/followups.ts";
 
 const NOW = 1_800_000_000_000;
@@ -627,6 +628,24 @@ test("cardFor: the lead order is stopped, wrap-up, next, page, pull request", ()
   assert.equal(cardFor(inputs(all))?.lead, "next");
   assert.equal(cardFor(inputs({ ...all, offer: null }))?.lead, "page");
   assert.equal(cardFor(inputs({ ...all, offer: null, reply: null }))?.lead, "pr");
+});
+
+test("cardFor: a form the agent asked with is your turn, ahead of what the thread merely offers", () => {
+  const made = makeForm("Offline queue", [{ type: "item", id: "issue-1", title: "#1", choices: [{ label: "Close it" }, { label: "Leave open" }] }], "2026-10-09T12:00:00.000Z");
+  if (!made.ok) throw new Error(made.problem);
+  const offer = { steps: ["Go"], goalMet: true, offeredAt: "x" };
+  const card = must(cardFor(inputs({ form: made.form, offer, openFollowUps: 2 })));
+  assert.deepEqual([card.tier, card.lead], ["turn", "ask"]);
+  assert.deepEqual(card.form, made.form);
+  assert.equal(must(cardFor(inputs({ form: made.form, thread: thread({ status: "error" }) }))).lead, "stopped", "a failed turn still leads");
+  assert.equal(must(cardFor(inputs({ form: made.form, asks: [question(5)] }))).lead, "question", "and so does a stopped agent");
+  // Read, idle, nothing else: the form alone is the card.
+  assert.equal(must(cardFor(inputs({ form: made.form, thread: thread({ lastReadAt: 99, latestAttentionAt: 10 }) }))).lead, "ask");
+  // A form with everything on it answered is no card of its own.
+  const spent = { ...made.form, done: { "issue-1": "Close it" } };
+  const after = must(cardFor(inputs({ form: spent, offer: { ...offer, goalMet: false } })));
+  assert.deepEqual([after.lead, after.form], ["next", null]);
+  assert.equal(cardFor(inputs({ form: made.form, thread: thread({ status: "active" }) })), null, "a working thread is not asked about");
 });
 
 // --- ranking and counting --------------------------------------------------------
