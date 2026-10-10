@@ -5,7 +5,7 @@ Eleven plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
 | Plugin | |
 | --- | --- |
 | **[Declutter](plugins/declutter)** | Choose which thread-header controls, composer banners and message actions show, bb's own and every plugin's. Switch one off and it is gone in every window. |
-| **[Follow Up](plugins/follow-up)** | Keeps the work an agent noticed but skipped, so nothing is lost when a turn ends. Triage what a thread accumulated above the composer. |
+| **[Follow Up](plugins/follow-up)** | Keeps the work an agent noticed but skipped, so nothing is lost when a turn ends. Triage what a thread accumulated above the composer. | (throwaway edit)
 | **[Mark Unread](plugins/mark-unread)** | Marks a thread unread from any message, as in Slack: from the message's action bar or with Option-click. A New line marks the spot, and coming back scrolls you to it. |
 | **[Plugin Triage](plugins/plugin-triage)** | Decide on plugins one card at a time from a Triage tab in bb's Plugins screen: queue newly published plugins to install, queue pending updates, and clear out plugins you turned off or don't use, then run the queue in the background. |
 | **[Question Dock](plugins/question-dock)** | Moves an agent's question out of the chat's way: docked beside the thread on a wide window, floating where you drag it on a narrow one, and as a sheet on a phone. |
