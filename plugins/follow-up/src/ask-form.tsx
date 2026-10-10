@@ -6,7 +6,7 @@
 // an answer sends. That message is composed from the form and what was
 // picked or typed, and shown in the box above Send exactly as it will go.
 import { useMemo, useState, type ReactNode } from "react";
-import { experimental_Diff as Diff, Markdown, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { experimental_Diff as Diff, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../server";
 import {
@@ -27,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import { FormText } from "./form-text.tsx";
 import { useDeckKeys } from "./page/deck-keys.tsx";
 
 const TONE_CLASS: Record<Tone, string> = {
@@ -229,11 +230,8 @@ function PartView({
 }) {
   switch (part.type) {
     case "text":
-      return (
-        <div className="text-sm text-foreground">
-          <Markdown content={part.text} />
-        </div>
-      );
+      // Never bb's Markdown: a form's text draws no image and no HTML. See lib/form-text.ts.
+      return <FormText text={part.text} className="text-sm text-foreground" />;
     case "code":
       return <Code title={part.title} code={part.code} />;
     case "table":
@@ -513,11 +511,7 @@ function Item({
         {title}
         {badges}
       </div>
-      {part.summary !== null && (
-        <div className="text-[13px] text-muted-foreground">
-          <Markdown content={part.summary} />
-        </div>
-      )}
+      {part.summary !== null && <FormText text={part.summary} className="text-[13px] text-muted-foreground" />}
       {part.code !== null && <Code title={null} code={part.code} />}
       {part.draft !== null && (
         <label className="flex flex-col gap-0.5">

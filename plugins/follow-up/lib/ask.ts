@@ -21,7 +21,9 @@
 //
 // And there is no agent HTML. A part is one of the kinds below, drawn by
 // Follow Up. No images either: a local path would let an agent surface files it
-// should not, and a remote one tells a server the form was opened.
+// should not, and a remote one tells a server the form was opened. That is not
+// a check made here on the text, which a renderer could read differently; it
+// is that a form's text is drawn by form-text.ts, which can draw neither.
 import { z } from "zod";
 import { hasUnseen, reveal } from "./unseen.ts";
 
@@ -154,7 +156,7 @@ const codeInput = z.object({
  * No transforms, so it still converts to the JSON Schema a provider is handed.
  */
 export const partInput = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("text"), text: z.string().max(ASK_TEXT_MAX).describe("Markdown. Context, not a question. No images.") }),
+  z.object({ type: z.literal("text"), text: z.string().max(ASK_TEXT_MAX).describe("Context, not a question. Lightly formatted: paragraphs, lists, **bold**, *italic*, `code`, fenced code and [links](https://…). Images and HTML are shown as text.") }),
   z.object({ type: z.literal("code"), title: z.string().max(ASK_LABEL_MAX).optional(), code: codeInput }),
   z.object({
     type: z.literal("table"),
@@ -203,7 +205,7 @@ export const partInput = z.discriminatedUnion("type", [
       .array(z.object({ label: z.string().max(40), tone: z.enum(TONES).optional() }))
       .max(ASK_BADGES_MAX)
       .optional(),
-    summary: z.string().max(ASK_TEXT_MAX).optional().describe("Markdown, shown under the title. No images."),
+    summary: z.string().max(ASK_TEXT_MAX).optional().describe("Shown under the title, formatted as a text part is."),
     code: codeInput.optional(),
     draft: z
       .object({
@@ -226,11 +228,6 @@ function oneLine(text: string): string {
 /** Line ends as one character, so a Windows line end is not read as a control character. */
 function unixLines(text: string): string {
   return text.replace(/\r\n?/g, "\n");
-}
-
-/** Markdown that would load an image: `![…](…)`, a reference image, or an `<img>`. */
-function hasImage(markdown: string): boolean {
-  return /!\[[^\]]*\]\s*[([]/.test(markdown) || /<img\b/i.test(markdown);
 }
 
 function isWebUrl(url: string): boolean {
@@ -270,9 +267,8 @@ export function makeForm(title: string, parts: readonly PartInput[], askedAt: st
     if (hasUnseen(text)) return problem(`${what} holds a character that does not show on screen.`);
     return text;
   };
-  const shown = (value: string | undefined, what: string): string | null | Made => {
+  const shown = (value: string | undefined): string | null => {
     if (value === undefined || value.trim() === "") return null;
-    if (hasImage(value)) return problem(`${what} holds an image, which a form cannot show.`);
     return reveal(unixLines(value).trim());
   };
   const options = (list: readonly { label: string; description?: string | undefined }[], what: string): Option[] | Made => {
@@ -306,8 +302,7 @@ export function makeForm(title: string, parts: readonly PartInput[], askedAt: st
   for (const part of parts) {
     switch (part.type) {
       case "text": {
-        const text = shown(part.text, "A text part");
-        if (isMade(text)) return text;
+        const text = shown(part.text);
         if (text === null) return problem("A text part is empty.");
         out.push({ type: "text", text });
         break;
@@ -398,8 +393,7 @@ export function makeForm(title: string, parts: readonly PartInput[], askedAt: st
           const label = oneLine(badge.label);
           if (label !== "") badges.push({ label: reveal(label), tone: badge.tone ?? "neutral" });
         }
-        const summary = shown(part.summary, `The item "${id}"'s summary`);
-        if (isMade(summary)) return summary;
+        const summary = shown(part.summary);
         const itemCode = part.code === undefined ? null : code(part.code, `The item "${id}"'s code`);
         if (isMade(itemCode)) return itemCode;
         let draft: ItemPart["draft"] = null;

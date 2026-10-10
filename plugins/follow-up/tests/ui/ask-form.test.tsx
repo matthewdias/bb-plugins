@@ -105,7 +105,7 @@ describe("a form above the composer", () => {
   it("shows the agent's recommendation picked, and the message before it goes", async () => {
     const slot = renderBanner(formOf([{ type: "text", text: "Two things." }, retry]));
     const form = await slot.findByRole("region", { name: "Form: Offline queue" });
-    expect(within(form).getByTestId("bb-markdown").textContent).toBe("Two things.");
+    expect(within(form).getByText("Two things.")).toBeTruthy();
     expect(within(form).getByRole("radio", { name: /Back off/ }).getAttribute("aria-checked")).toBe("true");
     expect(within(form).getByRole("radio", { name: /Back off/ }).textContent).toContain("recommended");
     expect(within(form).getByText("Survives a long outage.")).toBeTruthy();
@@ -282,6 +282,30 @@ describe("items on the page's card", () => {
     expect(within(form).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Option", "Cost"]);
     expect(within(form).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Back off", "Low"]);
     fireEvent.click(within(form).getByRole("button", { name: "The issue" }));
+    expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ method: "openUrl", url: "https://x.test/1" });
+  });
+});
+
+describe("a form's text", () => {
+  it("is drawn by Follow Up, never by bb's Markdown, and can draw no image or HTML", async () => {
+    const slot = renderPage(
+      formOf([
+        { type: "text", text: 'Read **this** and `that`.\n\n![shot](https://x.test/a.png) ![a [b] c](https://x.test/b.png)\n\n<img src="https://x.test/c.png"> <iframe src="https://x.test"></iframe>\n\n- one\n- two' },
+        issue(1, { summary: "![shot](https://x.test/d.png) and [the issue](https://x.test/1)" }),
+      ]),
+    );
+    const form = await slot.findByRole("region", { name: "Form: Offline queue" });
+    expect(form.querySelectorAll("img, iframe, picture, svg image, video, object, embed").length).toBe(0);
+    expect(within(form).queryByTestId("bb-markdown")).toBeNull();
+    expect(form.querySelector("strong")?.textContent).toBe("this");
+    expect(form.querySelector("code")?.textContent).toBe("that");
+    expect(within(form).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["one", "two"]);
+    expect(within(form).getByText(/<img src="https:\/\/x\.test\/c\.png">/)).toBeTruthy();
+    // A link is pressed to be followed, through bb, and shows where it goes.
+    const link = within(form).getByRole("button", { name: "the issue" });
+    expect(link.getAttribute("title")).toBe("https://x.test/1");
+    expect(slot.inspection.navigateCalls).toHaveLength(0);
+    fireEvent.click(link);
     expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ method: "openUrl", url: "https://x.test/1" });
   });
 });

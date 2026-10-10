@@ -141,17 +141,15 @@ test("makeForm: text that is only shown is kept, with unseen characters shown as
   assert.deepEqual(item.code, { diff: true, path: "a.ts", text: "+x⟦U+200B⟧" });
 });
 
-test("makeForm: no images, and links go to the web", () => {
-  for (const text of ["See ![shot](https://x.test/a.png)", "See ![shot][ref]", 'See <img src="/etc/passwd">']) {
-    assert.match(problemOf([{ type: "text", text }, retry]) ?? "", /holds an image/, text);
-    assert.match(problemOf([issue(1, { summary: text })]) ?? "", /holds an image/, text);
-  }
-  assert.equal(problemOf([{ type: "text", text: "A [link](https://x.test) and an exclamation!" }, retry]), null);
-  for (const url of ["javascript:alert(1)", "file:///etc/passwd", "not a url", "https://x.test/​"]) {
+test("makeForm: links go to the web, and text that looks like an image is only text", () => {
+  for (const url of ["javascript:alert(1)", "file:///etc/passwd", "not a url", "https://x.test/\u200B"]) {
     assert.match(problemOf([retry, { type: "link", label: "Docs", url }]) ?? "", /http or https address/, url);
     assert.match(problemOf([issue(1, { url })]) ?? "", /http or https address/, url);
   }
   assert.equal(problemOf([retry, { type: "link", label: "Docs", url: "https://x.test/a" }, issue(1, { url: "http://x.test" })]), null);
+  // Not refused: a form's text is drawn by form-text.ts, which has no image to draw.
+  const made = form([{ type: "text", text: "See ![shot](https://x.test/a.png)" }, retry]);
+  assert.equal(made.parts[0]?.type === "text" ? made.parts[0].text : null, "See ![shot](https://x.test/a.png)");
 });
 
 test("makeForm: a diff names its file, and a table is square", () => {
