@@ -20,7 +20,7 @@ describe("a pull request's changes on its card", () => {
     const slot = renderReview(prCard("thr_list"), { outcome: "ok", diff: diffOf(files, 2) });
     fireEvent.click(await slot.findByRole("button", { name: /Review changes/ }));
     const review = await slot.findByRole("region", { name: "Changes in #71" });
-    expect(review.textContent).toContain("4 files against main, from the thread's worktree.");
+    expect(review.textContent).toContain("4 files against main, as committed in the thread's worktree.");
     expect(slot.queryByRole("button", { name: /Review changes/ })).toBeNull();
     expect(within(review).getAllByTestId("bb-diff").map((diff) => [diff.getAttribute("data-path"), diff.getAttribute("data-view")])).toEqual([
       ["src/a.ts", "unified"],
@@ -32,6 +32,31 @@ describe("a pull request's changes on its card", () => {
     expect(within(review).getAllByTestId("bb-diff")).toHaveLength(4);
     expect(within(review).getByText("2 more files are not shown here. They are on GitHub.")).toBeTruthy();
     expect(calls(slot, "page_pr_diff")).toEqual([{ threadId: "thr_list" }]);
+    expect(review.textContent).toContain("That can be ahead of or behind what is pushed: GitHub has what will merge.");
+  });
+
+  it("says before anything else when it is not the whole change, with each file that is partial marked", async () => {
+    const files = [file("src/a.ts"), file("src/b.ts"), file("src/c.ts"), file("src/d.ts", { cut: true }), file("big.json", { patch: "", cut: true })];
+    const slot = renderReview(prCard("thr_gaps"), { outcome: "ok", diff: diffOf(files, 2, true) });
+    fireEvent.click(await slot.findByRole("button", { name: /Review changes/ }));
+    const review = await slot.findByRole("region", { name: "Changes in #71" });
+    const notice = within(review).getByRole("alert");
+    expect(notice.textContent).toContain("This is not the whole change. 2 more files are not shown, 2 files are cut short or not shown, bb listed only part of it. Read the rest on GitHub before you merge.");
+    expect(review.firstElementChild).toBe(notice);
+    // A cut file that starts closed still says so on its header.
+    const closed = within(review).getByRole("button", { name: /src\/d\.ts/ });
+    expect(closed.getAttribute("aria-expanded")).toBe("false");
+    expect(closed.textContent).toContain("partial");
+    expect(within(review).getByRole("button", { name: /src\/a\.ts/ }).textContent).not.toContain("partial");
+    fireEvent.click(within(notice).getByRole("button", { name: /GitHub/ }));
+    expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ method: "openUrl", url: "https://github.com/o/r/pull/71" });
+  });
+
+  it("says nothing of the kind when the whole change is shown", async () => {
+    const slot = renderReview(prCard("thr_whole"), { outcome: "ok", diff: diffOf([file("src/a.ts")]) });
+    fireEvent.click(await slot.findByRole("button", { name: /Review changes/ }));
+    const review = await slot.findByRole("region", { name: "Changes in #71" });
+    expect(within(review).queryByRole("alert")).toBeNull();
   });
 
   it("shows a rename, a binary file and a file too large to show as what they are", async () => {

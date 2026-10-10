@@ -951,3 +951,17 @@ test("page: with no worktree or no pull request there are no changes to read, an
   });
   assert.deepEqual(await call("page_pr_diff", { threadId: "thr_pr" }), { outcome: "unavailable", diff: null });
 });
+
+test("page: files listed but no patches read is a failed read, not files too large to show", async () => {
+  const { call, harness } = await host({
+    threads: [threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
+    prs: { env_w: prResponse("ready_to_merge") },
+  });
+  harness.sdk.stub("environments.diffFiles", () => ({ outcome: "available", files: [{ path: "src/a.ts", previousPath: null, changeKind: "modified", additions: 1, deletions: 1, binary: false }], truncated: true }));
+  harness.sdk.stub("environments.diffPatch", () => ({ outcome: "unavailable", failure: { code: "unknown", message: "git failed", workspacePath: "/w" } }));
+  assert.deepEqual(await call("page_pr_diff", { threadId: "thr_pr" }), { outcome: "unavailable", diff: null });
+  // And when they are read, what bb says about its own list is passed on.
+  harness.sdk.stub("environments.diffPatch", () => ({ outcome: "available", patches: [{ path: "src/a.ts", patch: "+b\n", truncated: false }] }));
+  const result = await call("page_pr_diff", { threadId: "thr_pr" });
+  assert.deepEqual([result.outcome, result.diff.partial], ["ok", true]);
+});

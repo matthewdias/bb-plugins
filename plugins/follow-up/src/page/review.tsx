@@ -11,12 +11,13 @@
 // message the page sends (lib/review.ts composes it).
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { experimental_Diff as Diff, useRpc } from "@get-bb/plugin-sdk/app";
+import { experimental_Diff as Diff, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../../server";
 import {
   lineAt,
   orderComments,
   REVIEW_COMMENT_MAX,
+  reviewGaps,
   reviewMessage,
   type LineComment,
   type ReviewDiff,
@@ -84,6 +85,7 @@ export function Review({
   onClose: () => void;
 }) {
   const rpc = useRpc<typeof rpcContract>();
+  const navigate = useBbNavigate();
   // Read once per pull request, whatever the client's identity does between renders.
   const rpcRef = useRef(rpc);
   rpcRef.current = rpc;
@@ -141,6 +143,7 @@ export function Review({
   }
 
   const { diff } = loaded;
+  const gaps = reviewGaps(diff);
   const paths = diff.files.map((file) => file.path);
   const ordered = orderComments(comments, paths);
   const toggle = (path: string) => {
@@ -151,9 +154,30 @@ export function Review({
 
   return (
     <section aria-label={`Changes in #${pr.number}`} className="flex min-w-0 flex-col gap-1.5">
+      {/* Said before anything else: reading part of a change is not reviewing it. */}
+      {gaps !== null && (
+        <p role="alert" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-amber-500/60 bg-amber-500/10 px-2.5 py-1.5 text-xs text-foreground">
+          <Icon name="AlertTriangle" className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+          <span className="min-w-0 flex-1">
+            This is not the whole change.{" "}
+            {[
+              gaps.more > 0 ? (gaps.more === 1 ? "1 more file is not shown" : `${gaps.more} more files are not shown`) : null,
+              gaps.cut > 0 ? (gaps.cut === 1 ? "1 file is cut short or not shown" : `${gaps.cut} files are cut short or not shown`) : null,
+              gaps.partial ? "bb listed only part of it" : null,
+            ]
+              .filter((part): part is string => part !== null)
+              .join(", ")}
+            . Read the rest on GitHub before you merge.
+          </span>
+          <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => navigate.openUrl(pr.url)}>
+            GitHub
+            <Icon name="ArrowUpRight" className="size-3" aria-hidden />
+          </Button>
+        </p>
+      )}
       <p className="text-xs text-muted-foreground">
-        {diff.files.length === 1 ? "1 file" : `${diff.files.length} files`} against <span className="font-mono">{diff.base}</span>, from the thread's worktree.
-        Press a line's number to comment on it.
+        {diff.files.length === 1 ? "1 file" : `${diff.files.length} files`} against <span className="font-mono">{diff.base}</span>, as committed in the
+        thread's worktree. That can be ahead of or behind what is pushed: GitHub has what will merge. Press a line's number to comment on it.
       </p>
       {diff.files.map((file) => (
         <ReviewFileView
@@ -240,14 +264,14 @@ function ReviewFileView({
   const [holders, setHolders] = useState<ReadonlyMap<string, HTMLElement>>(new Map());
 
   const anchors: Anchor[] = [
-    ...comments.map((comment) => ({ key: comment.id, side: comment.side, line: comment.line })),
+    ...comments.map((comment) => ({ key: comment.id, side: comment.side, line: comment.line, text: comment.text })),
     ...(composing === null ? [] : [{ key: "new", side: composing.side, line: composing.line }]),
   ];
   // The rows are placed again when the anchors change, not on every render:
   // placing them sets state, and a fresh array each render would never settle.
   const anchorsRef = useRef(anchors);
   anchorsRef.current = anchors;
-  const anchored = anchors.map((anchor) => `${anchor.key}:${anchor.side}:${anchor.line}`).join("|");
+  const anchored = anchors.map((anchor) => `${anchor.key}:${anchor.side}:${anchor.line}:${anchor.text ?? ""}`).join("|");
 
   // Place the rows, and place them again whenever bb redraws its diff.
   useEffect(() => {
@@ -293,6 +317,7 @@ function ReviewFileView({
           {file.previousPath !== null && <>{file.previousPath} → </>}
           {file.path}
         </span>
+        {file.cut && <span className="shrink-0 rounded bg-amber-500/10 px-1.5 text-amber-700 dark:text-amber-300">partial</span>}
         {comments.length > 0 && <span className="shrink-0 rounded bg-sky-500/10 px-1.5 text-sky-700 dark:text-sky-300">{comments.length}</span>}
         <span className="shrink-0 tabular-nums text-emerald-600 dark:text-emerald-400">+{file.additions}</span>
         <span className="shrink-0 tabular-nums text-destructive">−{file.deletions}</span>
@@ -322,7 +347,14 @@ function ReviewFileView({
           {readable && (under.length > 0 || mode === "plain") && (
             <div className="flex flex-col gap-1.5 border-t border-border px-2.5 py-2">
               {under.map((comment) => (
-                <CommentRow key={comment.id} comment={comment} onEdit={onEdit} onRemove={onRemove} showLine />
+                <CommentRow
+                  key={comment.id}
+                  comment={comment}
+                  onEdit={onEdit}
+                  onRemove={onRemove}
+                  showLine
+                  changed={lineAt(file.patch, comment.side, comment.line)?.text.trim() !== comment.text.trim()}
+                />
               ))}
               {mode === "plain" && <PlainComposer file={file} onAdd={onAdd} />}
             </div>
@@ -374,12 +406,15 @@ function CommentRow({
   onEdit,
   onRemove,
   showLine = false,
+  changed = false,
 }: {
   comment: LineComment;
   onEdit: (id: string, body: string) => void;
   onRemove: (id: string) => void;
   /** Under the file rather than under its line: say which line, and quote it. */
   showLine?: boolean;
+  /** The changes no longer show this line reading as it did when the comment was written. */
+  changed?: boolean;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   return (
@@ -388,6 +423,7 @@ function CommentRow({
         <p className="min-w-0 text-xs text-muted-foreground">
           Line {comment.line}
           {comment.side === "old" ? " (removed)" : ""}: <span className="break-all font-mono text-foreground">{comment.text.trim() === "" ? "(blank line)" : comment.text.trim()}</span>
+          {changed && <span className="ml-1.5 text-amber-700 dark:text-amber-300">That line has changed since, or is not in the changes shown.</span>}
         </p>
       )}
       {editing === null ? (

@@ -104,6 +104,17 @@ describe("placing comment rows", () => {
     expect(slots).toEqual(["follow-up-a", "follow-up-b", "follow-up-c"]);
   });
 
+  it("places a comment only under a line that still reads as it did", () => {
+    const box = wrapper();
+    const host = buildDiff(box);
+    const holders = placeRows(findDiff(box)!, [
+      { key: "same", side: "new", line: 14, text: "log(job);  " },
+      { key: "moved", side: "new", line: 15, text: "  return other;" },
+    ]);
+    expect(shape(stacks(host).content)).toEqual(["12", "13", "13", "14", "+", "15"]);
+    expect([...holders.keys()]).toEqual(["same"]);
+  });
+
   it("keeps the stacks in step past a row that is not a line of code", () => {
     const box = wrapper();
     const host = buildDiff(box, QUEUE_LINES, { separatorAt: 3 });

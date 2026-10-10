@@ -4,7 +4,7 @@ import { fireEvent, waitFor, within } from "@testing-library/react";
 import { patchLines } from "../../lib/review.ts";
 import { OWNED } from "../../src/page/diff-rows.ts";
 import { buildDiff, stacks, type FixtureLine } from "./diff-fixture.ts";
-import { calls, diffOf, file, prCard, renderReview } from "./review-fixture.tsx";
+import { calls, diffOf, file, prCard, QUEUE_PATCH, renderReview } from "./review-fixture.tsx";
 
 // Comments drawn inside bb's diff, under the lines they are about. bb's Diff
 // is replaced here by one that draws the markup bb's does (diff-fixture.ts),
@@ -121,6 +121,29 @@ describe("commenting inside bb's diff", () => {
     expect(stacks(host).content.querySelectorAll(`[${OWNED}]`).length).toBe(0);
     // Still a diff that takes rows, so no box asking for a line number.
     expect(within(review).queryByLabelText("Line in src/queue.ts")).toBeNull();
+  });
+
+  it("flags a comment whose line no longer reads as it did, rather than pinning it under another", async () => {
+    const answer = { outcome: "ok", diff: diffOf([file("src/queue.ts")]) };
+    const slot = renderReview(prCard("thr_stale"), answer);
+    fireEvent.click(await slot.findByRole("button", { name: /Review changes/ }));
+    let review = await slot.findByRole("region", { name: "Changes in #71" });
+    let host = await diffHost(review);
+    pressLine(host, 3);
+    fireEvent.change(await within(review).findByLabelText("Comment on line 14"), { target: { value: "Why log here?" } });
+    fireEvent.click(within(review).getByRole("button", { name: "Add comment" }));
+    await waitFor(() => expect(stacks(host).content.querySelectorAll(`[${OWNED}]`).length).toBe(1));
+    // The branch moves while the changes are closed: line 14 is other code now.
+    fireEvent.click(within(review).getByRole("button", { name: "Close the changes" }));
+    answer.diff = diffOf([file("src/queue.ts", { patch: QUEUE_PATCH.replace("+  log(job);", "+  audit(job);") })]);
+    fireEvent.click(await slot.findByRole("button", { name: /Review changes/ }));
+    review = await slot.findByRole("region", { name: "Changes in #71" });
+    host = await diffHost(review);
+    await waitFor(() => expect(within(review).getByText(/That line has changed since/)).toBeTruthy());
+    expect(stacks(host).content.querySelectorAll(`[${OWNED}]`).length).toBe(0);
+    // Still there to send or remove, quoting the line it was written about.
+    expect(within(review).getByText("log(job);")).toBeTruthy();
+    expect(within(review).getByText("Why log here?")).toBeTruthy();
   });
 
   it("puts the rows back when bb redraws its diff", async () => {

@@ -153,13 +153,20 @@ export interface Anchor {
   key: string;
   side: Side;
   line: number;
+  /**
+   * The line as it read when the comment was written. Given, the row is
+   * placed only under a line that still reads so: a comment is about a line
+   * of code, not a line number, and the branch may have moved under it.
+   */
+  text?: string;
 }
 
 /**
  * Make room under each anchored line, and return for each the element to
  * draw into. Rows from an earlier call are replaced, so this can be run again
  * whenever the anchors change or bb redraws. An anchor whose line the diff
- * does not show gets no element, and the caller shows that comment elsewhere.
+ * does not show, or shows reading differently, gets no element, and the
+ * caller shows that comment elsewhere.
  */
 export function placeRows(parts: DiffParts, anchors: readonly Anchor[]): Map<string, HTMLElement> {
   clearRows(parts);
@@ -173,7 +180,13 @@ export function placeRows(parts: DiffParts, anchors: readonly Anchor[]): Map<str
     // Bottom up, so an insertion never moves a row still to be found.
     const rows = rowsOf(block).reverse();
     for (const { row, element } of rows) {
-      const here = anchors.filter((anchor) => !placed.has(anchor.key) && anchor.side === row.side && anchor.line === row.line);
+      const here = anchors.filter(
+        (anchor) =>
+          !placed.has(anchor.key) &&
+          anchor.side === row.side &&
+          anchor.line === row.line &&
+          (anchor.text === undefined || anchor.text.trim() === row.text.trim()),
+      );
       if (here.length === 0) continue;
       const index = Array.from(block.content.children).indexOf(element);
       const cell = block.gutter.children[index];

@@ -21,7 +21,7 @@ export const file = (path: string, extra: Partial<ReviewDiff["files"][number]> =
   ...extra,
 });
 
-export const diffOf = (files: ReviewDiff["files"], more = 0): ReviewDiff => ({ files, more, base: "main" });
+export const diffOf = (files: ReviewDiff["files"], more = 0, partial = false): ReviewDiff => ({ files, more, partial, base: "main" });
 
 export function prCard(threadId: string, number = 71): Card {
   return {

@@ -11,12 +11,15 @@
 // thread that opened the pull request, shown first in a box that can be
 // edited, like everything else the page sends.
 import { z } from "zod";
+import { visibleText } from "./next-steps.ts";
 import { reveal } from "./unseen.ts";
 
 /** The most of a pull request a card shows; past it the card says so and links GitHub. */
 export const REVIEW_FILES_MAX = 50;
 export const REVIEW_PATCH_MAX = 40_000;
 export const REVIEW_COMMENT_MAX = 4_000;
+/** The most of a line a message quotes; a minified line is not a quotation. */
+export const REVIEW_QUOTE_MAX = 200;
 
 export const reviewFileSchema = z.object({
   path: z.string(),
@@ -37,6 +40,11 @@ export const reviewDiffSchema = z.object({
   files: z.array(reviewFileSchema),
   /** Files past REVIEW_FILES_MAX, not carried. */
   more: z.number(),
+  /**
+   * bb itself listed only part of the change, or listed something this could
+   * not read. How much is missing is then unknown, and the card says so.
+   */
+  partial: z.boolean(),
   base: z.string(),
 });
 export type ReviewDiff = z.infer<typeof reviewDiffSchema>;
@@ -45,12 +53,26 @@ function record(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-/** The files `diffFiles` listed, in its order, capped; or null when it had none to give. */
-export function reviewFileList(response: unknown): { files: Omit<ReviewFile, "patch" | "cut">[]; more: number } | null {
+export interface ReviewFileList {
+  files: Omit<ReviewFile, "patch" | "cut">[];
+  more: number;
+  partial: boolean;
+}
+
+/**
+ * The files `diffFiles` listed, in its order, capped; or null when it had
+ * none to give. Nothing is dropped quietly: what is past the cap is counted,
+ * and a list bb cut short, or an entry that cannot be read, makes it partial.
+ */
+export function reviewFileList(response: unknown): ReviewFileList | null {
   const body = record(response);
   if (body === null || body.outcome !== "available" || !Array.isArray(body.files)) return null;
+  let unreadable = 0;
   const files = body.files.map(record).flatMap((file) => {
-    if (file === null || typeof file.path !== "string" || file.path === "") return [];
+    if (file === null || typeof file.path !== "string" || file.path === "") {
+      unreadable += 1;
+      return [];
+    }
     return [
       {
         path: file.path,
@@ -62,14 +84,22 @@ export function reviewFileList(response: unknown): { files: Omit<ReviewFile, "pa
       },
     ];
   });
-  return { files: files.slice(0, REVIEW_FILES_MAX), more: Math.max(0, files.length - REVIEW_FILES_MAX) };
+  return {
+    files: files.slice(0, REVIEW_FILES_MAX),
+    more: Math.max(0, files.length - REVIEW_FILES_MAX),
+    partial: body.truncated === true || unreadable > 0,
+  };
 }
 
-/** Each file's patch from `diffPatch`, by path, with whether bb cut it. */
-export function reviewPatches(response: unknown): Map<string, { patch: string; truncated: boolean }> {
+/**
+ * Each file's patch from `diffPatch`, by path, with whether bb cut it; or
+ * null when bb had none to give, which is a read that failed and not a
+ * change with nothing in it.
+ */
+export function reviewPatches(response: unknown): Map<string, { patch: string; truncated: boolean }> | null {
   const body = record(response);
   const out = new Map<string, { patch: string; truncated: boolean }>();
-  if (body === null || body.outcome !== "available" || !Array.isArray(body.patches)) return out;
+  if (body === null || body.outcome !== "available" || !Array.isArray(body.patches)) return null;
   for (const entry of body.patches.map(record)) {
     if (entry === null || typeof entry.path !== "string" || typeof entry.patch !== "string") continue;
     out.set(entry.path, { patch: entry.patch, truncated: entry.truncated === true });
@@ -83,21 +113,35 @@ export function reviewPatches(response: unknown): Map<string, { patch: string; t
  * code, as in an approval: a review is of what is there.
  */
 export function reviewDiff(
-  list: { files: Omit<ReviewFile, "patch" | "cut">[]; more: number },
+  list: ReviewFileList,
   patches: ReadonlyMap<string, { patch: string; truncated: boolean }>,
   base: string,
 ): ReviewDiff {
   return {
     base,
     more: list.more,
+    partial: list.partial,
     files: list.files.map((file) => {
+      // Looked up by the path bb gave; shown with anything unseen in it made visible.
       const found = patches.get(file.path);
       const whole = reveal(found?.patch ?? "");
       const over = whole.length > REVIEW_PATCH_MAX;
       const patch = over ? whole.slice(0, whole.lastIndexOf("\n", REVIEW_PATCH_MAX) + 1) : whole;
-      return { ...file, path: file.path, patch, cut: over || found?.truncated === true || (found === undefined && !file.binary) };
+      return {
+        ...file,
+        path: reveal(file.path),
+        previousPath: file.previousPath === null ? null : reveal(file.previousPath),
+        patch,
+        cut: over || found?.truncated === true || (found === undefined && !file.binary),
+      };
     }),
   };
+}
+
+/** How much of a change the card does not show, for saying so before anything else. */
+export function reviewGaps(diff: ReviewDiff): { more: number; cut: number; partial: boolean } | null {
+  const cut = diff.files.filter((file) => file.cut).length;
+  return diff.more === 0 && cut === 0 && !diff.partial ? null : { more: diff.more, cut, partial: diff.partial };
 }
 
 // --- lines ------------------------------------------------------------------------
@@ -179,13 +223,20 @@ export function orderComments(comments: readonly LineComment[], paths: readonly 
  * The message "Request changes" starts from: each comment with its file and
  * line and the line it is about. A removed line says so, since its number is
  * the old file's.
+ *
+ * It is sent under the user's name, and three things in it are not theirs:
+ * the pull request's title, each path, and each quoted line, all written by
+ * the agent whose work is under review. Each is reduced to what shows on
+ * screen, on one line, so nothing in the message is unseen by the person
+ * sending it, and a quoted line cannot run on into a line of its own.
  */
 export function reviewMessage(pr: { number: number; title: string }, comments: readonly LineComment[]): string {
-  const head = `I reviewed PR #${pr.number} (${pr.title}) and want changes before it merges.`;
+  const head = `I reviewed PR #${pr.number} (${visibleText(pr.title)}) and want changes before it merges.`;
   if (comments.length === 0) return head;
   const blocks = comments.map((comment, index) => {
-    const where = `${comment.path}:${comment.line}${comment.side === "old" ? " (removed line)" : ""}`;
-    const quoted = comment.text.trim() === "" ? "   > (blank line)" : `   > ${comment.text.trim()}`;
+    const where = `${visibleText(comment.path)}:${comment.line}${comment.side === "old" ? " (removed line)" : ""}`;
+    const line = visibleText(comment.text);
+    const quoted = line === "" ? "   > (blank line)" : `   > ${line.length > REVIEW_QUOTE_MAX ? `${line.slice(0, REVIEW_QUOTE_MAX)}…` : line}`;
     const body = comment.body
       .trim()
       .split("\n")

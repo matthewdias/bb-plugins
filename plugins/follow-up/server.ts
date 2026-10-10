@@ -4956,6 +4956,9 @@ export default async function plugin(bb: BbPluginApi) {
                   target: { type: "branch_committed", mergeBaseBranch: pr.baseRefName },
                 }),
               );
+        // No patches at all is a read that failed: said as that, never as a
+        // list of files each too large to show.
+        if (patches === null) return { outcome: "unavailable" as const, diff: null };
         return { outcome: "ok" as const, diff: reviewDiff(list, patches, pr.baseRefName) };
       } catch (error) {
         bb.log.warn(`page: could not read the changes of ${threadId}'s pull request: ${String(error)}`);
