@@ -290,8 +290,8 @@ GitHub. A turn usually ends just after a push, with the checks still running,
 and bb has no event for a pull request changing. So one that is waiting on
 its checks or a merge queue is looked at again by itself: every half minute
 for ten minutes, then every two minutes for two hours. Its card shows it
-within half a minute of the checks finishing, whether or not anything else
-happens.
+within about a minute of the checks finishing (bb itself takes up to half of
+that to notice), whether or not anything else happens.
 
 - *Merge* uses the project's merge method. The first merge in a project asks
   which method it uses, and every later merge there uses the same one. The
