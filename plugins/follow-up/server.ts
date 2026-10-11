@@ -103,7 +103,6 @@ import {
   checklistSummary,
   type ChecklistSummary,
 } from "./lib/checklist.ts";
-import { reviewDiff, reviewDiffSchema, reviewFileList, reviewPatches } from "./lib/review.ts";
 import {
   calledMethod,
   callingSession,
@@ -976,19 +975,15 @@ export const rpcContract = defineRpcContract({
    * recorded as follow-ups, carry up to the author.
    */
   /**
-   * A pull request's changes, to review on its card: the thread's worktree
-   * against the pull request's base branch, a file at a time, capped (see
-   * lib/review.ts). `none` when the thread has no worktree or no pull
-   * request, `unavailable` when bb could not read the diff.
+   * Make sure a thread's panel has bb's own diff tab, before the card sends
+   * the reader there to read a pull request's changes. bb gives a plugin no
+   * way to select the tab, only to see that it is there: `ready` when it was,
+   * `added` when this put it there, `failed` when the tabs could not be read
+   * or changed. The card opens the thread whichever it is.
    */
-  page_pr_diff: {
+  page_changes_tab: {
     input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
-    output: z
-      .object({
-        outcome: z.enum(["ok", "none", "unavailable"]),
-        diff: reviewDiffSchema.nullable(),
-      })
-      .strict(),
+    output: z.object({ outcome: z.enum(["ready", "added", "failed"]) }).strict(),
   },
   page_pr_review: {
     input: z
@@ -1191,6 +1186,9 @@ const CHECKLIST_RETRY_MS = 5 * 60 * 1000;
 const ACTIVITY_EVENTS = "60";
 /** Started items read to find a file change an approval is about. */
 const FILE_CHANGE_EVENTS = "200";
+
+/** bb's own diff tab in a thread's panel, as bb names it. */
+const GIT_DIFF_TAB = { id: "git-diff:git-diff:none", kind: "git-diff" } as const;
 
 /** An approval of a file change, whose diff is read from the thread's events. */
 function namesFileChange(ask: PendingAsk | null): boolean {
@@ -4932,37 +4930,18 @@ export default async function plugin(bb: BbPluginApi) {
         return { outcome: "failed" as const };
       }
     },
-    page_pr_diff: async ({ threadId }) => {
-      const none = { outcome: "none" as const, diff: null };
+    page_changes_tab: async ({ threadId }) => {
       try {
-        const thread = await bb.sdk.threads.get({ threadId });
-        if (thread.environmentId === null) return none;
-        const environmentId = thread.environmentId;
-        const pr = prSummary(await bb.sdk.environments.pullRequest({ environmentId }));
-        if (pr === null || pr.baseRefName === "") return none;
-        const list = reviewFileList(
-          await bb.sdk.environments.diffFiles({ environmentId, target: "branch_committed", mergeBaseBranch: pr.baseRefName }),
-        );
-        if (list === null) return { outcome: "unavailable" as const, diff: null };
-        // Binary files have no patch to read; the rest are asked for by name.
-        const paths = list.files.filter((file) => !file.binary).map((file) => file.path);
-        const patches =
-          paths.length === 0
-            ? new Map<string, { patch: string; truncated: boolean }>()
-            : reviewPatches(
-                await bb.sdk.environments.diffPatch({
-                  environmentId,
-                  paths,
-                  target: { type: "branch_committed", mergeBaseBranch: pr.baseRefName },
-                }),
-              );
-        // No patches at all is a read that failed: said as that, never as a
-        // list of files each too large to show.
-        if (patches === null) return { outcome: "unavailable" as const, diff: null };
-        return { outcome: "ok" as const, diff: reviewDiff(list, patches, pr.baseRefName) };
+        const { revision, tabs } = await bb.sdk.threads.tabs.get({ threadId });
+        if (tabs.some((tab) => tab.kind === "git-diff")) return { outcome: "ready" as const };
+        // After the tabs already there: this adds a way in, it does not rearrange.
+        await bb.sdk.threads.tabs.update({ threadId, expectedRevision: revision, tabs: [...tabs, GIT_DIFF_TAB] });
+        return { outcome: "added" as const };
       } catch (error) {
-        bb.log.warn(`page: could not read the changes of ${threadId}'s pull request: ${String(error)}`);
-        return { outcome: "unavailable" as const, diff: null };
+        // Someone moved the tabs meanwhile, or the thread is gone: the thread
+        // still opens, and its diff tab is where they left it.
+        bb.log.warn(`page: could not add the diff tab to ${threadId}: ${String(error)}`);
+        return { outcome: "failed" as const };
       }
     },
     page_pr_merge: async ({ threadId, method, tell }) => {

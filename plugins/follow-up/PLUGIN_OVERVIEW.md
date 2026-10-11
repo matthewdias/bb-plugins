@@ -68,9 +68,8 @@ question's options, an approval (a command, a file change, a permission, a
 tool or a plan, shown whole), a form the agent asked with, a checklist
 that stopped to wait, the agent's next steps, Wrap up, a retry, a reply. A
 pull
-request one of your threads opened can be read and commented on line by
-line, merged, sent back to its thread to fix or rebase, or given a review
-thread. Every message the page sends for you
+request one of your threads opened can be merged, sent back to its thread to
+fix or rebase, given a review thread, or opened in bb's own diff view. Every message the page sends for you
 is shown first, exactly as it will go. Beside the cards are the threads still
 working, with what each is doing, and every open follow-up by project,
 archived threads included. A thread's workers fold into its card,

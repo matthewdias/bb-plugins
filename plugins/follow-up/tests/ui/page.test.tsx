@@ -253,6 +253,46 @@ describe("the page", () => {
     await waitFor(() => expect(calls(slot, "page_reply")).toEqual([{ threadId: "thr_pr", text: "I merged PR #44." }]));
   });
 
+  it("opens a pull request's changes in its thread, in bb's own diff view, once the diff tab is seen to", async () => {
+    const order: string[] = [];
+    const slot = renderPage({
+      cards: [card("thr_pr", { tier: "turn", lead: "pr", pr: { ...pr("ready_to_merge"), action: "merge" } })],
+      handlers: {
+        page_changes_tab: async () => {
+          order.push("tab");
+          return { outcome: "added" };
+        },
+      },
+    });
+    fireEvent.click(await slot.findByRole("button", { name: "Open the changes" }));
+    await waitFor(() => expect(slot.inspection.navigateCalls).toHaveLength(1));
+    expect(calls(slot, "page_changes_tab")).toEqual([{ threadId: "thr_pr" }]);
+    expect(order).toEqual(["tab"]);
+    expect(slot.inspection.navigateCalls[0]).toEqual({ method: "toThread", threadId: "thr_pr" });
+    // The pull request is read there: the card draws no diff of its own.
+    expect(slot.queryByTestId("bb-diff")).toBeNull();
+    expect(slot.queryByRole("button", { name: /Review changes/ })).toBeNull();
+  });
+
+  it("opens the thread all the same when the diff tab could not be seen to", async () => {
+    const slot = renderPage({
+      cards: [card("thr_pr", { tier: "turn", lead: "pr", pr: { ...pr("conflicts"), action: "rebase" } })],
+      handlers: {
+        page_changes_tab: async () => {
+          throw new Error("down");
+        },
+      },
+    });
+    fireEvent.click(await slot.findByRole("button", { name: "Open the changes" }));
+    await waitFor(() => expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "thr_pr" }]));
+  });
+
+  it("offers no changes to open on a merged pull request", async () => {
+    const slot = renderPage({ cards: [card("thr_pr", { lead: "pr", pr: { ...pr("merged", { state: "merged" }), action: "merged" } })] });
+    await slot.findByText(/#44 Add the page/);
+    expect(slot.queryByRole("button", { name: "Open the changes" })).toBeNull();
+  });
+
   it("opens links through bb, so they follow your browser preference", async () => {
     const slot = renderPage({
       cards: [

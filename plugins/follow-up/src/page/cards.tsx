@@ -36,7 +36,6 @@ import { StillOpen } from "./rows.tsx";
 import { AskForm } from "../ask-form.tsx";
 import { ApprovalForm } from "./approvals.tsx";
 import { ChecklistCard } from "./checklist.tsx";
-import { clearReviewDrafts, Review } from "./review.tsx";
 import { NoDeckKeys, useDeckKeys } from "./deck-keys.tsx";
 import type { FollowUpRpc } from "../rpc.ts";
 import {
@@ -923,9 +922,7 @@ const METHOD_LABEL: Record<MergeMethod, string> = {
 function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
   const navigate = useBbNavigate();
   const pr = card.pr;
-  const [box, setBox] = useState<{ kind: "message" | "review"; text: string; label: string; comments?: boolean } | null>(null);
-  /** The pull request's changes are open on the card, to read and comment on. */
-  const [reviewing, setReviewing] = useState(false);
+  const [box, setBox] = useState<{ kind: "message" | "review"; text: string; label: string } | null>(null);
   const [askMethod, setAskMethod] = useState(false);
   const [wrapping, setWrapping] = useState(false);
   // On by default: the thread that opened the PR is usually waiting to hear.
@@ -952,6 +949,17 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const openChanges = async () => {
+    try {
+      // bb can't be asked to show the diff tab, only to have one: see that it
+      // does, then go. The thread opens whether or not that worked.
+      await rpc.call("page_changes_tab", { threadId: card.threadId });
+    } catch {
+      // Nothing to say: the thread is the destination either way.
+    }
+    navigate.toThread(card.threadId);
   };
 
   const startReview = async (prompt: string): Promise<boolean> => {
@@ -1006,30 +1014,13 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
           note={pr.action === "merge" ? MERGE_NOTE : ARCHIVE_NOTE}
         />
       )}
-      {reviewing && pr.action !== "merged" && (
-        <Review
-          card={card}
-          pr={pr}
-          onRequest={(message) => setBox({ kind: "message", text: message, label: "Send to the thread", comments: true })}
-          onClose={() => setReviewing(false)}
-        />
-      )}
       {wrapping ? (
         <WrapUpInline card={card} rpc={rpc} onClose={() => setWrapping(false)} />
       ) : box !== null ? (
         <MessageBox
           initial={box.text}
           sendLabel={box.label}
-          onSend={async (text) => {
-            if (box.kind === "review") return startReview(text);
-            const sent = await reply(rpc, card.threadId, text);
-            // The line comments went in that message: they are drafts no longer.
-            if (sent && box.comments === true) {
-              clearReviewDrafts(card.threadId, pr.number);
-              setReviewing(false);
-            }
-            return sent;
-          }}
+          onSend={(text) => (box.kind === "review" ? startReview(text) : reply(rpc, card.threadId, text))}
           onCancel={() => setBox(null)}
         />
       ) : askMethod ? (
@@ -1067,10 +1058,13 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
               Ask the thread to rebase
             </Button>
           )}
-          {pr.action !== "merged" && !reviewing && (
-            <Button size="sm" variant="outline" onClick={() => setReviewing(true)}>
+          {pr.action !== "merged" && (
+            // A pull request is read in bb's own diff view, in its thread: a
+            // card is for a quick answer, and reading a change is not one.
+            <Button size="sm" variant="outline" onClick={() => void openChanges()}>
               <Icon name="FileDiff" aria-hidden />
-              Review changes
+              Open the changes
+              <Icon name="ArrowUpRight" aria-hidden />
             </Button>
           )}
           {(pr.action === "merge" || pr.action === "review") && (

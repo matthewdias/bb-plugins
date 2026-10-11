@@ -297,20 +297,11 @@ GitHub.
   send a message to the thread that opened the pull request. A box shows the
   message first, prefilled with the failing checks or the base branch, and
   what's in the box when you press send is exactly what goes.
-- *Review changes* opens the pull request's files on the card, against its
-  base branch, in bb's own diff view. Press a line's number to comment on
-  it; the comment sits under that line. *Request changes* then puts every
-  comment, each with its file, its line and the line it is about, into one
-  message to the thread that opened the pull request, shown in the box
-  first. Comments are drafts until then, kept while bb stays open. The
-  changes are read from the thread's worktree as committed there, which can
-  be ahead of or behind what is pushed: GitHub has what will merge, and the
-  card says so. Up to 50 files and 40,000 characters a file are shown.
-  Anything past that, a binary file, or a file bb could not load is counted
-  in a notice above the changes and marked on its file, with a link to
-  GitHub, because reading part of a change is not reviewing it. Where bb's
-  diff will not take a comment row, the file gets a comment box under it
-  that takes a line number instead.
+- *Open the changes* takes you to the pull request's thread, where bb's own
+  diff view has them: a card is for a quick answer, and reading a change is
+  not one. Follow Up first makes sure the thread's panel has its diff tab.
+  bb gives a plugin no way to select that tab, so it is one press away once
+  you are there.
 - *Start a review thread* opens a new thread in the same worktree with a
   review prompt naming the pull request, also shown in a box first. It is a
   child of the author's thread: it reports back there, sits in the author's
