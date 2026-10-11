@@ -253,38 +253,38 @@ describe("the page", () => {
     await waitFor(() => expect(calls(slot, "page_reply")).toEqual([{ threadId: "thr_pr", text: "I merged PR #44." }]));
   });
 
-  it("opens a pull request's changes in its thread, in bb's own diff view, once the diff tab is seen to", async () => {
-    const order: string[] = [];
+  it("opens a pull request's changes in its thread, with bb's panel pointed at the diff before it goes", async () => {
+    const key = "bb.thread.fixedPanelTabsState-thr_pr-1";
+    window.localStorage.removeItem(key);
     const slot = renderPage({
       cards: [card("thr_pr", { tier: "turn", lead: "pr", pr: { ...pr("ready_to_merge"), action: "merge" } })],
-      handlers: {
-        page_changes_tab: async () => {
-          order.push("tab");
-          return { outcome: "added" };
-        },
-      },
     });
     fireEvent.click(await slot.findByRole("button", { name: "Open the changes" }));
-    await waitFor(() => expect(slot.inspection.navigateCalls).toHaveLength(1));
-    expect(calls(slot, "page_changes_tab")).toEqual([{ threadId: "thr_pr" }]);
-    expect(order).toEqual(["tab"]);
-    expect(slot.inspection.navigateCalls[0]).toEqual({ method: "toThread", threadId: "thr_pr" });
+    // At once: nothing is asked of the server on the way.
+    expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "thr_pr" }]);
+    expect(JSON.parse(window.localStorage.getItem(key) as string).secondary).toMatchObject({
+      activeTabId: "git-diff:git-diff:none",
+      isOpen: true,
+    });
+    expect(slot.inspection.rpcCalls.map((call) => call.method).filter((method) => method !== "page_snapshot")).toEqual([]);
     // The pull request is read there: the card draws no diff of its own.
     expect(slot.queryByTestId("bb-diff")).toBeNull();
     expect(slot.queryByRole("button", { name: /Review changes/ })).toBeNull();
   });
 
-  it("opens the thread all the same when the diff tab could not be seen to", async () => {
-    const slot = renderPage({
-      cards: [card("thr_pr", { tier: "turn", lead: "pr", pr: { ...pr("conflicts"), action: "rebase" } })],
-      handlers: {
-        page_changes_tab: async () => {
-          throw new Error("down");
-        },
-      },
+  it("opens the thread all the same when the browser's storage refuses", async () => {
+    const refusing = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
     });
-    fireEvent.click(await slot.findByRole("button", { name: "Open the changes" }));
-    await waitFor(() => expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "thr_pr" }]));
+    try {
+      const slot = renderPage({
+        cards: [card("thr_pr", { tier: "turn", lead: "pr", pr: { ...pr("conflicts"), action: "rebase" } })],
+      });
+      fireEvent.click(await slot.findByRole("button", { name: "Open the changes" }));
+      expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "thr_pr" }]);
+    } finally {
+      refusing.mockRestore();
+    }
   });
 
   it("offers no changes to open on a merged pull request", async () => {

@@ -974,17 +974,6 @@ export const rpcContract = defineRpcContract({
    * there, folds into the author's card on the page, and its findings, if
    * recorded as follow-ups, carry up to the author.
    */
-  /**
-   * Make sure a thread's panel has bb's own diff tab, before the card sends
-   * the reader there to read a pull request's changes. bb gives a plugin no
-   * way to select the tab, only to see that it is there: `ready` when it was,
-   * `added` when this put it there, `failed` when the tabs could not be read
-   * or changed. The card opens the thread whichever it is.
-   */
-  page_changes_tab: {
-    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
-    output: z.object({ outcome: z.enum(["ready", "added", "failed"]) }).strict(),
-  },
   page_pr_review: {
     input: z
       .object({
@@ -1186,9 +1175,6 @@ const CHECKLIST_RETRY_MS = 5 * 60 * 1000;
 const ACTIVITY_EVENTS = "60";
 /** Started items read to find a file change an approval is about. */
 const FILE_CHANGE_EVENTS = "200";
-
-/** bb's own diff tab in a thread's panel, as bb names it. */
-const GIT_DIFF_TAB = { id: "git-diff:git-diff:none", kind: "git-diff" } as const;
 
 /** An approval of a file change, whose diff is read from the thread's events. */
 function namesFileChange(ask: PendingAsk | null): boolean {
@@ -4927,20 +4913,6 @@ export default async function plugin(bb: BbPluginApi) {
         return { outcome: "stopped" as const };
       } catch (error) {
         bb.log.error(`page: stop failed on ${threadId}: ${String(error)}`);
-        return { outcome: "failed" as const };
-      }
-    },
-    page_changes_tab: async ({ threadId }) => {
-      try {
-        const { revision, tabs } = await bb.sdk.threads.tabs.get({ threadId });
-        if (tabs.some((tab) => tab.kind === "git-diff")) return { outcome: "ready" as const };
-        // After the tabs already there: this adds a way in, it does not rearrange.
-        await bb.sdk.threads.tabs.update({ threadId, expectedRevision: revision, tabs: [...tabs, GIT_DIFF_TAB] });
-        return { outcome: "added" as const };
-      } catch (error) {
-        // Someone moved the tabs meanwhile, or the thread is gone: the thread
-        // still opens, and its diff tab is where they left it.
-        bb.log.warn(`page: could not add the diff tab to ${threadId}: ${String(error)}`);
         return { outcome: "failed" as const };
       }
     },

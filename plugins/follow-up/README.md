@@ -297,11 +297,16 @@ GitHub.
   send a message to the thread that opened the pull request. A box shows the
   message first, prefilled with the failing checks or the base branch, and
   what's in the box when you press send is exactly what goes.
-- *Open the changes* takes you to the pull request's thread, where bb's own
-  diff view has them: a card is for a quick answer, and reading a change is
-  not one. Follow Up first makes sure the thread's panel has its diff tab.
-  bb gives a plugin no way to select that tab, so it is one press away once
-  you are there.
+- *Open the changes* takes you to the pull request's thread with bb's own
+  diff view showing them: a card is for a quick answer, and reading a change
+  is not one. bb gives a plugin no way to select its diff tab, so Follow Up
+  points the thread's panel at it the way bb itself remembers a panel: the
+  entry bb keeps in the browser for that thread, which bb reads as the thread
+  comes on screen. On a narrow screen, where the panel is a drawer that
+  starts shut, it then presses bb's own panel button for you. Both lean on
+  how bb 0.45 works rather than on anything bb promises, so an entry or a
+  button that does not look as expected is left alone, and the thread opens
+  on whichever tab it had.
 - *Start a review thread* opens a new thread in the same worktree with a
   review prompt naming the pull request, also shown in a box first. It is a
   child of the author's thread: it reports back there, sits in the author's

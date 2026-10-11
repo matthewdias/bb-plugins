@@ -905,39 +905,3 @@ test("page: a checklist action says when Agent Checklists cannot be reached, and
   checklistsPlugin(refusing.harness, { thr_cl: waitingChecklist("limit_reached") }, ["resume"]);
   assert.deepEqual(await refusing.call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume" }), { outcome: "failed" });
 });
-
-// --- reading a pull request's changes: bb's own diff tab ------------------------
-
-test("page: opening a pull request's changes leaves a thread's diff tab alone when it has one", async () => {
-  const { call, calls, harness } = await host({ threads: [threadRow("thr_pr")] });
-  harness.sdk.stub("threads.tabs.get", () => ({ revision: 8, tabs: [{ id: "thread-info:thread-info:none", kind: "thread-info" }, { id: "git-diff:git-diff:none", kind: "git-diff" }] }));
-  harness.sdk.stub("threads.tabs.update", () => ({ revision: 9, tabs: [] }));
-  assert.deepEqual(await call("page_changes_tab", { threadId: "thr_pr" }), { outcome: "ready" });
-  assert.equal(calls("threads.tabs.update").length, 0);
-});
-
-test("page: it adds the diff tab after the tabs already there, at the revision it read", async () => {
-  const { call, calls, harness } = await host({ threads: [threadRow("thr_pr")] });
-  const info = { id: "thread-info:thread-info:none", kind: "thread-info" };
-  harness.sdk.stub("threads.tabs.get", () => ({ revision: 3, tabs: [info] }));
-  harness.sdk.stub("threads.tabs.update", () => ({ revision: 4, tabs: [] }));
-  assert.deepEqual(await call("page_changes_tab", { threadId: "thr_pr" }), { outcome: "added" });
-  assert.deepEqual(calls("threads.tabs.update")[0], {
-    threadId: "thr_pr",
-    expectedRevision: 3,
-    tabs: [info, { id: "git-diff:git-diff:none", kind: "git-diff" }],
-  });
-});
-
-test("page: tabs it cannot read or change are a failure the card can open the thread past", async () => {
-  const { call, harness } = await host({ threads: [threadRow("thr_pr")] });
-  harness.sdk.stub("threads.tabs.get", () => {
-    throw new Error("no such thread");
-  });
-  assert.deepEqual(await call("page_changes_tab", { threadId: "thr_pr" }), { outcome: "failed" });
-  harness.sdk.stub("threads.tabs.get", () => ({ revision: 3, tabs: [] }));
-  harness.sdk.stub("threads.tabs.update", () => {
-    throw new Error("revision moved");
-  });
-  assert.deepEqual(await call("page_changes_tab", { threadId: "thr_pr" }), { outcome: "failed" });
-});

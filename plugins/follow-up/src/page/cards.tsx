@@ -37,6 +37,7 @@ import { AskForm } from "../ask-form.tsx";
 import { ApprovalForm } from "./approvals.tsx";
 import { ChecklistCard } from "./checklist.tsx";
 import { NoDeckKeys, useDeckKeys } from "./deck-keys.tsx";
+import { openChanges } from "./open-changes.ts";
 import type { FollowUpRpc } from "../rpc.ts";
 import {
   DropdownMenu,
@@ -951,17 +952,6 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
     }
   };
 
-  const openChanges = async () => {
-    try {
-      // bb can't be asked to show the diff tab, only to have one: see that it
-      // does, then go. The thread opens whether or not that worked.
-      await rpc.call("page_changes_tab", { threadId: card.threadId });
-    } catch {
-      // Nothing to say: the thread is the destination either way.
-    }
-    navigate.toThread(card.threadId);
-  };
-
   const startReview = async (prompt: string): Promise<boolean> => {
     try {
       const result = await rpc.call("page_pr_review", { threadId: card.threadId, prompt });
@@ -1061,7 +1051,7 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
           {pr.action !== "merged" && (
             // A pull request is read in bb's own diff view, in its thread: a
             // card is for a quick answer, and reading a change is not one.
-            <Button size="sm" variant="outline" onClick={() => void openChanges()}>
+            <Button size="sm" variant="outline" onClick={() => openChanges(card.threadId, (threadId) => navigate.toThread(threadId))}>
               <Icon name="FileDiff" aria-hidden />
               Open the changes
               <Icon name="ArrowUpRight" aria-hidden />
