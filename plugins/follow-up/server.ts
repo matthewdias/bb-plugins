@@ -156,6 +156,8 @@ import {
   parsePutAway,
   pendingAsk,
   prAction,
+  prMovesAlone,
+  prRecheckMs,
   prOwners,
   prSummary,
   rank,
@@ -3815,6 +3817,9 @@ export default async function plugin(bb: BbPluginApi) {
   const prQueue: string[] = [];
   const prQueued = new Set<string>();
   let prActive = 0;
+  /** When each pull request was first seen waiting on itself, and its next look. */
+  const prWaitingSince = new Map<string, number>();
+  const prRechecks = new Map<string, ReturnType<typeof setTimeout>>();
   /**
    * Archived threads that still hold open follow-ups. Looked up once each:
    * an archived thread's title and project do not change while it stays
@@ -3920,6 +3925,39 @@ export default async function plugin(bb: BbPluginApi) {
     pumpPullRequests();
   }
 
+  function stopWatching(environmentId: string): void {
+    const timer = prRechecks.get(environmentId);
+    if (timer !== undefined) clearTimeout(timer);
+    prRechecks.delete(environmentId);
+  }
+
+  /**
+   * Look again, unasked, at a pull request that will change by itself. bb
+   * sends no event when checks finish, and a page asks only when signalled,
+   * so a pull request first seen with its checks running would stay off its
+   * card until something unrelated refreshed the page.
+   */
+  function watchPullRequest(environmentId: string, pr: PrSummary | null): void {
+    stopWatching(environmentId);
+    if (!prMovesAlone(pr)) {
+      prWaitingSince.delete(environmentId);
+      return;
+    }
+    // Kept while it waits, so a look that finds it still waiting does not
+    // start the count again.
+    const since = prWaitingSince.get(environmentId) ?? Date.now();
+    prWaitingSince.set(environmentId, since);
+    const again = prRecheckMs(Date.now() - since);
+    if (again === null) return;
+    prRechecks.set(
+      environmentId,
+      setTimeout(() => {
+        prRechecks.delete(environmentId);
+        queuePullRequest(environmentId, true);
+      }, again),
+    );
+  }
+
   function pumpPullRequests(): void {
     while (!disposed && prActive < PR_CONCURRENCY && prQueue.length > 0) {
       const environmentId = prQueue.shift() as string;
@@ -3929,11 +3967,14 @@ export default async function plugin(bb: BbPluginApi) {
         try {
           const pr = prSummary(await bb.sdk.environments.pullRequest({ environmentId }));
           pullRequests.set(environmentId, { checkedAt: Date.now(), pr });
+          watchPullRequest(environmentId, pr);
           if (JSON.stringify(before?.pr ?? null) !== JSON.stringify(pr)) pageChanged();
         } catch (error) {
           // Keep what was known, and wait the full interval before asking again:
           // a git host having a bad minute is not worth a lookup per refetch.
           pullRequests.set(environmentId, { checkedAt: Date.now(), pr: before?.pr ?? null });
+          // One that was waiting on its checks still is, bad minute or not.
+          watchPullRequest(environmentId, before?.pr ?? null);
           // A lookup that outlived a reload fails on the stale handle; the
           // log is behind the same handle, so it says nothing.
           if (!disposed) bb.log.warn(`page: pull request lookup failed for ${environmentId}: ${String(error)}`);
@@ -4345,6 +4386,8 @@ export default async function plugin(bb: BbPluginApi) {
     pageTimer = null;
     prQueue.length = 0;
     prQueued.clear();
+    for (const timer of prRechecks.values()) clearTimeout(timer);
+    prRechecks.clear();
     checklistQueue.length = 0;
     checklistQueued.clear();
     try {
@@ -4363,6 +4406,8 @@ export default async function plugin(bb: BbPluginApi) {
     // A turn just ended: whatever it pushed is worth a fresh look.
     const environmentId = (thread as { environmentId?: unknown }).environmentId;
     if (typeof environmentId === "string" && pullRequests.has(environmentId)) {
+      // And its checks start over, so the wait for them does too.
+      prWaitingSince.delete(environmentId);
       queuePullRequest(environmentId, true);
     }
     pageChanged();

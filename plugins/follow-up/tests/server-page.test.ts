@@ -2,7 +2,7 @@
 // host, what each card's action calls, and when open pages are told to refetch.
 // lib/page.ts's rules have their own tests; these pin the wiring around them.
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server.ts";
 
@@ -904,4 +904,139 @@ test("page: a checklist action says when Agent Checklists cannot be reached, and
   const refusing = await host({ threads: [recent("thr_cl")] });
   checklistsPlugin(refusing.harness, { thr_cl: waitingChecklist("limit_reached") }, ["resume"]);
   assert.deepEqual(await refusing.call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume" }), { outcome: "failed" });
+});
+
+// --- a pull request that is waiting on its own checks ---------------------------
+
+/**
+ * A host on a clock the test moves. bb has no event for a pull request
+ * changing, so what is under test is what happens as time passes and nobody
+ * asks: `pass` moves the clock a second at a time and lets each lookup land.
+ */
+async function hostOnAClock(t: TestContext, attention: string) {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: NOW });
+  const made = await host({
+    threads: [threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
+    prs: { env_w: prResponse(attention) },
+  });
+  const landed = () => new Promise((resolve) => setImmediate(resolve));
+  const pass = async (ms: number) => {
+    for (let gone = 0; gone < ms; gone += 1000) {
+      t.mock.timers.tick(Math.min(1000, ms - gone));
+      await landed();
+      await landed();
+    }
+  };
+  const lookups = () => made.calls("environments.pullRequest").length;
+  // The page is opened once, which is the only time anyone asks. Two
+  // seconds: one for the lookup to land, one for the signal it sends.
+  await made.call("page_snapshot");
+  await pass(2000);
+  return { ...made, pass, lookups };
+}
+
+test("page: a pull request first seen with its checks running shows once they pass, with nobody asking", async (t) => {
+  const { call, w, pass, lookups, signals } = await hostOnAClock(t, "checks_pending");
+  assert.equal(lookups(), 1);
+  assert.deepEqual((await call("page_snapshot")).cards, [], "checks still running want nothing yet");
+  const told = signals();
+
+  w.prs.env_w = prResponse("ready_to_merge");
+  await pass(27_000);
+  assert.equal(lookups(), 1, "not before its time");
+  await pass(3000);
+  assert.equal(lookups(), 2);
+  assert.equal(signals(), told + 1, "the open page is told to ask again");
+  assert.deepEqual((await call("page_snapshot")).cards.map((card: any) => [card.threadId, card.pr.action]), [["thr_pr", "merge"]]);
+
+  // It wants you now, and that does not change by itself: no more looks.
+  await pass(4 * 60_000);
+  assert.equal(lookups(), 2);
+});
+
+test("page: one still waiting is looked at every half minute, then every two, then left to the page", async (t) => {
+  const { pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await pass(10 * 60_000);
+  assert.equal(lookups(), 1 + 20, "every 30 seconds for ten minutes");
+  await pass(10 * 60_000);
+  assert.equal(lookups(), 1 + 20 + 5, "then every two minutes");
+  await pass(2 * 60 * 60_000);
+  const last = lookups();
+  await pass(30 * 60_000);
+  assert.equal(lookups(), last, "and after two hours, only when a page asks");
+});
+
+test("page: a turn ending starts the wait for its checks over", async (t) => {
+  const { harness, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await pass(2 * 60 * 60_000 + 5 * 60_000);
+  const stopped = lookups();
+  await pass(5 * 60_000);
+  assert.equal(lookups(), stopped);
+  // The agent pushed again: new checks, a new wait.
+  await harness.emitThreadEvent("thread.idle", { thread: { id: "thr_pr", environmentId: "env_w" } } as never);
+  await pass(1000);
+  assert.equal(lookups(), stopped + 1, "the turn's own look");
+  await pass(31_000);
+  assert.equal(lookups(), stopped + 2, "and half a minute on, another");
+});
+
+test("page: a look in between does not double the looking", async (t) => {
+  const { harness, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await pass(10_000);
+  // A turn ends ten seconds in, with its own look: the one that was due is let go.
+  await harness.emitThreadEvent("thread.idle", { thread: { id: "thr_pr", environmentId: "env_w" } } as never);
+  await pass(1000);
+  assert.equal(lookups(), 2);
+  await pass(5 * 60_000);
+  assert.equal(lookups(), 2 + 10, "one look every half minute, not two");
+});
+
+test("page: checks run again are a new wait, however long the last one was", async (t) => {
+  const { call, w, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await pass(2 * 60 * 60_000 + 6 * 60_000);
+  // Waited out. The page asks, and finds they failed: no longer waiting.
+  w.prs.env_w = prResponse("checks_failed");
+  await call("page_snapshot");
+  await pass(6 * 60_000);
+  // Someone runs them again on GitHub; the page asks once more and sees it.
+  w.prs.env_w = prResponse("checks_pending");
+  await call("page_snapshot");
+  await pass(2000);
+  const seen = lookups();
+  w.prs.env_w = prResponse("ready_to_merge");
+  await pass(31_000);
+  assert.equal(lookups(), seen + 1, "looked at again half a minute on");
+  assert.deepEqual((await call("page_snapshot")).cards.map((card: any) => card.pr.action), ["merge"]);
+});
+
+test("page: a pull request that is not waiting on itself is looked at once", async (t) => {
+  for (const attention of ["ready_to_merge", "draft", "none"]) {
+    const { pass, lookups } = await hostOnAClock(t, attention);
+    await pass(4 * 60_000);
+    assert.equal(lookups(), 1, attention);
+    t.mock.timers.reset();
+  }
+});
+
+test("page: a lookup that fails while it waits does not end the waiting", async (t) => {
+  const { call, harness, w, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  let failing = true;
+  harness.sdk.stub("environments.pullRequest", (args: { environmentId: string }) => {
+    if (failing) throw new Error("GitHub is having a minute");
+    return w.prs[args.environmentId];
+  });
+  await pass(31_000);
+  assert.equal(lookups(), 2);
+  failing = false;
+  w.prs.env_w = prResponse("checks_failed");
+  await pass(31_000);
+  assert.equal(lookups(), 3);
+  assert.deepEqual((await call("page_snapshot")).cards.map((card: any) => card.pr.action), ["fix"]);
+});
+
+test("page: nothing is looked at again once the plugin is let go", async (t) => {
+  const { harness, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await harness.lifecycle.dispose();
+  await pass(2 * 60_000);
+  assert.equal(lookups(), 1);
 });

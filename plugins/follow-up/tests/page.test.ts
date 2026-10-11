@@ -28,6 +28,8 @@ import {
   pendingAsk,
   PENDING_STALE_MS,
   prAction,
+  prMovesAlone,
+  prRecheckMs,
   prFixMessage,
   prOwners,
   prRebaseMessage,
@@ -699,6 +701,23 @@ test("cardFor: a review thread shows only for the pull request it was started fo
   const started = { prNumber: 44, threadId: "thr_review" };
   assert.equal(cardFor(inputs({ pr: pr("ready_to_merge"), review: started }))?.reviewThreadId, "thr_review");
   assert.equal(cardFor(inputs({ pr: pr("ready_to_merge", { number: 45 }), review: started }))?.reviewThreadId, null);
+});
+
+test("prMovesAlone: only running checks and a merge queue end without anyone touching the pull request", () => {
+  assert.equal(prMovesAlone(pr("checks_pending")), true);
+  assert.equal(prMovesAlone(pr("queued")), true);
+  for (const still of ["draft", "blocked", "none", "closed", "ready_to_merge", "review_requested", "changes_requested", "checks_failed", "conflicts", "merged"]) {
+    assert.equal(prMovesAlone(pr(still)), false, still);
+  }
+  assert.equal(prMovesAlone(null), false);
+});
+
+test("prRecheckMs: often at first, then now and then, then not at all", () => {
+  assert.equal(prRecheckMs(0), 30_000);
+  assert.equal(prRecheckMs(10 * 60_000 - 1), 30_000);
+  assert.equal(prRecheckMs(10 * 60_000), 2 * 60_000);
+  assert.equal(prRecheckMs(2 * 60 * 60_000 - 1), 2 * 60_000);
+  assert.equal(prRecheckMs(2 * 60 * 60_000), null);
 });
 
 test("prAction: maps bb's attention roll-up to what the card offers", () => {

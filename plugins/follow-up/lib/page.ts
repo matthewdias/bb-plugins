@@ -716,6 +716,37 @@ export function prAction(pr: PrSummary): PrAction | null {
   }
 }
 
+/** The states a pull request leaves by itself: its checks finish, the merge queue gets to it. */
+const PR_MOVES_ALONE: readonly string[] = ["checks_pending", "queued"];
+
+/** Whether a pull request will change without anyone touching it. */
+export function prMovesAlone(pr: PrSummary | null): boolean {
+  return pr !== null && PR_MOVES_ALONE.includes(pr.attention);
+}
+
+/** How often such a pull request is looked at again, at first and then later. */
+export const PR_RECHECK_SOON_MS = 30 * 1000;
+export const PR_RECHECK_LATER_MS = 2 * 60 * 1000;
+/** How long it is looked at that often, and how long it is looked at at all. */
+export const PR_RECHECK_SOON_FOR_MS = 10 * 60 * 1000;
+export const PR_RECHECK_FOR_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * How soon to look again at a pull request that will change by itself, given
+ * how long it has been seen that way. Null once it has been so long that a
+ * page's own interval will do.
+ *
+ * bb has no event for a pull request changing, and a page asks again only
+ * when something signals it. So a thread that pushes and goes idle is looked
+ * at once, while its checks still run, and without this its card says nothing
+ * of the pull request until something unrelated happens to refresh the page.
+ */
+export function prRecheckMs(waitedMs: number): number | null {
+  if (waitedMs < PR_RECHECK_SOON_FOR_MS) return PR_RECHECK_SOON_MS;
+  if (waitedMs < PR_RECHECK_FOR_MS) return PR_RECHECK_LATER_MS;
+  return null;
+}
+
 /**
  * Which thread owns each worktree's pull request.
  *
