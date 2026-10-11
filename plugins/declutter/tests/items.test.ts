@@ -2,7 +2,7 @@
 // what is found, and that hiding one item hides exactly that item.
 import { beforeEach, describe, expect, it } from "vitest";
 import { cleanLabel, itemOf, keyOf, MARK_ATTR, markTextNamed, scan, selectorsFor, stylesheetFor, type Item } from "../lib/items";
-import { byLabel, byPlugin, mountBb } from "./fixture";
+import { allByLabel, byLabel, byPlugin, mountBb } from "./fixture";
 
 /** Hidden when it, or an ancestor, matches a rule for `items`. */
 function hiddenBy(items: Item[], el: Element): boolean {
@@ -34,6 +34,7 @@ describe("scan", () => {
         banner("follow-up"),
         banner("gh-context"),
         message("Copy message"),
+        message("Edit message"),
         message("Mark unread from here"),
         message("Reply in side chat"),
         message("Message actions"),
@@ -110,7 +111,22 @@ describe("hiding", () => {
   it("hides a message action on every message, and only that one", () => {
     const items = [message("Mark unread from here")];
     expect(hiddenBy(items, byLabel("Mark unread from here"))).toBe(true);
-    expect(hiddenBy(items, byLabel("Copy message"))).toBe(false);
+    expect(allByLabel("Copy message").some((button) => hiddenBy(items, button))).toBe(false);
+  });
+
+  it("hides a message action with or without another plugin's mark on the bar", () => {
+    // Chat Timestamps marks the bar of the second message and not the first.
+    const [inAnswer, bare, marked] = allByLabel("Copy message");
+    const items = [message("Copy message")];
+    expect(hiddenBy(items, bare!)).toBe(true);
+    expect(hiddenBy(items, marked!)).toBe(true);
+    expect(hiddenBy(items, inAnswer!)).toBe(false);
+  });
+
+  it("hides the message menu itself, and still finds the bar by it", () => {
+    const items = [message("Message actions"), message("Edit message")];
+    expect(allByLabel("Message actions").every((button) => hiddenBy(items, button))).toBe(true);
+    expect(hiddenBy(items, byLabel("Edit message"))).toBe(true);
   });
 
   it("writes one rule, or none", () => {

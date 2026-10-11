@@ -1,7 +1,8 @@
 // bb 0.45's markup for the three surfaces, cut down to the attributes
 // Declutter reads. Taken from a live thread view: the header's plugin controls
 // and bb's own buttons, the composer with its banner column, and one message's
-// action bar.
+// action bar. The second message is as the Chat Timestamps plugin leaves one:
+// it writes its attribute on the action bar, which bb itself leaves bare.
 export const BB_MARKUP = `
 <header>
   <div data-testid="app-page-header-content-row">
@@ -35,13 +36,25 @@ export const BB_MARKUP = `
 <main>
   <div data-timeline-row-id="thr_a:assistant:1">
     <div data-message-column>
-      <div><p>An answer</p></div>
+      <div><p>An answer</p><button aria-label="Copy message">in the answer</button></div>
       <div>
-        <div data-bb-chat-timestamp="7h ago">
+        <div>
           <button aria-label="Copy message"></button>
           <button aria-label="Mark unread from here"></button>
           <button aria-label="Reply in side chat"></button>
-          <button aria-label="Message actions"></button>
+          <button aria-label="Message actions" data-no-sidebar-swipe></button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div data-timeline-row-id="thr_a:user:2">
+    <div data-message-column>
+      <div><p>A question</p></div>
+      <div>
+        <div data-bb-chat-timestamp="7h ago">
+          <button aria-label="Copy message"></button>
+          <button aria-label="Edit message"></button>
+          <button aria-label="Message actions" data-no-sidebar-swipe></button>
         </div>
       </div>
     </div>
@@ -62,6 +75,10 @@ export const BB_MARKUP = `
 
 export function mountBb(): void {
   document.body.innerHTML = BB_MARKUP;
+}
+
+export function allByLabel(label: string): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>(`[aria-label="${CSS.escape(label)}"]`)];
 }
 
 export function byLabel(label: string): HTMLElement {
