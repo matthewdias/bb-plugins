@@ -19,9 +19,11 @@
 //                                marks those (markTextNamed) and CSS hides the mark.
 //   banner   [data-app-composer] > div > [data-bb-plugin=P]. One per plugin;
 //            bb does not mark which of a plugin's banners is which.
-//   message  [data-bb-chat-timestamp] > button[aria-label=L]. bb draws these
-//            itself, plugin actions included, so only the label tells them
-//            apart.
+//   message  [data-message-column] div:has(> button[aria-label="Message actions"])
+//            > button[aria-label=L]. bb puts no hook on the bar that holds a
+//            message's actions, so the bar is found by the one button every
+//            bar ends with, its menu. bb draws these itself, plugin actions
+//            included, so only the label tells them apart.
 
 export const SURFACES = ["header", "banner", "message"] as const;
 export type Surface = (typeof SURFACES)[number];
@@ -69,7 +71,10 @@ const HEADER_ROW = '[data-testid="app-page-header-content-row"]';
 const HEADER_PLUGINS = "[data-thread-header-workflow-actions] > [data-bb-plugin]";
 const RESPONSIVE = "[data-thread-header-responsive-action]";
 const BANNERS = "[data-app-composer] > div > [data-bb-plugin]";
-const MESSAGE_BAR = "[data-bb-chat-timestamp]";
+// Not an attribute on the bar: the only one it has ever carried came from the
+// Chat Timestamps plugin, and went when that plugin was switched off.
+const MESSAGE_MENU = "Message actions";
+const MESSAGE_BAR = `[data-message-column] div:has(> button[aria-label="${MESSAGE_MENU}"])`;
 
 /** Set by the overlay on a split button named only by its text, when hidden. */
 export const MARK_ATTR = "data-declutter-hidden";

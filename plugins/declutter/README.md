@@ -62,8 +62,10 @@ bb draws every registered header control, banner and message action, so the
 only lever is CSS. Declutter keeps one stylesheet that sets `display: none` on
 what you switched off, keyed on attributes bb sets on purpose: the
 `data-bb-plugin` wrapper around each plugin's control, the `aria-label` on each
-button, and data hooks on the header, the composer and the message bar. It
-never matches on class names. One case needs script: a header button named only
+button, and data hooks on the header, the composer and each message. A
+message's action bar has no hook of its own, so it is found by the Message
+actions button every bar ends with. It never matches on class names, or on
+anything another plugin adds. One case needs script: a header button named only
 by its text, such as Commit, is tagged by the overlay while it is hidden.
 
 The catalog of what has been seen and the list of what is hidden are kept on
