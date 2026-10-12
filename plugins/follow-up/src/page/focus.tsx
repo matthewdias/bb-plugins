@@ -6,7 +6,7 @@
 // next steps); a key or a swipe otherwise only moves through the deck (skip,
 // back, put away) and never answers. Approvals, merges and wrap-ups are click
 // only. The swipes and haptics are Plugin Triage's, vendored.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../server";
@@ -115,7 +115,9 @@ export function Focus({
   useEffect(() => {
     if (returning !== null) return;
     const id = top?.threadId ?? null;
-    if (id !== at.id || index !== at.index || at.returning === true) setAt({ id, index });
+    // Only if nothing has moved since this render: a key pressed as the card
+    // was drawn has already gone on from here, and must not be put back.
+    if (id !== at.id || index !== at.index || at.returning === true) setAt((now) => (now === at ? { id, index } : now));
   }, [returning, top?.threadId, index, at.id, at.index, at.returning]);
 
   // Forget a mark once the server has the card put away, out of the
@@ -188,8 +190,9 @@ export function Focus({
     if (last !== undefined) undoEntry(last);
   };
 
-  // Keys. Re-bound each render, so they always act on the card shown.
-  useEffect(() => {
+  // Keys. Re-bound each render, so they always act on the card shown, and in
+  // the commit itself, so a key pressed as a card is drawn acts on that card.
+  useLayoutEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.defaultPrevented || typingTarget(event.target)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;

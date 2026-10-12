@@ -405,6 +405,8 @@ describe("approvals", () => {
     fireEvent.click(slot.getByRole("button", { name: "Approve plan" }));
     await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(1));
     expect(calls(slot, "page_approve")[0]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "allow_once" });
+    // The choices are disabled until the first answer is back.
+    await waitFor(() => expect(slot.getByRole("button", { name: "Keep planning" })).toHaveProperty("disabled", false));
     fireEvent.click(slot.getByRole("button", { name: "Keep planning" }));
     await waitFor(() => expect(calls(slot, "page_approve")).toHaveLength(2));
     expect(calls(slot, "page_approve")[1]).toEqual({ threadId: "thr_p", interactionId: "int_a", decision: "deny" });
@@ -482,6 +484,36 @@ const turn = (threadId: string, steps = ["Open a PR", "Delete the branch"]): Car
 
 const key = (k: string) => fireEvent.keyDown(window, { key: k });
 
+/**
+ * Runs `body` with every clock read 10ms on from the last, so React finds its
+ * time used up after each piece of work and yields before running effects, as
+ * it does on a slow machine. What follows a draw then lands ahead of them.
+ */
+async function onSlowMachine(body: () => Promise<void>): Promise<void> {
+  let time = performance.now();
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => (time += 10));
+  try {
+    await body();
+  } finally {
+    clock.mockRestore();
+  }
+}
+
+/**
+ * Presses `k` the instant `shown` holds of the document, before React has run
+ * an effect: what the keys do must already match what is on screen.
+ */
+const keyOnceDrawn = (shown: () => boolean, k: string) =>
+  new Promise<void>((resolve) => {
+    const drawn = new MutationObserver(() => {
+      if (!shown()) return;
+      drawn.disconnect();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: k, cancelable: true }));
+      resolve();
+    });
+    drawn.observe(document.body, { childList: true, subtree: true });
+  });
+
 describe("Focus", () => {
   it("opens from the page's header, with the count", async () => {
     const slot = renderPage({ cards: [question("thr_q"), turn("thr_t"), card("thr_done")] });
@@ -511,6 +543,16 @@ describe("Focus", () => {
     expect(slot.queryByText("Thread thr_done")).toBeNull();
     fireEvent.click(slot.getByRole("button", { name: "Start over" }));
     expect(slot.getByText("1 of 2")).toBeTruthy();
+  });
+
+  it("takes a key as its first card is drawn, however slow the machine", async () => {
+    await onSlowMachine(async () => {
+      const slot = renderPage({ subPath: "focus", cards: [question("thr_q"), turn("thr_t")] });
+      await slot.findByText("1 of 2");
+      key("j");
+      expect(slot.getByText("2 of 2")).toBeTruthy();
+      expect(slot.getByRole("article").getAttribute("aria-label")).toMatch(/Thread thr_t$/);
+    });
   });
 
   it("answers a question with a number and Enter", async () => {
@@ -668,17 +710,7 @@ describe("Focus", () => {
     const slot = renderPage({ subPath: "focus", cards: () => cards });
     await slot.findByText("1 of 1");
     key("2");
-    // Enter lands the instant the new offer is drawn, before React has run an
-    // effect: the keys must already be the new offer's.
-    const pressed = new Promise<void>((resolve) => {
-      const drawn = new MutationObserver(() => {
-        if (slot.queryByRole("button", { name: 'Send "Wait"' }) === null) return;
-        drawn.disconnect();
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-        resolve();
-      });
-      drawn.observe(document.body, { childList: true, subtree: true });
-    });
+    const pressed = keyOnceDrawn(() => slot.queryByRole("button", { name: 'Send "Wait"' }) !== null, "Enter");
     cards = [card("thr_t", { tier: "turn", lead: "next", offer: { steps: ["Ship it", "Wait"], goalMet: false, offeredAt: "at-new" } })];
     await slot.emitRealtime("followups-page-changed", {});
     await pressed;
