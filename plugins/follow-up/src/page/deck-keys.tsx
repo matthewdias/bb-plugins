@@ -2,7 +2,7 @@
 // answers by them: a question's options or a pull of next steps. Nothing else
 // takes them. An approval, a merge or a wrap-up has no key, because what it
 // does has to be read and clicked.
-import { createContext, useContext, useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 
 export interface DeckKeyHandler {
   /** 1–9: pick that option or step. */
@@ -42,11 +42,15 @@ export function useDeckKeys(handler: DeckKeyHandler): boolean {
   const slot = useContext(DeckKeysContext);
   const owner = useId();
   // Every render refreshes the handler, so it always sees the latest picks.
-  useEffect(() => {
+  // In the commit itself, not after it: a key pressed the moment a new offer
+  // is drawn must not still reach the handler of the offer it replaced.
+  useLayoutEffect(() => {
     if (slot === null) return;
     if (slot.current === null || slot.current.owner === owner) slot.current = { owner, handler };
   });
-  useEffect(
+  // Let go in the commit too, so the card that takes this one's place finds
+  // the slot empty when it registers.
+  useLayoutEffect(
     () => () => {
       if (slot !== null && slot.current?.owner === owner) slot.current = null;
     },

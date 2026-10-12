@@ -668,12 +668,33 @@ describe("Focus", () => {
     const slot = renderPage({ subPath: "focus", cards: () => cards });
     await slot.findByText("1 of 1");
     key("2");
+    // Enter lands the instant the new offer is drawn, before React has run an
+    // effect: the keys must already be the new offer's.
+    const pressed = new Promise<void>((resolve) => {
+      const drawn = new MutationObserver(() => {
+        if (slot.queryByRole("button", { name: 'Send "Wait"' }) === null) return;
+        drawn.disconnect();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+        resolve();
+      });
+      drawn.observe(document.body, { childList: true, subtree: true });
+    });
     cards = [card("thr_t", { tier: "turn", lead: "next", offer: { steps: ["Ship it", "Wait"], goalMet: false, offeredAt: "at-new" } })];
     await slot.emitRealtime("followups-page-changed", {});
-    await slot.findByRole("button", { name: 'Send "Wait"' });
+    await pressed;
     key("Enter");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(calls(slot, "followups_next_take")).toHaveLength(0);
+  });
+
+  it("hands the keys to the next card as soon as it is shown", async () => {
+    const slot = renderPage({ subPath: "focus", cards: [turn("thr_a"), turn("thr_b")] });
+    await slot.findByText("1 of 2");
+    key("s");
+    expect(slot.getByRole("article").getAttribute("aria-label")).toMatch(/Thread thr_b$/);
+    key("1");
+    key("Enter");
+    await waitFor(() => expect(calls(slot, "followups_next_take")).toMatchObject([{ threadId: "thr_b", index: 0 }]));
   });
 
   it("skips on a leftward swipe of a finger, never on a mouse drag", async () => {
