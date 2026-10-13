@@ -6,10 +6,11 @@
 // stops it and starts a new one. Threads are read through a ref, so a list
 // update doesn't interrupt a swipe.
 //
-// What a row offers comes from two places. The user's row actions are the
-// thread list's preference (useRowActions). What each of those is for one
-// thread, its label, icon and what it does, is bb's to say, through a hook
-// that takes one thread. So the overlay keeps one component mounted for the
+// What a row offers comes from three places. Its buttons are the user's row
+// actions, the thread list's preference (useRowActions). Its two whole swipes
+// are this plugin's settings. What each of those actions is for one thread,
+// its label, icon and what it does, is bb's to say, through a hook that takes
+// one thread. So the overlay keeps one component mounted for the
 // thread being swiped (SwipedThread), and renders it at once when the
 // controller asks about a row.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -28,8 +29,21 @@ import {
 import { startGestures } from "../lib/controller.ts";
 import { createHaptics } from "../lib/haptics.ts";
 import { canGo, go } from "../lib/history.ts";
-import { FALLBACK_ROW_ACTIONS, THREAD_LIST, rowContent, threadListPreferencesSchema } from "../lib/row-actions.ts";
-import { hapticsEnabled, isDesktopApp, parseGestureSettings } from "../lib/settings.ts";
+import {
+  FALLBACK_ROW_ACTIONS,
+  type RowActionKeys,
+  THREAD_LIST,
+  keysOf,
+  rowContent,
+  threadListPreferencesSchema,
+} from "../lib/row-actions.ts";
+import {
+  hapticsEnabled,
+  hidesRowActions,
+  isDesktopApp,
+  parseGestureSettings,
+  parseSwipeActions,
+} from "../lib/settings.ts";
 
 /** bb's compact layout, where the sidebar is a drawer: below Tailwind's md. */
 const COMPACT_QUERY = "(max-width: 767px)";
@@ -39,6 +53,8 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
  * starts over a row, asks for them.
  */
 const ROW_ACTIONS_REFRESH_MS = 1000;
+/** On <html> while bb's own row buttons are hidden. See swipe-controls.css. */
+const HIDE_ROW_ACTIONS_ATTRIBUTE = "data-bbsc-hide-row-actions";
 
 /**
  * The user's row actions: the thread list's `rowActions` preference, as
@@ -152,10 +168,10 @@ export function Gestures() {
 
   const byId = useMemo(() => new Map(threads.map((thread) => [thread.id, thread])), [threads]);
 
-  const live = useRef({ byId, haptics: hapticsEnabled(values) });
-  live.current = { byId, haptics: hapticsEnabled(values) };
+  const live = useRef({ byId, haptics: hapticsEnabled(values), swipes: parseSwipeActions(values) });
+  live.current = { byId, haptics: hapticsEnabled(values), swipes: parseSwipeActions(values) };
 
-  const [swiped, setSwiped] = useState<{ threadId: string; keys: readonly string[] } | null>(null);
+  const [swiped, setSwiped] = useState<{ threadId: string; keys: RowActionKeys } | null>(null);
   const evaluated = useRef<Evaluated | null>(null);
   const [icons, setIcons] = useState<readonly IconSlot[]>([]);
   const nextIconId = useRef(0);
@@ -178,9 +194,10 @@ export function Gestures() {
         if (thread === undefined || thread.isArchived) return null;
         // Asked from a wheel or touch listener, outside React, with the swipe
         // already moving: render SwipedThread now, not when React gets to it.
-        flushSync(() => setSwiped({ threadId, keys: rowActions.get() }));
+        const keys = { rowActions: rowActions.get(), ...live.current.swipes };
+        flushSync(() => setSwiped({ threadId, keys }));
         const read = evaluated.current;
-        return read?.threadId === threadId ? rowContent(read.entries, thread) : null;
+        return read?.threadId === threadId ? rowContent(read.entries, thread, keys) : null;
       },
       refreshRowActions: () => rowActions.refresh(),
       drawIcon: (slot, name) => {
@@ -196,12 +213,22 @@ export function Gestures() {
     });
   }, [settingsKey, isLoading, rowActions]);
 
+  // Hidden by a rule on <html>, not by touching bb's rows: bb re-renders them,
+  // and the rule goes the moment the plugin does.
+  const hideRowActions = !isLoading && hidesRowActions(values);
+  useEffect(() => {
+    if (!hideRowActions) return;
+    document.documentElement.setAttribute(HIDE_ROW_ACTIONS_ATTRIBUTE, "");
+    return () => document.documentElement.removeAttribute(HIDE_ROW_ACTIONS_ATTRIBUTE);
+  }, [hideRowActions]);
+
   const swipedThread = swiped === null ? undefined : byId.get(swiped.threadId);
+  const swipedKeys = useMemo(() => (swiped === null ? [] : keysOf(swiped.keys)), [swiped]);
 
   return (
     <>
       {swiped !== null && swipedThread !== undefined && (
-        <SwipedThread key={swiped.threadId} thread={swipedThread} keys={swiped.keys} evaluated={evaluated} />
+        <SwipedThread key={swiped.threadId} thread={swipedThread} keys={swipedKeys} evaluated={evaluated} />
       )}
       {icons.map((icon) => createPortal(<Icon name={icon.name} aria-hidden />, icon.slot, String(icon.id)))}
     </>

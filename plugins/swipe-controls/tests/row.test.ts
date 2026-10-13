@@ -97,4 +97,11 @@ describe("releaseOf", () => {
   it("only opens, never archives, when the full swipe is off", () => {
     expect(releaseOf(-280, 0, layout({ full: false }))).toBe("open");
   });
+
+  it("has nothing to stay open on with a full swipe and no buttons", () => {
+    const bare = layout({ trailingActions: 0 });
+    expect(releaseOf(-40, 0, bare)).toBe("close");
+    expect(releaseOf(-40, -1, bare)).toBe("close");
+    expect(releaseOf(-(fullPx(bare) + 1), 0, bare)).toBe("full");
+  });
 });

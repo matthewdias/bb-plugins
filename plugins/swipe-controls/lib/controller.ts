@@ -19,7 +19,7 @@
 import { type HapticKind } from "./haptics.ts";
 import { BACK_FORWARD, type HistoryDirection, directionOf, progressOf } from "./history.ts";
 import { type RowArm, type RowLayout, armOf, clampOffset, releaseOf, revealWidth } from "./row.ts";
-import type { RowButton, RowContent } from "./row-actions.ts";
+import { ARCHIVE, type RowButton, type RowContent } from "./row-actions.ts";
 import { markRows } from "./row-marks.ts";
 import { type RowTarget, canScrollX, insetTarget, rowTarget } from "./targets.ts";
 import { type TouchTrack, beginTouch, flingOf, moveTouch } from "./touch.ts";
@@ -31,8 +31,6 @@ export interface GestureSettings {
   rowSwipes: boolean;
   /** On a phone, rows take leftward drags from bb's drawer. */
   rowLeftSwipe: boolean;
-  /** A long leftward swipe archives on release, when Archive is one of the buttons. */
-  fullSwipeArchive: boolean;
   /** Two-finger swipe over the main pane goes back and forward. */
   backForward: boolean;
 }
@@ -128,8 +126,8 @@ export function startGestures(env: GestureEnv): () => void {
     width: target.element.getBoundingClientRect().width,
     trailingActions: content.trailing.length,
     leading: content.leading !== null,
-    trailing: content.trailing.length > 0 && (settings.rowLeftSwipe || !env.compact()),
-    full: settings.fullSwipeArchive && content.archive !== null,
+    trailing: (content.trailing.length > 0 || content.full !== null) && (settings.rowLeftSwipe || !env.compact()),
+    full: content.full !== null,
   });
 
   const finish = (session: RowSession) => {
@@ -174,8 +172,9 @@ export function startGestures(env: GestureEnv): () => void {
     }, duration);
   };
 
-  const onAction = (session: RowSession, button: RowButton) => {
-    if (button === session.content.archive) {
+  /** Run a leftward action: Archive takes its row out with it, anything else leaves the row to ease back. */
+  const act = (session: RowSession, button: RowButton) => {
+    if (button.key === ARCHIVE) {
       archiveRow(session, button);
       return;
     }
@@ -204,7 +203,7 @@ export function startGestures(env: GestureEnv): () => void {
       base: 0,
       offset: 0,
       arm: null,
-      view: new RowView(doc, target.element, rect, content, (button) => onAction(session, button), env.drawIcon),
+      view: new RowView(doc, target.element, rect, content, (button) => act(session, button), env.drawIcon),
     };
     views.add(session.view);
     return session;
@@ -224,9 +223,9 @@ export function startGestures(env: GestureEnv): () => void {
     if (release === "open") {
       open = session;
       settle(session, -revealWidth(session.layout), true);
-    } else if (release === "full" && session.content.archive !== null) {
+    } else if (release === "full" && session.content.full !== null) {
       env.haptic("impact-medium");
-      archiveRow(session, session.content.archive);
+      act(session, session.content.full);
     } else {
       if (release === "leading") session.content.leading?.run();
       closeRow(session);

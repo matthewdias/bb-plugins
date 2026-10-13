@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GestureEnv, type GestureSettings, TIMING, startGestures } from "../lib/controller.ts";
 import { BACK_FORWARD, type HistoryDirection } from "../lib/history.ts";
-import { FALLBACK_ROW_ACTIONS, rowContent } from "../lib/row-actions.ts";
+import { FALLBACK_ROW_ACTIONS, type RowActionKeys, keysOf, rowContent } from "../lib/row-actions.ts";
 import { ROW, fullPx, revealWidth } from "../lib/row.ts";
 import { WHEEL } from "../lib/wheel.ts";
 import { type FakeThread, bbRow, evaluate } from "./helpers.ts";
@@ -88,19 +88,19 @@ function makeEnv(
   facts: Map<string, FakeThread>,
   compact: boolean,
   canGo: boolean,
-  rowActions: { current: readonly string[] },
+  keys: { current: RowActionKeys },
 ) {
   /** What running a row's action did, by its key. */
   const ran = vi.fn((_key: string) => {});
   const env = {
     doc: document,
-    settings: { rowSwipes: true, rowLeftSwipe: true, fullSwipeArchive: true, backForward: true, ...settings },
+    settings: { rowSwipes: true, rowLeftSwipe: true, backForward: true, ...settings },
     compact: () => compact,
     reducedMotion: () => false,
     row: (id: string) => {
       const thread = facts.get(id);
       if (thread === undefined || thread.isArchived) return null;
-      return rowContent(evaluate(rowActions.current, thread, ran), thread);
+      return rowContent(evaluate(keysOf(keys.current), thread, ran), thread, keys.current);
     },
     refreshRowActions: vi.fn(),
     // The overlay draws bb's icon here. The name stands in for it.
@@ -122,8 +122,8 @@ interface Harness {
   main: HTMLElement;
   paragraph: HTMLElement;
   facts: Map<string, FakeThread>;
-  /** The user's row actions, as the next swipe will find them. */
-  rowActions: { current: readonly string[] };
+  /** The user's row actions and the two whole swipes, as the next swipe will find them. */
+  keys: { current: RowActionKeys };
 }
 
 function start(
@@ -132,7 +132,9 @@ function start(
     compact = false,
     canGo = true,
     rowActions = FALLBACK_ROW_ACTIONS,
-  }: { compact?: boolean; canGo?: boolean; rowActions?: readonly string[] } = {},
+    right = "bb--core/read",
+    fullLeft = "bb--core/archive",
+  }: { compact?: boolean; canGo?: boolean } & Partial<RowActionKeys> = {},
 ): Harness {
   const { row, anchor } = bbRow("t1");
   sized(row);
@@ -142,10 +144,10 @@ function start(
   main.append(paragraph);
   document.body.append(row, main);
   const facts = new Map<string, FakeThread>([["t1", { isUnread: true, isPinned: false, isArchived: false }]]);
-  const actions = { current: rowActions };
-  const env = makeEnv(settings, facts, compact, canGo, actions);
+  const keys = { current: { rowActions, right, fullLeft } };
+  const env = makeEnv(settings, facts, compact, canGo, keys);
   stop = startGestures(env);
-  return { env, row, anchor, main, paragraph, facts, rowActions: actions };
+  return { env, row, anchor, main, paragraph, facts, keys };
 }
 
 beforeEach(() => {
@@ -309,8 +311,8 @@ describe("row swipes on a trackpad", () => {
     expect(env.ran).toHaveBeenCalledWith("bb--core/archive");
   });
 
-  it("does not archive a full swipe when that setting is off", () => {
-    const { env, anchor } = start({ fullSwipeArchive: false });
+  it("does nothing on a full swipe set to Nothing, and stays open on the buttons", () => {
+    const { env, anchor } = start({}, { fullLeft: null });
     swipe(anchor, fullPx(LAYOUT) + 50);
     endGesture();
     vi.advanceTimersByTime(TIMING.slideOutMs + TIMING.settleMs);
@@ -429,8 +431,8 @@ describe("row swipes by touch", () => {
 
 describe("row actions", () => {
   const buttons = () =>
-    [...document.querySelectorAll<HTMLButtonElement>(".bbsc-action")].map((button) => button.dataset.action);
-  const button = (key: string) => document.querySelector<HTMLButtonElement>(`.bbsc-action[data-action="${key}"]`);
+    [...document.querySelectorAll<HTMLButtonElement>("button.bbsc-action")].map((button) => button.dataset.action);
+  const button = (key: string) => document.querySelector<HTMLButtonElement>(`button.bbsc-action[data-action="${key}"]`);
 
   /** Swipe left far enough to stay open, and let it settle. */
   function openRow(anchor: Element, width: number) {
@@ -453,7 +455,7 @@ describe("row actions", () => {
   });
 
   it("opens only as wide as its buttons", () => {
-    const { row, anchor } = start({ fullSwipeArchive: false }, { rowActions: ["bb--core/archive"] });
+    const { row, anchor } = start({}, { rowActions: ["bb--core/archive"], fullLeft: null });
     openRow(anchor, 2 * ROW.actionWidthPx);
     expect(row.style.translate).toBe(`${-ROW.actionWidthPx}px 0`);
   });
@@ -514,8 +516,19 @@ describe("row actions", () => {
     expect(env.ran).toHaveBeenCalledWith("bb--core/read");
   });
 
-  it("doesn't swipe right without read", () => {
-    const { env, row, anchor } = start({}, { rowActions: ["bb--core/pin", "bb--core/archive"] });
+  it("shows read as a button when a swipe right runs something else", () => {
+    const { env, anchor } = start({}, { rowActions: ["bb--core/read", "bb--core/pin"], right: "bb--core/pin" });
+    openRow(anchor, ROW.actionWidthPx);
+    expect(buttons()).toEqual(["bb--core/read"]);
+    closeRow();
+    swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    expect(document.querySelector<HTMLElement>(".bbsc-lead")?.dataset.action).toBe("bb--core/pin");
+    endGesture();
+    expect(env.ran.mock.calls).toEqual([["bb--core/pin"]]);
+  });
+
+  it("doesn't swipe right when that swipe is set to Nothing", () => {
+    const { env, row, anchor } = start({}, { right: null });
     const events = swipe(anchor, -(ROW.leadingArmPx + 10), -10);
     endGesture();
     expect(env.ran).not.toHaveBeenCalled();
@@ -529,20 +542,67 @@ describe("row actions", () => {
     expect(buttons()).toEqual(["bb--core/pin"]);
   });
 
-  it("doesn't swipe left without a button to uncover", () => {
-    const { row, anchor } = start({}, { rowActions: ["bb--core/read", "thread-list/move"] });
+  it("doesn't swipe left with no button to uncover and no full swipe", () => {
+    const { row, anchor } = start({}, { rowActions: ["bb--core/read", "thread-list/move"], fullLeft: null });
     const events = swipe(anchor, 120);
     expect(events.some((event) => event.defaultPrevented)).toBe(false);
     expect(row.style.translate).toBe("");
   });
 
-  it("archives on a full swipe only when Archive is a button", () => {
+  it("archives on a full swipe when Archive isn't one of the buttons, taking over the strip", () => {
     const { env, anchor } = start({}, { rowActions: ["bb--core/pin", "bb--core/copyLink"] });
+    expect(buttons()).toEqual([]);
     swipe(anchor, fullPx(LAYOUT) + 50);
+    const full = document.querySelector<HTMLElement>(".bbsc-full-only");
+    expect(full?.dataset.action).toBe("bb--core/archive");
+    expect(full?.tagName).toBe("DIV");
+    expect(document.querySelector(".bbsc-trail")?.hasAttribute("data-full")).toBe(true);
     endGesture();
-    vi.advanceTimersByTime(TIMING.slideOutMs + TIMING.settleMs);
+    vi.advanceTimersByTime(TIMING.slideOutMs);
+    expect(env.ran.mock.calls).toEqual([["bb--core/archive"]]);
+  });
+
+  it("marks the button a full swipe runs, and adds nothing beside it", () => {
+    const { anchor } = start({}, { rowActions: ["bb--core/pin", "bb--core/archive"] });
+    openRow(anchor, 2 * ROW.actionWidthPx);
+    expect(button("bb--core/archive")?.hasAttribute("data-full-swipe")).toBe(true);
+    expect(button("bb--core/pin")?.hasAttribute("data-full-swipe")).toBe(false);
+    expect(document.querySelector(".bbsc-full-only")).toBe(null);
+  });
+
+  it("runs any action on a full swipe, and lets the row ease back when it isn't Archive", () => {
+    const { env, row, anchor } = start({}, { rowActions: ["bb--core/archive"], fullLeft: "bb--core/rename" });
+    swipe(anchor, fullPx({ ...LAYOUT, trailingActions: 1 }) + 50);
+    endGesture();
+    expect(env.haptic).toHaveBeenLastCalledWith("impact-medium");
+    expect(env.ran.mock.calls).toEqual([["bb--core/rename"]]);
+    vi.advanceTimersByTime(TIMING.settleMs);
+    expect(row.style.translate).toBe("");
+    expect(document.querySelector(".bbsc-row")).toBe(null);
+  });
+
+  it("swipes all the way left with no buttons, and springs back short of it", () => {
+    const { env, row, anchor } = start({}, { rowActions: [] });
+    swipe(anchor, 100);
+    expect(row.style.translate).toBe("-100px 0");
+    endGesture();
+    vi.advanceTimersByTime(TIMING.settleMs);
+    expect(document.querySelector(".bbsc-row")).toBe(null);
     expect(env.ran).not.toHaveBeenCalled();
-    expect(document.querySelector(".bbsc-row")?.hasAttribute("data-open")).toBe(true);
+    lift();
+    swipe(anchor, fullPx({ ...LAYOUT, trailingActions: 0 }) + 20);
+    endGesture();
+    vi.advanceTimersByTime(TIMING.slideOutMs);
+    expect(env.ran.mock.calls).toEqual([["bb--core/archive"]]);
+  });
+
+  it("squares the row's corners while it is swiped, and puts them back", () => {
+    const { row, anchor } = start();
+    row.style.borderRadius = "6px";
+    openRow(anchor, 2 * ROW.actionWidthPx);
+    expect(row.style.borderRadius).toBe("0px");
+    closeRow();
+    expect(row.style.borderRadius).toBe("6px");
   });
 
   it("archives from the Archive button as a full swipe does, sliding out first", () => {
@@ -556,11 +616,11 @@ describe("row actions", () => {
   });
 
   it("asks what the row offers when the swipe begins, so a change applies to the next swipe", () => {
-    const { anchor, rowActions } = start({}, { rowActions: ["bb--core/pin"] });
+    const { anchor, keys } = start({}, { rowActions: ["bb--core/pin"] });
     openRow(anchor, ROW.actionWidthPx);
     expect(buttons()).toEqual(["bb--core/pin"]);
     closeRow();
-    rowActions.current = ["bb--core/archive", "bb--core/split"];
+    keys.current = { ...keys.current, rowActions: ["bb--core/archive", "bb--core/split"] };
     lift();
     openRow(anchor, 2 * ROW.actionWidthPx);
     expect(buttons()).toEqual(["bb--core/archive", "bb--core/split"]);

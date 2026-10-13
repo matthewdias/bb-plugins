@@ -42,7 +42,6 @@
 .bbsc-lead {
   left: 0;
   align-items: center;
-  background: var(--bbsc-read);
   color: var(--bbsc-action-foreground);
 }
 
@@ -90,6 +89,8 @@
   transition: flex-grow 160ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* An action's colour, on the strip a swipe right uncovers and on a button. */
+.bbsc-lead,
 .bbsc-action {
   background: var(--bbsc-other);
 }
@@ -99,28 +100,32 @@
   box-shadow: inset 1px 0 0 oklch(100% 0 0 / 0.18);
 }
 
-.bbsc-action[data-destructive] {
+:is(.bbsc-lead, .bbsc-action)[data-destructive] {
   background: var(--bbsc-destructive);
 }
 
 /* bb's own actions, by their thread action keys. */
-.bbsc-action[data-action="bb--core/pin"] {
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/read"] {
+  background: var(--bbsc-read);
+}
+
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/pin"] {
   background: var(--bbsc-pin);
 }
 
-.bbsc-action[data-action="bb--core/archive"] {
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/archive"] {
   background: var(--bbsc-archive);
 }
 
-.bbsc-action[data-action="bb--core/split"] {
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/split"] {
   background: var(--bbsc-split);
 }
 
-.bbsc-action[data-action="bb--core/copyLink"] {
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/copyLink"] {
   background: var(--bbsc-copy-link);
 }
 
-.bbsc-action[data-action="bb--core/rename"] {
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/rename"] {
   background: var(--bbsc-rename);
 }
 
@@ -132,9 +137,30 @@
   opacity: 0.45;
 }
 
-/* Armed for a full swipe: Archive takes the whole strip. */
-.bbsc-trail[data-full] .bbsc-action:not([data-action="bb--core/archive"]) {
+/*
+ * Armed for a full swipe: its action takes the whole strip. When that action
+ * isn't one of the buttons it has no width until then.
+ */
+.bbsc-action.bbsc-full-only {
   flex-grow: 0;
+  cursor: default;
+}
+
+.bbsc-trail[data-full] .bbsc-action:not([data-full-swipe]) {
+  flex-grow: 0;
+}
+
+.bbsc-trail[data-full] .bbsc-action[data-full-swipe] {
+  flex-grow: 1;
+}
+
+/*
+ * bb's own quick-action buttons on a thread row, which a swipe now offers.
+ * The overlay sets the attribute while thread swipes and "Hide bb's row
+ * buttons" are both on. The row's menu button is not one of them.
+ */
+[data-bbsc-hide-row-actions] [class~="group/thread-row"] [data-thread-action] {
+  display: none !important;
 }
 
 .bbsc-icon {

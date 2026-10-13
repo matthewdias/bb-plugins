@@ -4,7 +4,7 @@
 // action (read/unread), negative slides it left to uncover the trailing
 // buttons (the user's row actions). Short of a threshold a row springs back.
 // Past `revealWidth / 2` to the left it stays open on its buttons. Past
-// `fullPx` it archives on release, as Mail does.
+// `fullPx` it runs the full swipe's action on release, as Mail archives.
 //
 // Pure: the controller feeds it distances and renders what it returns.
 
@@ -34,7 +34,7 @@ export interface RowLayout {
   leading: boolean;
   /** Whether a leftward swipe does anything. */
   trailing: boolean;
-  /** Whether a long leftward swipe archives on release. */
+  /** Whether a long leftward swipe acts on release. */
   full: boolean;
 }
 
@@ -83,7 +83,10 @@ export function releaseOf(offset: number, fling: -1 | 0 | 1, layout: RowLayout):
   if (offset < 0 && layout.trailing) {
     if (fling === 1) return "close";
     const travel = -offset;
-    if (travel >= revealWidth(layout) / 2) return "open";
+    // A row with a full swipe and no buttons has nothing to stay open on.
+    const reveal = revealWidth(layout);
+    if (reveal === 0) return "close";
+    if (travel >= reveal / 2) return "open";
     if (fling === -1 && travel >= ROW.flingMinPx) return "open";
   }
   return "close";

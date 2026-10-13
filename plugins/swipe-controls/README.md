@@ -27,10 +27,12 @@ With a finger on a phone or two fingers on a trackpad:
   **Unpin**) and **Archive**. Let go past halfway and the row stays open on
   them. Tap one, or tap anywhere else to close the row. A tap on the open row
   closes it without opening the thread.
-- **Swipe all the way left** to archive when you let go, if Archive is one
-  of them. Archive takes over the strip once you're far enough. bb's own
-  toast offers **Undo** for ten seconds. A thread with children asks first,
-  as bb's Archive always does.
+- **Swipe all the way left** to archive when you let go. Archive takes over
+  the strip once you're far enough. bb's own toast offers **Undo** for ten
+  seconds. A thread with children asks first, as bb's Archive always does.
+
+Read and Archive are the defaults for the two whole swipes. Each is a
+setting, and can be any of bb's own thread actions or nothing.
 
 A quick flick counts as much as a long drag, and a flick back the other way
 cancels. Scrolling the list, Escape and resizing the window all close an open
@@ -38,24 +40,41 @@ row.
 
 ### Which actions
 
-A swipe offers the actions you picked for bb's thread rows: a row's actions
-menu, then **Customize row actions**, or
-`bb thread-list prefs set rowActions '["bb--core/read","bb--core/pin","bb--core/archive"]'`.
-bb shows them when you hover over a row. Swipe Controls puts them under a
-swipe, with bb's own name, icon and behaviour for each:
+**The buttons** a swipe left uncovers are the actions you picked for bb's
+thread rows: a row's actions menu, then **Customize row actions**, or
+`bb thread-list prefs set rowActions '["bb--core/pin","bb--core/archive"]'`.
+Each has bb's own name, icon and behaviour:
 
-| Row action | Swipe |
+| Row action | Button |
 | --- | --- |
-| Mark read / unread | Swipe right. Without it, a row doesn't swipe right. |
-| Archive | A button, and the full swipe. |
-| Pin, Rename, Open in split, Copy thread link | A button each, in the same order as bb's. Rename opens bb's rename dialog. |
-| Another plugin's action | A button, grey, or red if the plugin marks it destructive. |
+| Pin, Archive, Rename, Open in split, Copy thread link, Mark read | One each, in the same order as bb's. Rename opens bb's rename dialog. |
+| Another plugin's action | Grey, or red if the plugin marks it destructive. |
 | Move to section | Left out. It asks which section, and a swiped row has nowhere to ask. |
+
+**The two whole swipes** are Swipe Controls' own settings, **Swipe right**
+and **Swipe all the way left**. Each is one of Mark read / unread, Pin,
+Archive, Rename, Open in split, Copy thread link, Delete, or Nothing. Neither
+has to be one of your row actions.
+
+- The action a swipe right runs isn't repeated as a button.
+- When the full swipe's action is one of the buttons, that button takes over
+  the strip. When it isn't, the action appears once you've swiped far enough.
+- Archive takes its row out with it. Any other action runs and the row eases
+  back.
+- With Nothing, that swipe doesn't happen: a row with no buttons and no full
+  swipe doesn't swipe left at all.
 
 bb decides which actions apply to a thread, so one it leaves out there (Open
 in split on a phone) is left out here, and one it disables shows dimmed. A
-row with no buttons doesn't swipe left. A change applies from the next swipe.
-When bb's thread list is off or replaced, rows offer read, Pin and Archive.
+change applies from the next swipe. When bb's thread list is off or replaced,
+the buttons are Mark read, Pin and Archive.
+
+**bb's own row buttons** are hidden while thread swipes are on, since a swipe
+offers the same actions and the title gets their room. The row's menu stays.
+**Hide bb's row buttons** turns that off.
+
+While a row is swiped its corners are square, so it meets what it uncovers
+without a notch. They are rounded again when it closes.
 
 Swipes work with bb's thread list and with any list that replaces it. They
 leave alone a row bb has armed for drag-to-reorder after a long press, and
@@ -99,12 +118,17 @@ swipe closes the sidebar as before.
 | Setting | Default | |
 | --- | --- | --- |
 | Swipe sidebar threads | On | Every row swipe. |
+| Swipe right | Mark read / unread | Any of bb's own thread actions, or Nothing. |
+| Swipe all the way left | Archive | Any of bb's own thread actions. Nothing: swiping left only uncovers the buttons. |
 | On a phone, swipe threads left | On | Rows take leftward swipes from bb's sidebar. Off: rows only swipe right. |
-| Swipe all the way left to archive | On | When Archive is one of the row actions. Off: swiping left only uncovers the buttons. |
+| Hide bb's row buttons | On | bb's quick-action buttons on a thread row, while thread swipes are on. |
 | Swipe with two fingers to go back and forward | In the desktop app | Or Always, or Never. |
 | Haptic feedback | On | Where bb can play it. |
 
 Settings are shared by every client.
+
+**Swipe all the way left** replaces 0.1's on/off **Swipe all the way left to
+archive**. If you had that off, set the new one to Nothing.
 
 ## How it works
 
@@ -147,8 +171,12 @@ When the swipe ends, every inline style goes back exactly as found.
 - **The main pane** is `[data-sidebar="inset"]`.
 - **Row actions** come from the plugin `thread-list`'s `listPreferences`
   RPC, as `preferences.rowActions`. If that can't be read, rows offer read,
-  Pin and Archive. `bb--core/read` and `bb--core/archive` are the keys of
-  bb's Mark read and Archive, which the two swipes look for.
+  Pin and Archive. The whole swipes' settings name bb's own actions by key,
+  `bb--core/read`, `bb--core/archive` and the rest.
+- **bb's row buttons** are `[data-thread-action]` inside a row. That is what
+  **Hide bb's row buttons** hides, with a rule under an attribute on
+  `<html>`.
+- **A row's rounded corners** are the row element's own `border-radius`.
 - **bb's sidebar swipe** skips anything inside `[data-no-sidebar-swipe]`. That
   is how rows take leftward swipes: the plugin marks each row, and unmarks
   them when it stops.

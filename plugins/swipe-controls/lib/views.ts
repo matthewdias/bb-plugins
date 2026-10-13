@@ -8,8 +8,10 @@
 //
 // The row slides with the `translate` property, which composes with any
 // transform bb sets. bb's list doesn't clip sideways, so the part of the row
-// that slides past its own edge is clipped away with `clip-path`. Both inline
-// values are put back exactly as found.
+// that slides past its own edge is clipped away with `clip-path`. bb rounds a
+// row's corners, which would leave a notch where the row meets what it
+// uncovers, so the row is square while it slides. Every inline value is put
+// back exactly as found.
 // What it uncovers is drawn over the vacated strip, in a fixed layer on
 // <body>, not inside bb's row.
 //
@@ -72,7 +74,13 @@ export class RowView {
   private readonly root: HTMLDivElement;
   private readonly lead: HTMLDivElement;
   private readonly trail: HTMLDivElement;
-  private readonly saved: { translate: string; transition: string; willChange: string; clipPath: string };
+  private readonly saved: {
+    translate: string;
+    transition: string;
+    willChange: string;
+    clipPath: string;
+    borderRadius: string;
+  };
   private readonly icons: (() => void)[] = [];
   private destroyed = false;
 
@@ -90,8 +98,10 @@ export class RowView {
       transition: row.style.transition,
       willChange: row.style.willChange,
       clipPath: row.style.clipPath,
+      borderRadius: row.style.borderRadius,
     };
     row.style.willChange = "translate";
+    row.style.borderRadius = "0";
 
     this.root = layer(doc, "bbsc-row");
     Object.assign(this.root.style, {
@@ -102,14 +112,21 @@ export class RowView {
     });
     if (box.height >= LABEL_MIN_HEIGHT_PX) this.root.setAttribute("data-labels", "");
 
+    /** An action's colour, icon and name, on a strip or a button. */
+    const dress = (element: HTMLElement, action: RowButton) => {
+      element.dataset.action = action.key;
+      if (action.destructive) element.setAttribute("data-destructive", "");
+      const glyph = slot(doc);
+      this.icons.push(drawIcon(glyph, action.icon));
+      return [glyph, label(doc, action.label)];
+    };
+
     this.lead = doc.createElement("div");
     this.lead.className = "bbsc-lead";
     if (content.leading !== null) {
       const leadAction = doc.createElement("span");
       leadAction.className = "bbsc-lead-action";
-      const glyph = slot(doc);
-      this.icons.push(drawIcon(glyph, content.leading.icon));
-      leadAction.append(glyph, label(doc, content.leading.label));
+      leadAction.append(...dress(this.lead, content.leading));
       this.lead.append(leadAction);
     }
 
@@ -119,20 +136,27 @@ export class RowView {
       const button = doc.createElement("button");
       button.type = "button";
       button.className = "bbsc-action";
-      button.dataset.action = action.key;
-      if (action.destructive) button.setAttribute("data-destructive", "");
+      button.append(...dress(button, action));
+      if (action === content.full) button.setAttribute("data-full-swipe", "");
       button.disabled = action.disabled;
       button.setAttribute("aria-label", action.title);
       button.tabIndex = -1;
-      const glyph = slot(doc);
-      this.icons.push(drawIcon(glyph, action.icon));
-      button.append(glyph, label(doc, action.label));
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
         onAction(action);
       });
       this.trail.append(button);
+    }
+    // A full swipe's action that isn't one of the buttons: nothing to tap,
+    // only what takes over the strip once the swipe is far enough.
+    if (content.full !== null && !content.trailing.includes(content.full)) {
+      const full = doc.createElement("div");
+      full.className = "bbsc-action bbsc-full-only";
+      full.append(...dress(full, content.full));
+      full.setAttribute("data-full-swipe", "");
+      full.setAttribute("aria-hidden", "true");
+      this.trail.append(full);
     }
 
     this.root.append(this.lead, this.trail);
@@ -173,6 +197,7 @@ export class RowView {
     this.row.style.transition = this.saved.transition;
     this.row.style.willChange = this.saved.willChange;
     this.row.style.clipPath = this.saved.clipPath;
+    this.row.style.borderRadius = this.saved.borderRadius;
   }
 
   private toggle(element: Element, attribute: string, on: boolean): void {

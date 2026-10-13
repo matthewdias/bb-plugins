@@ -36,6 +36,7 @@ export function evaluate(
     "bb--core/pin": thread.isPinned ? { label: "Unpin", icon: "PinOff" } : { label: "Pin", icon: "Pin" },
     "bb--core/rename": { label: "Rename", icon: "Edit" },
     "bb--core/archive": { label: "Archive", icon: "Archive" },
+    "bb--core/delete": { label: "Delete", icon: "Trash", variant: "destructive" },
     "thread-list/move": { label: "Move to section", icon: "SectionMove", choices: { items: [] } },
     "acme/deploy": { label: "Deploy", icon: "Rocket", variant: "destructive" },
     "acme/locked": { label: "Locked", icon: "Lock", disabled: true },

@@ -19,6 +19,7 @@ const REGISTERED = [
   "bb--core/pin",
   "bb--core/rename",
   "bb--core/archive",
+  "bb--core/delete",
   "thread-list/move",
   "acme/deploy",
 ];
@@ -46,7 +47,10 @@ function thread(id: string, state: Partial<FakeThread> = {}): PluginSidebarThrea
   } as PluginSidebarThread;
 }
 
-function mount(threads: PluginSidebarThread[] = [thread("t1")]) {
+function mount(
+  threads: PluginSidebarThread[] = [thread("t1")],
+  settings: Record<string, string | boolean> = {},
+) {
   const rows = threads.map(({ id }) => {
     const { row, anchor } = bbRow(id);
     row.getBoundingClientRect = () =>
@@ -55,6 +59,7 @@ function mount(threads: PluginSidebarThread[] = [thread("t1")]) {
     return anchor;
   });
   const slot = renderSlot({ component: Gestures }, {}, {
+    settings,
     sidebarThreads: { threads },
     threadActions: (target) =>
       evaluate(
@@ -103,8 +108,8 @@ function swipe(target: Element, total: number) {
 }
 
 const buttons = () =>
-  [...document.querySelectorAll<HTMLButtonElement>(".bbsc-action")].map((button) => button.dataset.action);
-const button = (key: string) => document.querySelector<HTMLButtonElement>(`.bbsc-action[data-action="${key}"]`);
+  [...document.querySelectorAll<HTMLButtonElement>("button.bbsc-action")].map((button) => button.dataset.action);
+const button = (key: string) => document.querySelector<HTMLButtonElement>(`button.bbsc-action[data-action="${key}"]`);
 const reads = (slot: ReturnType<typeof mount>["slot"]) =>
   slot.inspection.sdkCalls.filter((call) => call.method === "plugins.callRpc");
 
@@ -205,5 +210,61 @@ describe("the overlay", () => {
     swipe(anchors[0]!, -(ROW.leadingArmPx + 10));
     await settle();
     expect(reads(slot)).toHaveLength(3);
+  });
+
+  it("runs the settings' whole swipes, whatever the row actions are", async () => {
+    preference = ["bb--core/copyLink"];
+    const { anchors } = mount([thread("t1")], { swipeRight: "Pin", swipeLeftFull: "Delete" });
+    await settle();
+    swipe(anchors[0]!, -(ROW.leadingArmPx + 10));
+    swipe(anchors[0]!, ROW_WIDTH);
+    expect(ran.mock.calls).toEqual([
+      ["bb--core/pin", "t1"],
+      ["bb--core/delete", "t1"],
+    ]);
+  });
+
+  it("archives on a full swipe by default, without Archive as a row action", async () => {
+    preference = ["bb--core/pin"];
+    const { anchors } = mount();
+    await settle();
+    act(() => {
+      for (let moved = 0; moved < ROW_WIDTH; moved += 10) wheel(anchors[0]!, 10);
+    });
+    expect(buttons()).toEqual(["bb--core/pin"]);
+    expect(document.querySelector<HTMLElement>(".bbsc-full-only")?.dataset.action).toBe("bb--core/archive");
+    act(() => vi.advanceTimersByTime(WHEEL.gestureGapMs + 50 + TIMING.slideOutMs));
+    expect(ran.mock.calls).toEqual([["bb--core/archive", "t1"]]);
+  });
+
+  it("has no swipe right for Nothing, and runs whichever action the setting names", async () => {
+    const { slot, anchors } = mount([thread("t1")], { swipeRight: "Nothing" });
+    await settle();
+    swipe(anchors[0]!, -(ROW.leadingArmPx + 10));
+    expect(ran).not.toHaveBeenCalled();
+    slot.unmount();
+    const again = mount([thread("t2")], { swipeRight: "Rename" });
+    await settle();
+    swipe(again.anchors[0]!, -(ROW.leadingArmPx + 10));
+    expect(ran.mock.calls).toEqual([["bb--core/rename", "t2"]]);
+  });
+});
+
+describe("bb's own row buttons", () => {
+  const hidden = () => document.documentElement.hasAttribute("data-bbsc-hide-row-actions");
+
+  it("are hidden while the overlay runs, and shown again when it goes", () => {
+    const { slot } = mount();
+    expect(hidden()).toBe(true);
+    slot.unmount();
+    expect(hidden()).toBe(false);
+  });
+
+  it("stay when the setting is off, or when threads don't swipe", () => {
+    const off = mount([thread("t1")], { hideRowActions: false });
+    expect(hidden()).toBe(false);
+    off.slot.unmount();
+    mount([thread("t2")], { rowSwipes: false });
+    expect(hidden()).toBe(false);
   });
 });
