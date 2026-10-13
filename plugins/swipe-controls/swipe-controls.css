@@ -157,10 +157,23 @@
 /*
  * bb's own quick-action buttons on a thread row, which a swipe now offers.
  * The overlay sets the attribute while thread swipes and "Hide bb's row
- * buttons" are both on. The row's menu button is not one of them.
+ * buttons" are both on.
+ *
+ * Only the buttons beside the row's menu, which itself stays. An archived
+ * row's Unarchive button stands outside those controls and is left alone: an
+ * archived thread doesn't swipe, so nothing else offers it.
  */
-[data-bbsc-hide-row-actions] [class~="group/thread-row"] [data-thread-action] {
+[data-bbsc-hide-row-actions] [class~="group/thread-row"] [data-sidebar-row-controls] [data-thread-action] {
   display: none !important;
+}
+
+/*
+ * bb makes room for those buttons by padding the title on hover, by a width
+ * it sets inline on the title's wrapper as this variable. Without the
+ * buttons the title keeps its room.
+ */
+[data-bbsc-hide-row-actions] [class~="group/thread-row"]:has([data-sidebar-row-controls]) :has(> [data-sidebar-thread-id]) {
+  --bb-sidebar-hover-actions-inset: 0px !important;
 }
 
 .bbsc-icon {

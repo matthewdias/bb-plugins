@@ -70,8 +70,9 @@ change applies from the next swipe. When bb's thread list is off or replaced,
 the buttons are Mark read, Pin and Archive.
 
 **bb's own row buttons** are hidden while thread swipes are on, since a swipe
-offers the same actions and the title gets their room. The row's menu stays.
-**Hide bb's row buttons** turns that off.
+offers the same actions and the title gets their room, on hover too. The
+row's menu stays, and so does an archived thread's Unarchive button, since
+archived threads don't swipe. **Hide bb's row buttons** turns that off.
 
 While a row is swiped its corners are square, so it meets what it uncovers
 without a notch. They are rounded again when it closes.
@@ -173,9 +174,12 @@ When the swipe ends, every inline style goes back exactly as found.
   RPC, as `preferences.rowActions`. If that can't be read, rows offer read,
   Pin and Archive. The whole swipes' settings name bb's own actions by key,
   `bb--core/read`, `bb--core/archive` and the rest.
-- **bb's row buttons** are `[data-thread-action]` inside a row. That is what
-  **Hide bb's row buttons** hides, with a rule under an attribute on
-  `<html>`.
+- **bb's row buttons** are `[data-thread-action]` inside a row's
+  `[data-sidebar-row-controls]`. That is what **Hide bb's row buttons**
+  hides, with a rule under an attribute on `<html>`. bb pads the title on
+  hover by `--bb-sidebar-hover-actions-inset`, set inline on the wrapper
+  around `[data-sidebar-thread-id]`, and the same setting zeroes it. An
+  archived row's Unarchive button is outside those controls and stays.
 - **A row's rounded corners** are the row element's own `border-radius`.
 - **bb's sidebar swipe** skips anything inside `[data-no-sidebar-swipe]`. That
   is how rows take leftward swipes: the plugin marks each row, and unmarks
