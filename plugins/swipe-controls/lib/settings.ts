@@ -11,7 +11,7 @@ export const SETTINGS = {
     type: "boolean",
     label: "Swipe sidebar threads",
     description:
-      "Swipe a thread right to mark it read or unread. Swipe it left for Pin and Archive. Works with a finger on a phone and two fingers on a trackpad.",
+      "Swipe a thread right to mark it read or unread, and left for the other row actions you picked in a row's Customize row actions. Works with a finger on a phone and two fingers on a trackpad.",
     default: true,
   },
   rowLeftSwipe: {
@@ -25,7 +25,7 @@ export const SETTINGS = {
     type: "boolean",
     label: "Swipe all the way left to archive",
     description:
-      "A long leftward swipe archives the thread when you let go, and bb's toast offers Undo. When off, swiping left only shows the buttons.",
+      "A long leftward swipe archives the thread when you let go, if Archive is one of your row actions, and bb's toast offers Undo. When off, swiping left only shows the buttons.",
     default: true,
   },
   backForward: {

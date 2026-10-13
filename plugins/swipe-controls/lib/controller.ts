@@ -12,14 +12,18 @@
 //
 // A row slid far enough left stays open on its buttons. Tapping or clicking
 // anywhere else closes it, as does scrolling the list, Escape, or a resize.
+//
+// What a row offers is the user's row actions as bb evaluates them for its
+// thread (lib/row-actions.ts), asked for when its swipe begins.
 
 import { type HapticKind } from "./haptics.ts";
 import { BACK_FORWARD, type HistoryDirection, directionOf, progressOf } from "./history.ts";
 import { type RowArm, type RowLayout, armOf, clampOffset, releaseOf, revealWidth } from "./row.ts";
+import type { RowButton, RowContent } from "./row-actions.ts";
 import { markRows } from "./row-marks.ts";
 import { type RowTarget, canScrollX, insetTarget, rowTarget } from "./targets.ts";
 import { type TouchTrack, beginTouch, flingOf, moveTouch } from "./touch.ts";
-import { ArrowView, RowView, type RowViewContent, type TrailingAction } from "./views.ts";
+import { ArrowView, type DrawIcon, RowView } from "./views.ts";
 import { WHEEL, type WheelGesture, isSwipeCandidate, stepWheel } from "./wheel.ts";
 
 export interface GestureSettings {
@@ -27,16 +31,10 @@ export interface GestureSettings {
   rowSwipes: boolean;
   /** On a phone, rows take leftward drags from bb's drawer. */
   rowLeftSwipe: boolean;
-  /** A long leftward swipe archives on release. */
+  /** A long leftward swipe archives on release, when Archive is one of the buttons. */
   fullSwipeArchive: boolean;
   /** Two-finger swipe over the main pane goes back and forward. */
   backForward: boolean;
-}
-
-export interface ThreadFacts {
-  isUnread: boolean;
-  isPinned: boolean;
-  isArchived: boolean;
 }
 
 export interface GestureEnv {
@@ -44,10 +42,11 @@ export interface GestureEnv {
   settings: GestureSettings;
   /** bb's compact (phone) layout: the sidebar is a drawer. */
   compact(): boolean;
-  thread(threadId: string): ThreadFacts | null;
-  setRead(threadId: string, read: boolean): void;
-  setPinned(threadId: string, pinned: boolean): void;
-  archive(threadId: string): void;
+  /** What swiping this thread's row offers now; null for a thread that can't be swiped. */
+  row(threadId: string): RowContent | null;
+  /** Read the user's row actions again: a swipe is starting, and they may have changed since. */
+  refreshRowActions(): void;
+  drawIcon: DrawIcon;
   canGo(direction: HistoryDirection): boolean;
   go(direction: HistoryDirection): void;
   haptic(kind: HapticKind): void;
@@ -71,7 +70,7 @@ export const TIMING = {
 
 interface RowSession {
   target: RowTarget;
-  facts: ThreadFacts;
+  content: RowContent;
   layout: RowLayout;
   view: RowView;
   /** Where the row sat when this drag began: 0, or open. */
@@ -92,18 +91,6 @@ interface TouchSession {
   session: RowSession | null;
   /** The touch began on the open row: a tap closes it rather than opening the thread. */
   onOpenRow: boolean;
-}
-
-const TRAILING_ACTIONS = 2;
-
-function contentFor(facts: ThreadFacts): RowViewContent {
-  return {
-    leading: facts.isUnread ? { icon: "read", label: "Read" } : { icon: "unread", label: "Unread" },
-    trailing: [
-      facts.isPinned ? { id: "pin", icon: "unpin", label: "Unpin" } : { id: "pin", icon: "pin", label: "Pin" },
-      { id: "archive", icon: "archive", label: "Archive" },
-    ],
-  };
 }
 
 function findTouch(list: TouchList, id: number): Touch | null {
@@ -137,12 +124,12 @@ export function startGestures(env: GestureEnv): () => void {
 
   let open: RowSession | null = null;
 
-  const layoutFor = (target: RowTarget): RowLayout => ({
+  const layoutFor = (target: RowTarget, content: RowContent): RowLayout => ({
     width: target.element.getBoundingClientRect().width,
-    trailingActions: TRAILING_ACTIONS,
-    leading: true,
-    trailing: settings.rowLeftSwipe || !env.compact(),
-    full: settings.fullSwipeArchive,
+    trailingActions: content.trailing.length,
+    leading: content.leading !== null,
+    trailing: content.trailing.length > 0 && (settings.rowLeftSwipe || !env.compact()),
+    full: settings.fullSwipeArchive && content.archive !== null,
   });
 
   const finish = (session: RowSession) => {
@@ -164,12 +151,12 @@ export function startGestures(env: GestureEnv): () => void {
     settle(session, 0, false, () => finish(session));
   };
 
-  const archiveRow = (session: RowSession) => {
+  const archiveRow = (session: RowSession, archive: RowButton) => {
     if (open === session) open = null;
     const duration = ms(TIMING.slideOutMs);
     session.view.update(-session.layout.width, "full", false, duration);
     later(() => {
-      env.archive(session.target.threadId);
+      archive.run();
       // bb removes the row once the archive lands. Until then it stays out of
       // the way. The view goes the moment the row does, or the strip it draws
       // would sit over the row that moves up. If bb asks first (the thread has
@@ -187,12 +174,12 @@ export function startGestures(env: GestureEnv): () => void {
     }, duration);
   };
 
-  const onAction = (session: RowSession, action: TrailingAction) => {
-    if (action === "archive") {
-      archiveRow(session);
+  const onAction = (session: RowSession, button: RowButton) => {
+    if (button === session.content.archive) {
+      archiveRow(session, button);
       return;
     }
-    env.setPinned(session.target.threadId, !session.facts.isPinned);
+    button.run();
     closeRow(session);
   };
 
@@ -204,20 +191,20 @@ export function startGestures(env: GestureEnv): () => void {
       session.base = session.offset;
       return session;
     }
-    const facts = env.thread(target.threadId);
-    if (facts === null || facts.isArchived) return null;
-    const layout = layoutFor(target);
+    const content = env.row(target.threadId);
+    if (content === null) return null;
+    const layout = layoutFor(target, content);
     if (clampOffset(firstDelta, layout) === 0) return null;
     if (open !== null) closeRow(open);
     const rect = target.element.getBoundingClientRect();
     const session: RowSession = {
       target,
-      facts,
+      content,
       layout,
       base: 0,
       offset: 0,
       arm: null,
-      view: new RowView(doc, target.element, rect, contentFor(facts), (action) => onAction(session, action)),
+      view: new RowView(doc, target.element, rect, content, (button) => onAction(session, button), env.drawIcon),
     };
     views.add(session.view);
     return session;
@@ -237,11 +224,11 @@ export function startGestures(env: GestureEnv): () => void {
     if (release === "open") {
       open = session;
       settle(session, -revealWidth(session.layout), true);
-    } else if (release === "full") {
+    } else if (release === "full" && session.content.archive !== null) {
       env.haptic("impact-medium");
-      archiveRow(session);
+      archiveRow(session, session.content.archive);
     } else {
-      if (release === "leading") env.setRead(session.target.threadId, session.facts.isUnread);
+      if (release === "leading") session.content.leading?.run();
       closeRow(session);
     }
   };
@@ -262,7 +249,10 @@ export function startGestures(env: GestureEnv): () => void {
   const pickRoute = (target: EventTarget | null): WheelRoute => {
     if (settings.rowSwipes) {
       const row = rowTarget(target);
-      if (row !== null) return { kind: "row", target: row, session: null };
+      if (row !== null) {
+        env.refreshRowActions();
+        return { kind: "row", target: row, session: null };
+      }
     }
     if (settings.backForward && !env.compact()) {
       const inset = insetTarget(target);
@@ -442,6 +432,7 @@ export function startGestures(env: GestureEnv): () => void {
     if (!onOpenRow) closeOpenFor(event.target, event.timeStamp);
     const point = event.touches.item(0);
     if (target === null || point === null) return;
+    env.refreshRowActions();
     touch = {
       id: point.identifier,
       target,

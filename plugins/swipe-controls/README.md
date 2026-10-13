@@ -1,11 +1,14 @@
 # Swipe Controls
 
 Triage the sidebar the way you triage mail. Swipe a thread right to mark it
-read, left to pin or archive it. On the desktop app, swipe the page with two
+read, left for the actions you keep on bb's thread rows: pin, archive,
+rename, or whatever you chose. On the desktop app, swipe the page with two
 fingers to go back and forward. In bb's phone app, a swipe ticks under your
 finger as it reaches the point where letting go acts.
 
 ## Install
+
+Needs bb 0.46 or later. On bb 0.45, 0.1.1 is the last version that installs.
 
 ```sh
 bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
@@ -20,17 +23,39 @@ With a finger on a phone or two fingers on a trackpad:
 
 - **Swipe right** to mark a thread read, or unread if it is already read.
   Short of the mark, the row springs back and nothing happens.
-- **Swipe left** to uncover **Pin** (or **Unpin**) and **Archive**. Let go
-  past halfway and the row stays open on them. Tap one, or tap anywhere else
-  to close the row. A tap on the open row closes it without opening the
-  thread.
-- **Swipe all the way left** to archive when you let go. Archive takes over
-  the strip once you're far enough. bb's own toast offers **Undo** for ten
-  seconds. A thread with children asks first, as bb's Archive always does.
+- **Swipe left** to uncover your row actions, such as **Pin** (or
+  **Unpin**) and **Archive**. Let go past halfway and the row stays open on
+  them. Tap one, or tap anywhere else to close the row. A tap on the open row
+  closes it without opening the thread.
+- **Swipe all the way left** to archive when you let go, if Archive is one
+  of them. Archive takes over the strip once you're far enough. bb's own
+  toast offers **Undo** for ten seconds. A thread with children asks first,
+  as bb's Archive always does.
 
 A quick flick counts as much as a long drag, and a flick back the other way
 cancels. Scrolling the list, Escape and resizing the window all close an open
 row.
+
+### Which actions
+
+A swipe offers the actions you picked for bb's thread rows: a row's actions
+menu, then **Customize row actions**, or
+`bb thread-list prefs set rowActions '["bb--core/read","bb--core/pin","bb--core/archive"]'`.
+bb shows them when you hover over a row. Swipe Controls puts them under a
+swipe, with bb's own name, icon and behaviour for each:
+
+| Row action | Swipe |
+| --- | --- |
+| Mark read / unread | Swipe right. Without it, a row doesn't swipe right. |
+| Archive | A button, and the full swipe. |
+| Pin, Rename, Open in split, Copy thread link | A button each, in the same order as bb's. Rename opens bb's rename dialog. |
+| Another plugin's action | A button, grey, or red if the plugin marks it destructive. |
+| Move to section | Left out. It asks which section, and a swiped row has nowhere to ask. |
+
+bb decides which actions apply to a thread, so one it leaves out there (Open
+in split on a phone) is left out here, and one it disables shows dimmed. A
+row with no buttons doesn't swipe left. A change applies from the next swipe.
+When bb's thread list is off or replaced, rows offer read, Pin and Archive.
 
 Swipes work with bb's thread list and with any list that replaces it. They
 leave alone a row bb has armed for drag-to-reorder after a long press, and
@@ -75,7 +100,7 @@ swipe closes the sidebar as before.
 | --- | --- | --- |
 | Swipe sidebar threads | On | Every row swipe. |
 | On a phone, swipe threads left | On | Rows take leftward swipes from bb's sidebar. Off: rows only swipe right. |
-| Swipe all the way left to archive | On | Off: swiping left only uncovers the buttons. |
+| Swipe all the way left to archive | On | When Archive is one of the row actions. Off: swiping left only uncovers the buttons. |
 | Swipe with two fingers to go back and forward | In the desktop app | Or Always, or Never. |
 | Haptic feedback | On | Where bb can play it. |
 
@@ -83,11 +108,29 @@ Settings are shared by every client.
 
 ## How it works
 
-One app overlay, mounted once per window, draws nothing and holds the SDK
-hooks: the settings, the sidebar's threads, and bb's own thread actions. It
-runs a plain-DOM controller (`lib/controller.ts`) that listens for wheel and
-touch events on the document. Pin, read and archive are bb's own actions, so
-they behave exactly as bb's menu does, Archive's Undo toast included.
+One app overlay, mounted once per window, holds the SDK hooks: the settings,
+the sidebar's threads, and bb's thread actions. It runs a plain-DOM
+controller (`lib/controller.ts`) that listens for wheel and touch events on
+the document.
+
+Which actions a row offers is the thread-list plugin's `rowActions`
+preference, a list of thread action keys, read through its `listPreferences`
+RPC with `sdk.plugins.callRpc` (`lib/row-actions.ts`). A plugin can call
+another plugin's RPC but not hear its realtime signals, so the overlay reads
+the preference again on load, on reconnecting, when the window comes back
+into focus, and when a swipe starts on a row. Those reads are at most once a
+second.
+
+What each action is for one thread is bb's to say:
+`experimental_useThreadActions(thread, { keys })` returns its label, icon,
+whether it is disabled, and a `run`. So every button does exactly what bb's
+menu does, Archive's Undo toast included, and Swipe Controls has no pin,
+archive or rename code of its own. The hook takes one thread, and the
+controller asks about a row from an event listener with the swipe already
+moving, so the overlay renders a component for that thread with `flushSync`
+and answers from what it rendered. The icons are bb's too: the row view
+leaves an empty slot for each, and the overlay draws bb's icon into it
+through a portal.
 
 A sliding row is bb's own element, moved with the CSS `translate` property
 and clipped as it goes, so its title and glyphs move with it. The buttons it
@@ -102,6 +145,10 @@ When the swipe ends, every inline style goes back exactly as found.
   can mark its own with `data-swipe-controls-row`. Without either, the
   anchor alone slides.
 - **The main pane** is `[data-sidebar="inset"]`.
+- **Row actions** come from the plugin `thread-list`'s `listPreferences`
+  RPC, as `preferences.rowActions`. If that can't be read, rows offer read,
+  Pin and Archive. `bb--core/read` and `bb--core/archive` are the keys of
+  bb's Mark read and Archive, which the two swipes look for.
 - **bb's sidebar swipe** skips anything inside `[data-no-sidebar-swipe]`. That
   is how rows take leftward swipes: the plugin marks each row, and unmarks
   them when it stops.
@@ -120,7 +167,7 @@ Anything that wants horizontal drags to itself can carry
 
 ```sh
 npm install
-npm test             # recognizers, row model, targets and the controller, in jsdom
+npm test             # recognizers, row model, targets, the controller and the overlay, in jsdom
 npm run typecheck
 bb plugin install .
 bb plugin dev .      # rebuild + reload on save

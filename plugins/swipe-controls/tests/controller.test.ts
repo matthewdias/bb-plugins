@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type GestureEnv, type GestureSettings, type ThreadFacts, TIMING, startGestures } from "../lib/controller.ts";
+import { type GestureEnv, type GestureSettings, TIMING, startGestures } from "../lib/controller.ts";
 import { BACK_FORWARD, type HistoryDirection } from "../lib/history.ts";
+import { FALLBACK_ROW_ACTIONS, rowContent } from "../lib/row-actions.ts";
 import { ROW, fullPx, revealWidth } from "../lib/row.ts";
 import { WHEEL } from "../lib/wheel.ts";
-import { bbRow } from "./helpers.ts";
+import { type FakeThread, bbRow, evaluate } from "./helpers.ts";
 
 const ROW_WIDTH = 300;
 const LAYOUT = { width: ROW_WIDTH, trailingActions: 2, leading: true, trailing: true, full: true };
@@ -84,23 +85,34 @@ function sized(element: HTMLElement) {
 
 function makeEnv(
   settings: Partial<GestureSettings>,
-  facts: Map<string, ThreadFacts>,
+  facts: Map<string, FakeThread>,
   compact: boolean,
   canGo: boolean,
+  rowActions: { current: readonly string[] },
 ) {
-  return {
+  /** What running a row's action did, by its key. */
+  const ran = vi.fn((_key: string) => {});
+  const env = {
     doc: document,
     settings: { rowSwipes: true, rowLeftSwipe: true, fullSwipeArchive: true, backForward: true, ...settings },
     compact: () => compact,
     reducedMotion: () => false,
-    thread: (id: string) => facts.get(id) ?? null,
-    setRead: vi.fn(),
-    setPinned: vi.fn(),
-    archive: vi.fn(),
+    row: (id: string) => {
+      const thread = facts.get(id);
+      if (thread === undefined || thread.isArchived) return null;
+      return rowContent(evaluate(rowActions.current, thread, ran), thread);
+    },
+    refreshRowActions: vi.fn(),
+    // The overlay draws bb's icon here. The name stands in for it.
+    drawIcon: (slot: HTMLElement, name: string) => {
+      slot.dataset.icon = name;
+      return () => slot.removeAttribute("data-icon");
+    },
     canGo: vi.fn((_direction: HistoryDirection) => canGo),
     go: vi.fn(),
     haptic: vi.fn(),
   } satisfies GestureEnv;
+  return { ...env, ran };
 }
 
 interface Harness {
@@ -109,12 +121,18 @@ interface Harness {
   anchor: HTMLAnchorElement;
   main: HTMLElement;
   paragraph: HTMLElement;
-  facts: Map<string, ThreadFacts>;
+  facts: Map<string, FakeThread>;
+  /** The user's row actions, as the next swipe will find them. */
+  rowActions: { current: readonly string[] };
 }
 
 function start(
   settings: Partial<GestureSettings> = {},
-  { compact = false, canGo = true }: { compact?: boolean; canGo?: boolean } = {},
+  {
+    compact = false,
+    canGo = true,
+    rowActions = FALLBACK_ROW_ACTIONS,
+  }: { compact?: boolean; canGo?: boolean; rowActions?: readonly string[] } = {},
 ): Harness {
   const { row, anchor } = bbRow("t1");
   sized(row);
@@ -123,10 +141,11 @@ function start(
   const paragraph = document.createElement("p");
   main.append(paragraph);
   document.body.append(row, main);
-  const facts = new Map<string, ThreadFacts>([["t1", { isUnread: true, isPinned: false, isArchived: false }]]);
-  const env = makeEnv(settings, facts, compact, canGo);
+  const facts = new Map<string, FakeThread>([["t1", { isUnread: true, isPinned: false, isArchived: false }]]);
+  const actions = { current: rowActions };
+  const env = makeEnv(settings, facts, compact, canGo, actions);
   stop = startGestures(env);
-  return { env, row, anchor, main, paragraph, facts };
+  return { env, row, anchor, main, paragraph, facts, rowActions: actions };
 }
 
 beforeEach(() => {
@@ -271,10 +290,10 @@ describe("row swipes on a trackpad", () => {
     endGesture();
     vi.advanceTimersByTime(TIMING.settleMs);
     expect(row.style.translate).toBe(`${-revealWidth(LAYOUT)}px 0`);
-    const pin = document.querySelector<HTMLButtonElement>('.bbsc-action[data-action="pin"]');
+    const pin = document.querySelector<HTMLButtonElement>('.bbsc-action[data-action="bb--core/pin"]');
     expect(pin?.textContent).toBe("Pin");
     pin?.click();
-    expect(env.setPinned).toHaveBeenCalledWith("t1", true);
+    expect(env.ran).toHaveBeenCalledWith("bb--core/pin");
     vi.advanceTimersByTime(TIMING.settleMs);
     expect(row.style.translate).toBe("");
     expect(document.querySelector(".bbsc-row")).toBe(null);
@@ -287,7 +306,7 @@ describe("row swipes on a trackpad", () => {
     endGesture();
     expect(env.haptic).toHaveBeenLastCalledWith("impact-medium");
     vi.advanceTimersByTime(TIMING.slideOutMs);
-    expect(env.archive).toHaveBeenCalledWith("t1");
+    expect(env.ran).toHaveBeenCalledWith("bb--core/archive");
   });
 
   it("does not archive a full swipe when that setting is off", () => {
@@ -295,7 +314,7 @@ describe("row swipes on a trackpad", () => {
     swipe(anchor, fullPx(LAYOUT) + 50);
     endGesture();
     vi.advanceTimersByTime(TIMING.slideOutMs + TIMING.settleMs);
-    expect(env.archive).not.toHaveBeenCalled();
+    expect(env.ran).not.toHaveBeenCalled();
     expect(document.querySelector(".bbsc-row")?.hasAttribute("data-open")).toBe(true);
   });
 
@@ -303,7 +322,7 @@ describe("row swipes on a trackpad", () => {
     const { env, anchor } = start();
     swipe(anchor, -(ROW.leadingArmPx + 10), -10);
     endGesture();
-    expect(env.setRead).toHaveBeenCalledWith("t1", true);
+    expect(env.ran).toHaveBeenCalledWith("bb--core/read");
   });
 
   it("marks unread a thread that is read", () => {
@@ -311,14 +330,15 @@ describe("row swipes on a trackpad", () => {
     facts.set("t1", { isUnread: false, isPinned: false, isArchived: false });
     swipe(anchor, -(ROW.leadingArmPx + 10), -10);
     endGesture();
-    expect(env.setRead).toHaveBeenCalledWith("t1", false);
+    expect(env.ran).toHaveBeenCalledWith("bb--core/read");
+    expect(document.querySelector(".bbsc-lead-action")?.textContent).toBe("Unread");
   });
 
   it("leaves rows alone when row swipes are off", () => {
     const { env, row, anchor } = start({ rowSwipes: false });
     swipe(anchor, -(ROW.leadingArmPx + 10), -10);
     endGesture();
-    expect(env.setRead).not.toHaveBeenCalled();
+    expect(env.ran).not.toHaveBeenCalled();
     expect(row.style.translate).toBe("");
   });
 
@@ -327,7 +347,7 @@ describe("row swipes on a trackpad", () => {
     facts.set("t1", { isUnread: true, isPinned: false, isArchived: true });
     swipe(anchor, -(ROW.leadingArmPx + 10), -10);
     endGesture();
-    expect(env.setRead).not.toHaveBeenCalled();
+    expect(env.ran).not.toHaveBeenCalled();
   });
 
   it("closes an open row on a vertical scroll", () => {
@@ -347,7 +367,7 @@ describe("row swipes by touch", () => {
     const moves = drag(anchor, ROW.leadingArmPx + 20);
     expect(moves.at(-1)?.defaultPrevented).toBe(true);
     expect(env.haptic).toHaveBeenCalledWith("selection");
-    expect(env.setRead).toHaveBeenCalledWith("t1", true);
+    expect(env.ran).toHaveBeenCalledWith("bb--core/read");
   });
 
   it("swallows the click that ends a drag", () => {
@@ -396,14 +416,168 @@ describe("row swipes by touch", () => {
     touch("touchend", anchor, 220, 140);
     expect(move.defaultPrevented).toBe(false);
     expect(row.style.translate).toBe("");
-    expect(env.setRead).not.toHaveBeenCalled();
+    expect(env.ran).not.toHaveBeenCalled();
   });
 
   it("yields to bb's long-press reorder", () => {
     const { env, row, anchor } = start();
     row.setAttribute("data-sidebar-touch-armed", "true");
     drag(anchor, ROW.leadingArmPx + 20);
-    expect(env.setRead).not.toHaveBeenCalled();
+    expect(env.ran).not.toHaveBeenCalled();
+  });
+});
+
+describe("row actions", () => {
+  const buttons = () =>
+    [...document.querySelectorAll<HTMLButtonElement>(".bbsc-action")].map((button) => button.dataset.action);
+  const button = (key: string) => document.querySelector<HTMLButtonElement>(`.bbsc-action[data-action="${key}"]`);
+
+  /** Swipe left far enough to stay open, and let it settle. */
+  function openRow(anchor: Element, width: number) {
+    swipe(anchor, width);
+    endGesture();
+    vi.advanceTimersByTime(TIMING.settleMs);
+  }
+
+  /** Click away from the open row, and let it close. */
+  function closeRow() {
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    vi.advanceTimersByTime(TIMING.settleMs);
+  }
+
+  it("uncovers the user's row actions, in their order", () => {
+    const { anchor } = start({}, { rowActions: ["bb--core/archive", "bb--core/copyLink", "bb--core/split"] });
+    openRow(anchor, 3 * ROW.actionWidthPx);
+    expect(buttons()).toEqual(["bb--core/archive", "bb--core/copyLink", "bb--core/split"]);
+    expect(document.querySelector(".bbsc-row")?.hasAttribute("data-open")).toBe(true);
+  });
+
+  it("opens only as wide as its buttons", () => {
+    const { row, anchor } = start({ fullSwipeArchive: false }, { rowActions: ["bb--core/archive"] });
+    openRow(anchor, 2 * ROW.actionWidthPx);
+    expect(row.style.translate).toBe(`${-ROW.actionWidthPx}px 0`);
+  });
+
+  it("names and draws each button as bb does, shortening what won't fit", () => {
+    const { anchor } = start({}, { rowActions: ["bb--core/copyLink", "bb--core/rename"] });
+    openRow(anchor, 2 * ROW.actionWidthPx);
+    const copy = button("bb--core/copyLink");
+    expect(copy?.textContent).toBe("Copy link");
+    expect(copy?.getAttribute("aria-label")).toBe("Copy thread link");
+    expect(copy?.querySelector<HTMLElement>(".bbsc-icon")?.dataset.icon).toBe("Copy");
+    expect(button("bb--core/rename")?.textContent).toBe("Rename");
+  });
+
+  it("takes its icons back when the row closes", () => {
+    const { anchor } = start({}, { rowActions: ["bb--core/pin"] });
+    openRow(anchor, ROW.actionWidthPx);
+    const glyph = button("bb--core/pin")?.querySelector<HTMLElement>(".bbsc-icon");
+    expect(glyph?.dataset.icon).toBe("Pin");
+    closeRow();
+    expect(glyph?.dataset.icon).toBeUndefined();
+  });
+
+  it("runs bb's action from its button, and closes", () => {
+    const { env, anchor } = start({}, { rowActions: ["bb--core/rename"] });
+    openRow(anchor, ROW.actionWidthPx);
+    button("bb--core/rename")?.click();
+    expect(env.ran).toHaveBeenCalledWith("bb--core/rename");
+    vi.advanceTimersByTime(TIMING.settleMs);
+    expect(document.querySelector(".bbsc-row")).toBe(null);
+  });
+
+  it("offers another plugin's action, marked when it is destructive", () => {
+    const { env, anchor } = start({}, { rowActions: ["acme/deploy", "bb--core/pin"] });
+    openRow(anchor, 2 * ROW.actionWidthPx);
+    expect(button("acme/deploy")?.textContent).toBe("Deploy");
+    expect(button("acme/deploy")?.hasAttribute("data-destructive")).toBe(true);
+    expect(button("bb--core/pin")?.hasAttribute("data-destructive")).toBe(false);
+    button("acme/deploy")?.click();
+    expect(env.ran).toHaveBeenCalledWith("acme/deploy");
+  });
+
+  it("shows an action bb has disabled, and doesn't run it", () => {
+    const { env, anchor } = start({}, { rowActions: ["acme/locked"] });
+    openRow(anchor, ROW.actionWidthPx);
+    expect(button("acme/locked")?.disabled).toBe(true);
+    button("acme/locked")?.click();
+    expect(env.ran).not.toHaveBeenCalled();
+  });
+
+  it("makes read the rightward swipe, not a button", () => {
+    const { env, anchor } = start({}, { rowActions: ["bb--core/read", "bb--core/pin"] });
+    openRow(anchor, ROW.actionWidthPx);
+    expect(buttons()).toEqual(["bb--core/pin"]);
+    closeRow();
+    swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    endGesture();
+    expect(env.ran).toHaveBeenCalledWith("bb--core/read");
+  });
+
+  it("doesn't swipe right without read", () => {
+    const { env, row, anchor } = start({}, { rowActions: ["bb--core/pin", "bb--core/archive"] });
+    const events = swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    endGesture();
+    expect(env.ran).not.toHaveBeenCalled();
+    expect(events.some((event) => event.defaultPrevented)).toBe(false);
+    expect(row.style.translate).toBe("");
+  });
+
+  it("leaves out an action that asks a further question, and one nobody registered", () => {
+    const { anchor } = start({}, { rowActions: ["thread-list/move", "bb--core/pin", "gone/away"] });
+    openRow(anchor, ROW.actionWidthPx);
+    expect(buttons()).toEqual(["bb--core/pin"]);
+  });
+
+  it("doesn't swipe left without a button to uncover", () => {
+    const { row, anchor } = start({}, { rowActions: ["bb--core/read", "thread-list/move"] });
+    const events = swipe(anchor, 120);
+    expect(events.some((event) => event.defaultPrevented)).toBe(false);
+    expect(row.style.translate).toBe("");
+  });
+
+  it("archives on a full swipe only when Archive is a button", () => {
+    const { env, anchor } = start({}, { rowActions: ["bb--core/pin", "bb--core/copyLink"] });
+    swipe(anchor, fullPx(LAYOUT) + 50);
+    endGesture();
+    vi.advanceTimersByTime(TIMING.slideOutMs + TIMING.settleMs);
+    expect(env.ran).not.toHaveBeenCalled();
+    expect(document.querySelector(".bbsc-row")?.hasAttribute("data-open")).toBe(true);
+  });
+
+  it("archives from the Archive button as a full swipe does, sliding out first", () => {
+    const { env, row, anchor } = start({}, { rowActions: ["bb--core/archive"] });
+    openRow(anchor, ROW.actionWidthPx);
+    button("bb--core/archive")?.click();
+    expect(env.ran).not.toHaveBeenCalled();
+    expect(row.style.translate).toBe(`${-ROW_WIDTH}px 0`);
+    vi.advanceTimersByTime(TIMING.slideOutMs);
+    expect(env.ran).toHaveBeenCalledWith("bb--core/archive");
+  });
+
+  it("asks what the row offers when the swipe begins, so a change applies to the next swipe", () => {
+    const { anchor, rowActions } = start({}, { rowActions: ["bb--core/pin"] });
+    openRow(anchor, ROW.actionWidthPx);
+    expect(buttons()).toEqual(["bb--core/pin"]);
+    closeRow();
+    rowActions.current = ["bb--core/archive", "bb--core/split"];
+    lift();
+    openRow(anchor, 2 * ROW.actionWidthPx);
+    expect(buttons()).toEqual(["bb--core/archive", "bb--core/split"]);
+  });
+
+  it("has the row actions read again when a swipe or touch starts on a row, and not elsewhere", () => {
+    const { env, anchor, paragraph } = start();
+    wheel(paragraph, 10);
+    endGesture();
+    touch("touchstart", paragraph, 150);
+    touch("touchend", paragraph, 150);
+    expect(env.refreshRowActions).not.toHaveBeenCalled();
+    wheel(anchor, 10);
+    expect(env.refreshRowActions).toHaveBeenCalledTimes(1);
+    endGesture();
+    touch("touchstart", anchor, 150);
+    expect(env.refreshRowActions).toHaveBeenCalledTimes(2);
   });
 });
 

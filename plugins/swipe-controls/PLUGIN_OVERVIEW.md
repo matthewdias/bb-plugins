@@ -1,15 +1,20 @@
 Triaging threads on a phone means opening each one's menu. Swipe Controls
-lets you swipe them instead, as you would mail: right to mark read, left to
-pin or archive. On the desktop app, two fingers across the page go back and
+lets you swipe them instead, as you would mail: right to mark read, left for
+the actions you keep on bb's thread rows. On the desktop app, two fingers across the page go back and
 forward.
 
 ## What you get
 
 **Swipe a thread right** to mark it read, or unread if it already is.
 
-**Swipe it left** to uncover Pin and Archive. Let go past halfway and the row
-stays open on them. Swipe all the way and it archives when you let go, with
-bb's own Undo toast.
+**Swipe it left** to uncover the row actions you picked under bb's Customize
+row actions, in the same order: Pin, Archive, Rename, Open in split, Copy
+link, or another plugin's action. Each does what bb's menu does. Let go past
+halfway and the row stays open on them. Swipe all the way and it archives
+when you let go, with bb's own Undo toast. Mark read is the rightward swipe.
+Move to section is left out, since it has to ask which section.
+
+Needs bb 0.46 or later.
 
 **Two fingers across the page** go back and forward in bb's desktop app. An
 arrow slides in from the edge and fills as you swipe. A code block that can

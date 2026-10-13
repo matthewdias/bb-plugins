@@ -12,17 +12,18 @@
 // values are put back exactly as found.
 // What it uncovers is drawn over the vacated strip, in a fixed layer on
 // <body>, not inside bb's row.
+//
+// A row's icons are bb's, named by the actions bb evaluated, and only React
+// can draw those. The view leaves an empty slot for each and hands it to
+// `drawIcon`, which the overlay fills.
 
 import { ICONS, type IconName } from "./icons.ts";
 import type { RowArm } from "./row.ts";
 import type { HistoryDirection } from "./history.ts";
+import type { RowButton, RowContent } from "./row-actions.ts";
 
-export type TrailingAction = "pin" | "archive";
-
-export interface RowViewContent {
-  leading: { icon: IconName; label: string };
-  trailing: { id: TrailingAction; icon: IconName; label: string }[];
-}
+/** Draw the bb icon `name` into `slot`. Returns what takes it out again. */
+export type DrawIcon = (slot: HTMLElement, name: string) => () => void;
 
 interface Box {
   top: number;
@@ -53,6 +54,12 @@ function icon(doc: Document, name: IconName): HTMLSpanElement {
   return span;
 }
 
+function slot(doc: Document): HTMLSpanElement {
+  const span = doc.createElement("span");
+  span.className = "bbsc-icon";
+  return span;
+}
+
 function label(doc: Document, text: string): HTMLSpanElement {
   const span = doc.createElement("span");
   span.className = "bbsc-label";
@@ -66,14 +73,16 @@ export class RowView {
   private readonly lead: HTMLDivElement;
   private readonly trail: HTMLDivElement;
   private readonly saved: { translate: string; transition: string; willChange: string; clipPath: string };
+  private readonly icons: (() => void)[] = [];
   private destroyed = false;
 
   constructor(
     doc: Document,
     row: HTMLElement,
     box: Box,
-    content: RowViewContent,
-    onAction: (action: TrailingAction) => void,
+    content: RowContent,
+    onAction: (button: RowButton) => void,
+    drawIcon: DrawIcon,
   ) {
     this.row = row;
     this.saved = {
@@ -95,10 +104,14 @@ export class RowView {
 
     this.lead = doc.createElement("div");
     this.lead.className = "bbsc-lead";
-    const leadAction = doc.createElement("span");
-    leadAction.className = "bbsc-lead-action";
-    leadAction.append(icon(doc, content.leading.icon), label(doc, content.leading.label));
-    this.lead.append(leadAction);
+    if (content.leading !== null) {
+      const leadAction = doc.createElement("span");
+      leadAction.className = "bbsc-lead-action";
+      const glyph = slot(doc);
+      this.icons.push(drawIcon(glyph, content.leading.icon));
+      leadAction.append(glyph, label(doc, content.leading.label));
+      this.lead.append(leadAction);
+    }
 
     this.trail = doc.createElement("div");
     this.trail.className = "bbsc-trail";
@@ -106,14 +119,18 @@ export class RowView {
       const button = doc.createElement("button");
       button.type = "button";
       button.className = "bbsc-action";
-      button.dataset.action = action.id;
-      button.setAttribute("aria-label", action.label);
+      button.dataset.action = action.key;
+      if (action.destructive) button.setAttribute("data-destructive", "");
+      button.disabled = action.disabled;
+      button.setAttribute("aria-label", action.title);
       button.tabIndex = -1;
-      button.append(icon(doc, action.icon), label(doc, action.label));
+      const glyph = slot(doc);
+      this.icons.push(drawIcon(glyph, action.icon));
+      button.append(glyph, label(doc, action.label));
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        onAction(action.id);
+        onAction(action);
       });
       this.trail.append(button);
     }
@@ -150,6 +167,7 @@ export class RowView {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    for (const remove of this.icons) remove();
     this.root.remove();
     this.row.style.translate = this.saved.translate;
     this.row.style.transition = this.saved.transition;

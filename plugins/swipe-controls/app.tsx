@@ -1,8 +1,8 @@
 // Swipe Controls — swipe gestures for bb.
 //
-// - Swipe a sidebar thread right to mark it read or unread, left for Pin and
-//   Archive; all the way left archives. A finger on a phone, two fingers on
-//   a trackpad.
+// - Swipe a sidebar thread right to mark it read or unread, left for the
+//   user's row actions; all the way left archives. A finger on a phone, two
+//   fingers on a trackpad.
 // - Two fingers across the page go back and forward, in bb's desktop app.
 // - Haptic ticks where bb can play them: its iOS and Android apps.
 //

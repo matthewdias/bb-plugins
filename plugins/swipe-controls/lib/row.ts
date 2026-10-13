@@ -2,9 +2,9 @@
 //
 // A row moves by `offset` px: positive slides it right to uncover the leading
 // action (read/unread), negative slides it left to uncover the trailing
-// buttons (pin, archive). Short of a threshold a row springs back. Past
-// `revealWidth / 2` to the left it stays open on its buttons. Past `fullPx`
-// it archives on release, as Mail does.
+// buttons (the user's row actions). Short of a threshold a row springs back.
+// Past `revealWidth / 2` to the left it stays open on its buttons. Past
+// `fullPx` it archives on release, as Mail does.
 //
 // Pure: the controller feeds it distances and renders what it returns.
 
