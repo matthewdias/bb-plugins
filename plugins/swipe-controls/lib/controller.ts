@@ -18,7 +18,7 @@
 
 import { type HapticKind } from "./haptics.ts";
 import { BACK_FORWARD, type HistoryDirection, directionOf, progressOf } from "./history.ts";
-import { type RowArm, type RowLayout, armOf, clampOffset, releaseOf, revealWidth } from "./row.ts";
+import { type RowArm, type RowLayout, armOf, clampOffset, releaseOf, revealWidth, wheelOffset } from "./row.ts";
 import { ARCHIVE, type RowButton, type RowContent } from "./row-actions.ts";
 import { markRows } from "./row-marks.ts";
 import { type RowTarget, canScrollX, insetTarget, rowTarget } from "./targets.ts";
@@ -209,8 +209,10 @@ export function startGestures(env: GestureEnv): () => void {
     return session;
   };
 
-  const dragRow = (session: RowSession, delta: number) => {
-    const offset = clampOffset(session.base + delta, session.layout);
+  /** Follow the drag. `trackpad`: a two-finger swipe, whose whole swipes take more (see WHEEL_ROW). */
+  const dragRow = (session: RowSession, delta: number, trackpad: boolean) => {
+    const raw = session.base + delta;
+    const offset = clampOffset(trackpad ? wheelOffset(raw, session.layout) : raw, session.layout);
     const arm = armOf(offset, session.layout);
     if (arm !== session.arm) env.haptic("selection");
     session.offset = offset;
@@ -337,7 +339,7 @@ export function startGestures(env: GestureEnv): () => void {
       }
       if (route.session === null) return;
       if (event.cancelable) event.preventDefault();
-      dragRow(route.session, delta);
+      dragRow(route.session, delta, true);
       return;
     }
 
@@ -391,7 +393,7 @@ export function startGestures(env: GestureEnv): () => void {
       }
     }
     if (event.cancelable) event.preventDefault();
-    dragRow(touch.session, touch.track.dx);
+    dragRow(touch.session, touch.track.dx, false);
   };
 
   const onTouchEnd = (event: TouchEvent) => {

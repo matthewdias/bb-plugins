@@ -12,7 +12,8 @@
 // - a swipe right runs its action on release, as Mail's does;
 // - the row actions are the buttons a leftward swipe uncovers, in the same
 //   order, bb's own and other plugins' alike, less the one a swipe right
-//   already runs;
+//   already runs, except that the full swipe's own button goes outermost, at
+//   the edge its swipe comes from, as Mail's Archive does;
 // - a swipe all the way left runs its action, whether or not it is one of
 //   the buttons;
 // - an action that asks a further question (Move to section's list of
@@ -170,13 +171,14 @@ export function rowContent(
     return entry === undefined || entry.action.disabled === true ? null : button(entry);
   };
 
-  const trailing = keys.rowActions
+  const buttons = keys.rowActions
     .filter((key) => key !== keys.right)
     .flatMap((key) => offered(key) ?? [])
     .map(button);
+  const own = buttons.find((candidate) => candidate.key === keys.fullLeft && !candidate.disabled);
   return {
     leading: swipe(keys.right),
-    trailing,
-    full: trailing.find((own) => own.key === keys.fullLeft && !own.disabled) ?? swipe(keys.fullLeft),
+    trailing: own === undefined ? buttons : [...buttons.filter((candidate) => candidate !== own), own],
+    full: own ?? swipe(keys.fullLeft),
   };
 }

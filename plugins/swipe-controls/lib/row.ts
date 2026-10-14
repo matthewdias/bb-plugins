@@ -25,6 +25,25 @@ export const ROW = {
   overdragResistance: 0.25,
 } as const;
 
+/**
+ * A trackpad's two-finger swipe, made harder to take all the way.
+ *
+ * A trackpad swipe is cheap: a flick runs on with momentum, and the whole
+ * swipes act on their own. So on a trackpad the row follows the fingers only
+ * as far as is free: rightward a little way, leftward until the buttons are
+ * uncovered. Past that, leftward, it holds still for a stretch, as if caught
+ * on the buttons. Then, either way, it moves at a fraction of the fingers'
+ * speed. A finger on a touchscreen has none of this.
+ */
+export const WHEEL_ROW = {
+  /** Rightward travel the row follows one to one. */
+  leadingFreePx: 40,
+  /** Past the buttons, leftward travel the row holds still for. */
+  detentPx: 56,
+  /** How far the row moves per px of finger travel, past the free stretch. */
+  resistance: 0.4,
+} as const;
+
 export interface RowLayout {
   /** The row's width in px. */
   width: number;
@@ -48,6 +67,21 @@ export function revealWidth(layout: RowLayout): number {
 export function fullPx(layout: RowLayout): number {
   const wanted = Math.max(revealWidth(layout) + ROW.fullExtraPx, layout.width * ROW.fullRatio);
   return Math.min(wanted, layout.width - ROW.fullEdgeMarginPx);
+}
+
+/** Where a trackpad's raw travel puts the row, before `clampOffset`. See WHEEL_ROW. */
+export function wheelOffset(raw: number, layout: RowLayout): number {
+  if (raw > 0) {
+    if (raw <= WHEEL_ROW.leadingFreePx) return raw;
+    return WHEEL_ROW.leadingFreePx + (raw - WHEEL_ROW.leadingFreePx) * WHEEL_ROW.resistance;
+  }
+  // Without a full swipe, the buttons' own overdrag is resistance enough.
+  if (raw >= 0 || !layout.full) return raw;
+  const reveal = revealWidth(layout);
+  const travel = -raw;
+  if (travel <= reveal) return raw;
+  const past = reveal > 0 ? Math.max(0, travel - reveal - WHEEL_ROW.detentPx) : travel;
+  return -(reveal + past * WHEEL_ROW.resistance);
 }
 
 /** Bound a raw drag distance to where the row may actually go. */

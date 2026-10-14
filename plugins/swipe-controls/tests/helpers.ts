@@ -1,4 +1,5 @@
 import type { ThreadActionEntry } from "../lib/row-actions.ts";
+import { ROW, type RowLayout, WHEEL_ROW, fullPx, revealWidth } from "../lib/row.ts";
 
 /** bb's row: a container carrying `group/thread-row`, the anchor inside it. */
 export function bbRow(threadId: string): { row: HTMLElement; anchor: HTMLAnchorElement; glyph: HTMLElement } {
@@ -45,4 +46,15 @@ export function evaluate(
     const action = actions[key];
     return action === undefined ? [] : [{ key, action: { ...action, run: () => ran(key) } }];
   });
+}
+
+/** A trackpad's rightward travel that arms the swipe right. See WHEEL_ROW. */
+export const WHEEL_TO_ARM_RIGHT =
+  WHEEL_ROW.leadingFreePx + (ROW.leadingArmPx - WHEEL_ROW.leadingFreePx) / WHEEL_ROW.resistance;
+
+/** A trackpad's leftward travel that arms the full swipe. See WHEEL_ROW. */
+export function wheelToFull(layout: RowLayout): number {
+  const reveal = revealWidth(layout);
+  if (reveal === 0) return fullPx(layout) / WHEEL_ROW.resistance;
+  return reveal + WHEEL_ROW.detentPx + (fullPx(layout) - reveal) / WHEEL_ROW.resistance;
 }

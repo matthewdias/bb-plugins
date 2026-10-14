@@ -69,6 +69,14 @@ function label(doc: Document, text: string): HTMLSpanElement {
   return span;
 }
 
+/**
+ * The view on each row now. A swipe can start on a row whose last swipe is
+ * still easing closed, and two views on one row would each save what the
+ * other set: the newer one would then put back the older one's square
+ * corners. So a new view ends the one before it first.
+ */
+const current = new WeakMap<HTMLElement, RowView>();
+
 export class RowView {
   readonly row: HTMLElement;
   private readonly root: HTMLDivElement;
@@ -93,6 +101,8 @@ export class RowView {
     drawIcon: DrawIcon,
   ) {
     this.row = row;
+    current.get(row)?.destroy();
+    current.set(row, this);
     this.saved = {
       translate: row.style.translate,
       transition: row.style.transition,

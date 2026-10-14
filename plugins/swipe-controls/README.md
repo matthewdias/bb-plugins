@@ -35,7 +35,10 @@ Read and Archive are the defaults for the two whole swipes. Each is a
 setting, and can be any of bb's own thread actions or nothing.
 
 A quick flick counts as much as a long drag, and a flick back the other way
-cancels. Scrolling the list, Escape and resizing the window all close an open
+cancels. On a trackpad the two whole swipes take more: past the buttons the
+row holds still for a moment, as if caught on them, and from there, and on
+a swipe right, it moves slower than your fingers. A flick that carries on
+with momentum opens the row rather than archiving it. Scrolling the list, Escape and resizing the window all close an open
 row.
 
 ### Which actions
@@ -57,8 +60,9 @@ Archive, Rename, Open in split, Copy thread link, Delete, or Nothing. Neither
 has to be one of your row actions.
 
 - The action a swipe right runs isn't repeated as a button.
-- When the full swipe's action is one of the buttons, that button takes over
-  the strip. When it isn't, the action appears once you've swiped far enough.
+- When the full swipe's action is one of the buttons, that button moves to
+  the outer end, where the swipe comes from, and takes over the strip. When
+  it isn't, the action appears there once you've swiped far enough.
 - Archive takes its row out with it. Any other action runs and the row eases
   back.
 - With Nothing, that swipe doesn't happen: a row with no buttons and no full
@@ -206,7 +210,8 @@ bb plugin dev .      # rebuild + reload on save
 ```
 
 `lib/wheel.ts`, `lib/touch.ts` and `lib/row.ts` hold every threshold, as
-plain functions. `lib/controller.ts` is the wiring, tested by firing real
+plain functions. How sticky a trackpad's whole swipes are is `WHEEL_ROW` in
+`lib/row.ts`. `lib/controller.ts` is the wiring, tested by firing real
 wheel and touch events at it.
 
 ## License

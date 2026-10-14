@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GestureEnv, type GestureSettings, TIMING, startGestures } from "../lib/controller.ts";
 import { BACK_FORWARD, type HistoryDirection } from "../lib/history.ts";
 import { FALLBACK_ROW_ACTIONS, type RowActionKeys, keysOf, rowContent } from "../lib/row-actions.ts";
-import { ROW, fullPx, revealWidth } from "../lib/row.ts";
+import { ROW, WHEEL_ROW, fullPx, revealWidth } from "../lib/row.ts";
 import { WHEEL } from "../lib/wheel.ts";
-import { type FakeThread, bbRow, evaluate } from "./helpers.ts";
+import { type FakeThread, WHEEL_TO_ARM_RIGHT, bbRow, evaluate, wheelToFull } from "./helpers.ts";
 
 const ROW_WIDTH = 300;
 const LAYOUT = { width: ROW_WIDTH, trailingActions: 2, leading: true, trailing: true, full: true };
@@ -286,9 +286,10 @@ describe("back and forward", () => {
 describe("row swipes on a trackpad", () => {
   it("opens a row on its buttons, and Pin pins it", () => {
     const { env, row, anchor } = start();
-    const events = swipe(anchor, revealWidth(LAYOUT));
+    const events = swipe(anchor, revealWidth(LAYOUT) + 6);
     expect(events.at(-1)?.defaultPrevented).toBe(true);
-    expect(row.style.translate).toBe("-150px 0");
+    // Just past the buttons, a trackpad meets the detent: the row holds there.
+    expect(row.style.translate).toBe(`${-revealWidth(LAYOUT)}px 0`);
     endGesture();
     vi.advanceTimersByTime(TIMING.settleMs);
     expect(row.style.translate).toBe(`${-revealWidth(LAYOUT)}px 0`);
@@ -303,7 +304,7 @@ describe("row swipes on a trackpad", () => {
 
   it("archives on a full swipe, with a tick on arming and a thump on release", () => {
     const { env, anchor } = start();
-    swipe(anchor, fullPx(LAYOUT) + 10);
+    swipe(anchor, wheelToFull(LAYOUT) + 10);
     expect(env.haptic).toHaveBeenCalledWith("selection");
     endGesture();
     expect(env.haptic).toHaveBeenLastCalledWith("impact-medium");
@@ -313,7 +314,7 @@ describe("row swipes on a trackpad", () => {
 
   it("does nothing on a full swipe set to Nothing, and stays open on the buttons", () => {
     const { env, anchor } = start({}, { fullLeft: null });
-    swipe(anchor, fullPx(LAYOUT) + 50);
+    swipe(anchor, wheelToFull(LAYOUT) + 50);
     endGesture();
     vi.advanceTimersByTime(TIMING.slideOutMs + TIMING.settleMs);
     expect(env.ran).not.toHaveBeenCalled();
@@ -322,7 +323,7 @@ describe("row swipes on a trackpad", () => {
 
   it("marks read on a swipe right", () => {
     const { env, anchor } = start();
-    swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    swipe(anchor, -(WHEEL_TO_ARM_RIGHT + 10), -10);
     endGesture();
     expect(env.ran).toHaveBeenCalledWith("bb--core/read");
   });
@@ -330,7 +331,7 @@ describe("row swipes on a trackpad", () => {
   it("marks unread a thread that is read", () => {
     const { env, anchor, facts } = start();
     facts.set("t1", { isUnread: false, isPinned: false, isArchived: false });
-    swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    swipe(anchor, -(WHEEL_TO_ARM_RIGHT + 10), -10);
     endGesture();
     expect(env.ran).toHaveBeenCalledWith("bb--core/read");
     expect(document.querySelector(".bbsc-lead-action")?.textContent).toBe("Unread");
@@ -338,7 +339,7 @@ describe("row swipes on a trackpad", () => {
 
   it("leaves rows alone when row swipes are off", () => {
     const { env, row, anchor } = start({ rowSwipes: false });
-    swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    swipe(anchor, -(WHEEL_TO_ARM_RIGHT + 10), -10);
     endGesture();
     expect(env.ran).not.toHaveBeenCalled();
     expect(row.style.translate).toBe("");
@@ -347,7 +348,7 @@ describe("row swipes on a trackpad", () => {
   it("doesn't swipe an archived thread", () => {
     const { env, anchor, facts } = start();
     facts.set("t1", { isUnread: true, isPinned: false, isArchived: true });
-    swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    swipe(anchor, -(WHEEL_TO_ARM_RIGHT + 10), -10);
     endGesture();
     expect(env.ran).not.toHaveBeenCalled();
   });
@@ -448,9 +449,9 @@ describe("row actions", () => {
   }
 
   it("uncovers the user's row actions, in their order", () => {
-    const { anchor } = start({}, { rowActions: ["bb--core/archive", "bb--core/copyLink", "bb--core/split"] });
+    const { anchor } = start({}, { rowActions: ["bb--core/split", "bb--core/copyLink", "bb--core/pin"] });
     openRow(anchor, 3 * ROW.actionWidthPx);
-    expect(buttons()).toEqual(["bb--core/archive", "bb--core/copyLink", "bb--core/split"]);
+    expect(buttons()).toEqual(["bb--core/split", "bb--core/copyLink", "bb--core/pin"]);
     expect(document.querySelector(".bbsc-row")?.hasAttribute("data-open")).toBe(true);
   });
 
@@ -511,7 +512,7 @@ describe("row actions", () => {
     openRow(anchor, ROW.actionWidthPx);
     expect(buttons()).toEqual(["bb--core/pin"]);
     closeRow();
-    swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    swipe(anchor, -(WHEEL_TO_ARM_RIGHT + 10), -10);
     endGesture();
     expect(env.ran).toHaveBeenCalledWith("bb--core/read");
   });
@@ -521,7 +522,7 @@ describe("row actions", () => {
     openRow(anchor, ROW.actionWidthPx);
     expect(buttons()).toEqual(["bb--core/read"]);
     closeRow();
-    swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    swipe(anchor, -(WHEEL_TO_ARM_RIGHT + 10), -10);
     expect(document.querySelector<HTMLElement>(".bbsc-lead")?.dataset.action).toBe("bb--core/pin");
     endGesture();
     expect(env.ran.mock.calls).toEqual([["bb--core/pin"]]);
@@ -529,7 +530,7 @@ describe("row actions", () => {
 
   it("doesn't swipe right when that swipe is set to Nothing", () => {
     const { env, row, anchor } = start({}, { right: null });
-    const events = swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    const events = swipe(anchor, -(WHEEL_TO_ARM_RIGHT + 10), -10);
     endGesture();
     expect(env.ran).not.toHaveBeenCalled();
     expect(events.some((event) => event.defaultPrevented)).toBe(false);
@@ -552,7 +553,7 @@ describe("row actions", () => {
   it("archives on a full swipe when Archive isn't one of the buttons, taking over the strip", () => {
     const { env, anchor } = start({}, { rowActions: ["bb--core/pin", "bb--core/copyLink"] });
     expect(buttons()).toEqual([]);
-    swipe(anchor, fullPx(LAYOUT) + 50);
+    swipe(anchor, wheelToFull(LAYOUT) + 50);
     const full = document.querySelector<HTMLElement>(".bbsc-full-only");
     expect(full?.dataset.action).toBe("bb--core/archive");
     expect(full?.tagName).toBe("DIV");
@@ -572,7 +573,7 @@ describe("row actions", () => {
 
   it("runs any action on a full swipe, and lets the row ease back when it isn't Archive", () => {
     const { env, row, anchor } = start({}, { rowActions: ["bb--core/archive"], fullLeft: "bb--core/rename" });
-    swipe(anchor, fullPx({ ...LAYOUT, trailingActions: 1 }) + 50);
+    swipe(anchor, wheelToFull({ ...LAYOUT, trailingActions: 1 }) + 50);
     endGesture();
     expect(env.haptic).toHaveBeenLastCalledWith("impact-medium");
     expect(env.ran.mock.calls).toEqual([["bb--core/rename"]]);
@@ -584,16 +585,60 @@ describe("row actions", () => {
   it("swipes all the way left with no buttons, and springs back short of it", () => {
     const { env, row, anchor } = start({}, { rowActions: [] });
     swipe(anchor, 100);
-    expect(row.style.translate).toBe("-100px 0");
+    expect(row.style.translate).toBe(`${-100 * WHEEL_ROW.resistance}px 0`);
     endGesture();
     vi.advanceTimersByTime(TIMING.settleMs);
     expect(document.querySelector(".bbsc-row")).toBe(null);
     expect(env.ran).not.toHaveBeenCalled();
     lift();
-    swipe(anchor, fullPx({ ...LAYOUT, trailingActions: 0 }) + 20);
+    swipe(anchor, wheelToFull({ ...LAYOUT, trailingActions: 0 }) + 20);
     endGesture();
     vi.advanceTimersByTime(TIMING.slideOutMs);
     expect(env.ran.mock.calls).toEqual([["bb--core/archive"]]);
+  });
+
+  it("takes more on a trackpad than a flick to the full swipe's old mark", () => {
+    const { env, anchor } = start();
+    swipe(anchor, fullPx(LAYOUT) + 10);
+    endGesture();
+    vi.advanceTimersByTime(TIMING.slideOutMs + TIMING.settleMs);
+    expect(env.ran).not.toHaveBeenCalled();
+    expect(document.querySelector(".bbsc-row")?.hasAttribute("data-open")).toBe(true);
+  });
+
+  it("takes more on a trackpad than a finger to swipe right", () => {
+    const { env, anchor } = start();
+    swipe(anchor, -(ROW.leadingArmPx + 10), -10);
+    endGesture();
+    expect(env.ran).not.toHaveBeenCalled();
+    drag(anchor, ROW.leadingArmPx + 10);
+    expect(env.ran.mock.calls).toEqual([["bb--core/read"]]);
+  });
+
+  it("leaves a finger's full swipe as it was", () => {
+    const { env, anchor } = start();
+    drag(anchor, -(fullPx(LAYOUT) + 10));
+    vi.advanceTimersByTime(TIMING.slideOutMs);
+    expect(env.ran.mock.calls).toEqual([["bb--core/archive"]]);
+  });
+
+  it("puts the row back as found when a swipe starts while the last one is still easing closed", () => {
+    const { row, anchor } = start();
+    row.style.borderRadius = "6px";
+    swipe(anchor, 40);
+    endGesture();
+    // Released and easing closed: its view is still there.
+    expect(document.querySelectorAll(".bbsc-row")).toHaveLength(1);
+    swipe(anchor, -(WHEEL_TO_ARM_RIGHT + 10), -10);
+    expect(document.querySelectorAll(".bbsc-row")).toHaveLength(1);
+    endGesture();
+    vi.advanceTimersByTime(TIMING.settleMs * 2);
+    expect(document.querySelector(".bbsc-row")).toBe(null);
+    expect(row.style.borderRadius).toBe("6px");
+    expect(row.style.translate).toBe("");
+    expect(row.style.clipPath).toBe("");
+    expect(row.style.transition).toBe("");
+    expect(row.style.willChange).toBe("");
   });
 
   it("squares the row's corners while it is swiped, and puts them back", () => {
@@ -620,10 +665,10 @@ describe("row actions", () => {
     openRow(anchor, ROW.actionWidthPx);
     expect(buttons()).toEqual(["bb--core/pin"]);
     closeRow();
-    keys.current = { ...keys.current, rowActions: ["bb--core/archive", "bb--core/split"] };
+    keys.current = { ...keys.current, rowActions: ["bb--core/split", "bb--core/archive"] };
     lift();
     openRow(anchor, 2 * ROW.actionWidthPx);
-    expect(buttons()).toEqual(["bb--core/archive", "bb--core/split"]);
+    expect(buttons()).toEqual(["bb--core/split", "bb--core/archive"]);
   });
 
   it("has the row actions read again when a swipe or touch starts on a row, and not elsewhere", () => {

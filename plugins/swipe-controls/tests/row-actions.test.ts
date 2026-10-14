@@ -71,6 +71,17 @@ describe("a row's content", () => {
     expect(row.full).toBe(row.trailing[1]);
   });
 
+  it("puts the full swipe's button outermost, wherever it is among the row actions", () => {
+    const row = content({ rowActions: [ARCHIVE, PIN, "bb--core/split"], fullLeft: ARCHIVE });
+    expect(row.trailing.map((button) => button.key)).toEqual([PIN, "bb--core/split", ARCHIVE]);
+    expect(row.full).toBe(row.trailing[2]);
+  });
+
+  it("keeps the row actions' order when the full swipe isn't one of them", () => {
+    const row = content({ rowActions: [PIN, "bb--core/split"], fullLeft: ARCHIVE });
+    expect(row.trailing.map((button) => button.key)).toEqual([PIN, "bb--core/split"]);
+  });
+
   it("doesn't repeat the swipe right's action as a button", () => {
     expect(content({ rowActions: [READ, PIN], right: READ }).trailing.map((button) => button.key)).toEqual([PIN]);
     expect(content({ rowActions: [READ, PIN], right: PIN }).trailing.map((button) => button.key)).toEqual([READ]);

@@ -8,9 +8,10 @@ import { Gestures } from "../../components/Gestures.tsx";
 import { TIMING } from "../../lib/controller.ts";
 import { ROW } from "../../lib/row.ts";
 import { WHEEL } from "../../lib/wheel.ts";
-import { type FakeThread, bbRow, evaluate } from "../helpers.ts";
+import { type FakeThread, WHEEL_TO_ARM_RIGHT, bbRow, evaluate, wheelToFull } from "../helpers.ts";
 
 const ROW_WIDTH = 300;
+const LAYOUT = { width: ROW_WIDTH, trailingActions: 2, leading: true, trailing: true, full: true };
 /** Every key the fake bb has an action for. */
 const REGISTERED = [
   "bb--core/split",
@@ -148,8 +149,8 @@ describe("the overlay", () => {
   it("evaluates them for whichever thread is swiped", async () => {
     const { anchors } = mount([thread("t1"), thread("t2", { isUnread: false })]);
     await settle();
-    swipe(anchors[0]!, -(ROW.leadingArmPx + 10));
-    swipe(anchors[1]!, -(ROW.leadingArmPx + 10));
+    swipe(anchors[0]!, -(WHEEL_TO_ARM_RIGHT + 10));
+    swipe(anchors[1]!, -(WHEEL_TO_ARM_RIGHT + 10));
     expect(ran.mock.calls).toEqual([
       ["bb--core/read", "t1"],
       ["bb--core/read", "t2"],
@@ -165,11 +166,11 @@ describe("the overlay", () => {
   });
 
   it("takes the names bb stored before 0.46", async () => {
-    preference = ["archive", "pin"];
+    preference = ["copyLink", "pin"];
     const { anchors } = mount();
     await settle();
     swipe(anchors[0]!, 2 * ROW.actionWidthPx);
-    expect(buttons()).toEqual(["bb--core/archive", "bb--core/pin"]);
+    expect(buttons()).toEqual(["bb--core/copyLink", "bb--core/pin"]);
   });
 
   it("doesn't swipe an archived thread", async () => {
@@ -201,13 +202,13 @@ describe("the overlay", () => {
     await settle();
     vi.advanceTimersByTime(5000);
     // Two swipes inside one second: one read between them.
-    swipe(anchors[0]!, -(ROW.leadingArmPx + 10));
+    swipe(anchors[0]!, -(WHEEL_TO_ARM_RIGHT + 10));
     await settle();
-    swipe(anchors[0]!, -(ROW.leadingArmPx + 10));
+    swipe(anchors[0]!, -(WHEEL_TO_ARM_RIGHT + 10));
     await settle();
     expect(reads(slot)).toHaveLength(2);
     vi.advanceTimersByTime(1000);
-    swipe(anchors[0]!, -(ROW.leadingArmPx + 10));
+    swipe(anchors[0]!, -(WHEEL_TO_ARM_RIGHT + 10));
     await settle();
     expect(reads(slot)).toHaveLength(3);
   });
@@ -216,8 +217,8 @@ describe("the overlay", () => {
     preference = ["bb--core/copyLink"];
     const { anchors } = mount([thread("t1")], { swipeRight: "Pin", swipeLeftFull: "Delete" });
     await settle();
-    swipe(anchors[0]!, -(ROW.leadingArmPx + 10));
-    swipe(anchors[0]!, ROW_WIDTH);
+    swipe(anchors[0]!, -(WHEEL_TO_ARM_RIGHT + 10));
+    swipe(anchors[0]!, wheelToFull({ ...LAYOUT, trailingActions: 1 }) + 20);
     expect(ran.mock.calls).toEqual([
       ["bb--core/pin", "t1"],
       ["bb--core/delete", "t1"],
@@ -229,7 +230,8 @@ describe("the overlay", () => {
     const { anchors } = mount();
     await settle();
     act(() => {
-      for (let moved = 0; moved < ROW_WIDTH; moved += 10) wheel(anchors[0]!, 10);
+      const total = wheelToFull({ ...LAYOUT, trailingActions: 1 }) + 20;
+      for (let moved = 0; moved < total; moved += 10) wheel(anchors[0]!, 10);
     });
     expect(buttons()).toEqual(["bb--core/pin"]);
     expect(document.querySelector<HTMLElement>(".bbsc-full-only")?.dataset.action).toBe("bb--core/archive");
@@ -240,12 +242,12 @@ describe("the overlay", () => {
   it("has no swipe right for Nothing, and runs whichever action the setting names", async () => {
     const { slot, anchors } = mount([thread("t1")], { swipeRight: "Nothing" });
     await settle();
-    swipe(anchors[0]!, -(ROW.leadingArmPx + 10));
+    swipe(anchors[0]!, -(WHEEL_TO_ARM_RIGHT + 10));
     expect(ran).not.toHaveBeenCalled();
     slot.unmount();
     const again = mount([thread("t2")], { swipeRight: "Rename" });
     await settle();
-    swipe(again.anchors[0]!, -(ROW.leadingArmPx + 10));
+    swipe(again.anchors[0]!, -(WHEEL_TO_ARM_RIGHT + 10));
     expect(ran.mock.calls).toEqual([["bb--core/rename", "t2"]]);
   });
 });

@@ -15,7 +15,8 @@ halfway and the row stays open on them. Move to section is left out, since
 it has to ask which section.
 
 **Swipe all the way left** and it archives when you let go, with bb's own
-Undo toast. That too is a setting, and needn't be one of your row actions.
+Undo toast. That too is a setting, and needn't be one of your row actions. On a
+trackpad it takes a deliberate swipe, not a flick.
 
 bb's own row buttons are hidden while you swipe threads, so titles get their
 room. A setting brings them back.
