@@ -34,6 +34,8 @@ export interface Decision {
   action: DecisionAction;
   /** Epoch ms. */
   at: number;
+  /** When Later last sent a saved entry to the back of Saved, epoch ms. */
+  back?: number;
 }
 
 /** Keyed by `entryKey`. */
@@ -169,12 +171,15 @@ export function buildNewDeck(input: NewDeckInput): NewCard[] {
   return cards.map(({ card }) => card);
 }
 
-/** Saved entries that are still worth showing, most recently saved first. */
+/**
+ * Saved entries that are still worth showing, most recently saved first, and
+ * after them the ones Later sent to the back, in the order they went.
+ */
 export function buildSavedList(entries: readonly CatalogEntry[], decisions: Decisions): NewCard[] {
   const byKey = new Map(entries.map((entry) => [entryKey(entry), entry]));
   return Object.entries(decisions)
     .filter(([, decision]) => decision.action === "save")
-    .sort(([, a], [, b]) => b.at - a.at)
+    .sort(([, a], [, b]) => (a.back ?? 0) - (b.back ?? 0) || b.at - a.at)
     .flatMap(([key]) => {
       const entry = byKey.get(key);
       // Gone from the catalog, or installed some other way since.

@@ -113,17 +113,60 @@ describe("undo", () => {
 describe("the Saved deck", () => {
   const saved = () => triageStore.getSnapshot().saved.map((card) => card.entryId);
 
-  it("sends a card to the back on ↑, telling the server nothing, and Z brings it back", async () => {
+  it("sends a card to the back on ↑, keeping that on the server, and Z restores the save there", async () => {
     const { rpc, flush } = fakeRpc();
+    const previous = { action: "save", at: 1 };
+    vi.mocked(rpc.call).mockImplementation(((method: string) =>
+      Promise.resolve(deckAnswer(method) ?? (method === "later" ? { previous } : { undone: true, reason: null }))) as never);
     triageStore.addSaved(beta);
     triageStore.addSaved(alpha);
     await decide(rpc, alpha, "up", "saved");
     expect(saved()).toEqual(["beta", "alpha"]);
-    expect(vi.mocked(rpc.call)).not.toHaveBeenCalled();
+    expect(vi.mocked(rpc.call)).toHaveBeenCalledWith("later", { key: alpha.key });
+    await undoLast(rpc);
+    await flush();
+    expect(saved()).toEqual(["alpha", "beta"]);
+    expect(vi.mocked(rpc.call)).toHaveBeenCalledWith("undo", { key: alpha.key, restore: previous });
+  });
+
+  it("drops a reload already under way when ↑ moves a card, so the old order can't land on it", async () => {
+    const { rpc } = fakeRpc();
+    let answerSaved: (value: unknown) => void = () => {};
+    vi.mocked(rpc.call).mockImplementation(((method: string) => {
+      if (method === "deck_saved") return new Promise((resolve) => (answerSaved = resolve));
+      if (method === "later") return Promise.resolve({ previous: { action: "save", at: 1 } });
+      return Promise.resolve(deckAnswer(method));
+    }) as never);
+    triageStore.addSaved(beta);
+    triageStore.addSaved(alpha);
+    const loading = triageStore.load(rpc);
+    await decide(rpc, alpha, "up", "saved");
+    answerSaved({ cards: [alpha, beta] });
+    await loading;
+    expect(saved()).toEqual(["beta", "alpha"]);
+  });
+
+  it("only moves the card in this window when the server no longer has it saved", async () => {
+    const { rpc, flush } = fakeRpc();
+    vi.mocked(rpc.call).mockImplementation(((method: string) =>
+      Promise.resolve(deckAnswer(method) ?? (method === "later" ? { previous: null } : { undone: true, reason: null }))) as never);
+    triageStore.addSaved(beta);
+    triageStore.addSaved(alpha);
+    await decide(rpc, alpha, "up", "saved");
     await undoLast(rpc);
     await flush();
     expect(saved()).toEqual(["alpha", "beta"]);
     expect(vi.mocked(rpc.call).mock.calls.map(([method]) => method)).not.toContain("undo");
+  });
+
+  it("puts a card back on top of Saved when the server can't keep it at the back", async () => {
+    const { rpc } = fakeRpc();
+    vi.mocked(rpc.call).mockImplementation(((method: string) =>
+      method === "later" ? Promise.reject(new Error("offline")) : Promise.resolve(deckAnswer(method))) as never);
+    triageStore.addSaved(beta);
+    triageStore.addSaved(alpha);
+    await decide(rpc, alpha, "up", "saved");
+    expect(saved()).toEqual(["alpha", "beta"]);
   });
 
   it("forgets a card on ←, and Z puts it back in Saved rather than on New", async () => {

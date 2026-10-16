@@ -122,6 +122,19 @@ describe("the Saved list", () => {
     expect(keys(cards)).toEqual(["second@bb-community", "first@bb-community"]);
   });
 
+  it("deals the entries Later sent to the back after the rest, in the order they went", () => {
+    const cards = buildSavedList(
+      [entry({ entryId: "first" }), entry({ entryId: "second" }), entry({ entryId: "third" }), entry({ entryId: "fourth" })],
+      {
+        "first@bb-community": { action: "save", at: NOW - 4 * DAY, back: NOW - DAY },
+        "second@bb-community": { action: "save", at: NOW - 3 * DAY },
+        "third@bb-community": { action: "save", at: NOW - 2 * DAY, back: NOW - 2 * DAY },
+        "fourth@bb-community": { action: "save", at: NOW - 5 * DAY },
+      },
+    );
+    expect(keys(cards)).toEqual(["second@bb-community", "fourth@bb-community", "third@bb-community", "first@bb-community"]);
+  });
+
   it("keeps a saved entry however old it is", () => {
     const old = entry({ entryId: "old", publishedAt: new Date(NOW - 400 * DAY).toISOString() });
     expect(keys(buildSavedList([old], { "old@bb-community": { action: "save", at: NOW } }))).toEqual(["old@bb-community"]);

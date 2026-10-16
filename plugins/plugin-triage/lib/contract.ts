@@ -49,11 +49,17 @@ export const rpcContract = defineRpcContract({
     /** `previous` is what undo restores: a save the install replaced, say. */
     output: z.custom<{ job: Job | null; previous: Decision | null }>(() => true),
   },
+  /** Saved's ↑: the entry goes to the back of Saved and stays saved. */
+  later: {
+    input: z.object({ key: z.string().min(1) }),
+    /** `previous` is what undo restores; null if the entry is no longer saved. */
+    output: z.custom<{ previous: Decision | null }>(() => true),
+  },
   undo: {
     input: z.object({
       key: z.string().min(1),
       restore: z
-        .object({ action: z.enum(["install", "dismiss", "save"]), at: z.number() })
+        .object({ action: z.enum(["install", "dismiss", "save"]), at: z.number(), back: z.number().optional() })
         .nullable()
         .optional(),
     }),

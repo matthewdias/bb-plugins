@@ -423,6 +423,19 @@ export default async function plugin(bb: BbPluginApi) {
       return { job, previous };
     },
 
+    later: async ({ key }) => {
+      const previous = await locked(async () => {
+        const decisions = await readDecisions();
+        const previous = decisions[key] ?? null;
+        if (previous?.action !== "save") return null;
+        decisions[key] = { ...previous, back: Date.now() };
+        await kv.set(DECISIONS, decisions);
+        return previous;
+      });
+      if (previous !== null) changed("decision");
+      return { previous };
+    },
+
     undo: async ({ key, restore }) => {
       const result = await locked(async () => {
         const jobs = await readJobs();

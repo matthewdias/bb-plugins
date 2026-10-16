@@ -152,6 +152,7 @@ export const triageStore = {
   laterSaved(key: string): void {
     const card = state.saved.find((other) => other.key === key);
     if (card === undefined) return;
+    generation++;
     set({ saved: [...state.saved.filter((other) => other.key !== key), card] });
   },
 

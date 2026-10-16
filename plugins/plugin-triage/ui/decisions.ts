@@ -44,8 +44,8 @@ type Sent = (typeof ACTIONS)[Direction];
 interface Made {
   card: NewCard;
   /**
-   * What the server was told; "later" is the Saved deck's ↑, which tells it
-   * nothing: the card moves to the back of the deck and stays saved.
+   * What the server was told; "later" is the Saved deck's ↑: the card moves
+   * to the back of the deck and stays saved.
    */
   action: Sent | "later";
   deck: DeckName;
@@ -97,7 +97,18 @@ async function send(rpc: TriageRpc, card: NewCard, action: Sent): Promise<{ prev
 export async function decide(rpc: TriageRpc, card: NewCard, direction: Direction, deck: DeckName = "new"): Promise<void> {
   if (deck === "saved" && direction === "up") {
     triageStore.laterSaved(card.key);
-    made.push({ card, action: "later", deck, settled: Promise.resolve({ previous: null }) });
+    // Kept on the server, or the next reload, which any decision in any
+    // window sets off, would deal Saved in its old order again.
+    const settled = rpc.call("later", { key: card.key }).catch((cause: unknown) => {
+      made.splice(made.indexOf(entry), 1);
+      triageStore.addSaved(card);
+      haptic("error");
+      toast.error(`Couldn't move ${card.displayName} to the back: ${message(cause)}`);
+      return null;
+    });
+    const entry: Made = { card, action: "later", deck, settled };
+    made.push(entry);
+    await settled;
     return;
   }
   const action = ACTIONS[direction];
@@ -122,8 +133,9 @@ async function undoEntry(rpc: TriageRpc, entry: Made): Promise<void> {
   entry.undoing = true;
   const sent = await entry.settled;
   if (sent === null || !made.includes(entry)) return;
-  if (entry.action === "later") {
-    // Only ever moved in this window: back to the front of Saved.
+  if (entry.action === "later" && sent.previous === null) {
+    // No longer saved when it went, so the server kept nothing: only this
+    // window moved it. Back to the front of Saved.
     made.splice(made.indexOf(entry), 1);
     haptic("impact-light");
     triageStore.addSaved(entry.card);

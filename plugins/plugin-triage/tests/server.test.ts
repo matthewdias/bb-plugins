@@ -104,6 +104,34 @@ describe("the New deck over RPC", () => {
     service.controller.abort();
   });
 
+  it("keeps Later's order in Saved, so a reload deals the deck as it was left", async () => {
+    const { rpc, decide, service } = await host();
+    const saved = async () => (await rpc<{ cards: NewCard[] }>("deck_saved", {})).cards.map((card) => card.entryId);
+    await decide("alpha", "save");
+    vi.setSystemTime(NOW + 1000);
+    await decide("beta", "save");
+    expect(await saved()).toEqual(["beta", "alpha"]);
+    vi.setSystemTime(NOW + 2000);
+    const { previous } = await rpc<{ previous: { action: string; at: number } | null }>("later", { key: "beta@bb-community" });
+    expect(await saved()).toEqual(["alpha", "beta"]);
+    vi.setSystemTime(NOW + 3000);
+    await rpc("later", { key: "alpha@bb-community" });
+    expect(await saved()).toEqual(["beta", "alpha"]);
+    // Undo restores the save as it was before Later, back where it sat.
+    await rpc("undo", { key: "beta@bb-community", restore: previous });
+    expect(await saved()).toEqual(["beta", "alpha"]);
+    service.controller.abort();
+  });
+
+  it("keeps nothing when Later finds the entry no longer saved", async () => {
+    const { rpc, decide, service } = await host();
+    await decide("alpha", "dismiss");
+    expect(await rpc("later", { key: "alpha@bb-community" })).toEqual({ previous: null });
+    expect(await rpc("later", { key: "beta@bb-community" })).toEqual({ previous: null });
+    expect((await rpc<{ cards: NewCard[] }>("deck_new", {})).cards.map((card) => card.entryId)).toEqual(["beta"]);
+    service.controller.abort();
+  });
+
   it("summarizes the source an install would use, to confirm for a third-party marketplace", async () => {
     const { rpc, service } = await host();
     const plan = await rpc<{ summary: { label: string }; confirmedSource: unknown }>("entry_plan", {

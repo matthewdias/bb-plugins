@@ -61,6 +61,7 @@ describe("the Saved tab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Move to the back (↑)" }));
     await waitFor(() => expect(triageStore.getSnapshot().saved.map((card) => card.entryId)).toEqual(["beta", "alpha"]));
     expect(call.mock.calls.map(([method]) => method)).not.toContain("decide");
+    expect(call).toHaveBeenCalledWith("later", { key: alpha.key });
   });
 
   it("explains an empty deck", () => {
