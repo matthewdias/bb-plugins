@@ -213,8 +213,9 @@ export function filingPrompt(
     `  bb follow-up filed <id> --thread ${parentThreadId} --to "${name}" --ref "<url or key>"`,
     "",
     "File each one once. If you cannot file one, or cannot tell how, do not record",
-    "it: it stays open on the user's list. Say why in one line in your reply. Do not",
-    "change the follow-ups, and do not do the work they describe — filing is all.",
+    "it: it stays open on the user's list, with your last reply shown on it as the",
+    "reason. So end with one line saying why. Do not change the follow-ups, and do",
+    "not do the work they describe — filing is all.",
     "",
     "When you are done, run `bb thread archive --self` and stop.",
   ].join("\n");
