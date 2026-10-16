@@ -129,6 +129,26 @@ describe("hiding", () => {
     expect(hiddenBy(items, byLabel("Edit message"))).toBe(true);
   });
 
+  it("puts :has() only on the element it hides", () => {
+    // An ancestor's :has() makes Chrome restyle the thread on every keystroke.
+    const items = scan(document);
+    expect(items.some((item) => item.surface === "message")).toBe(true);
+    for (const selector of items.flatMap(selectorsFor)) {
+      // Names are quoted and may hold parentheses: "Commit (".
+      const bare = selector.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      const at = bare.indexOf(":has(");
+      if (at === -1) continue;
+      let depth = 0;
+      let end = at + ":has".length;
+      do {
+        if (bare[end] === "(") depth++;
+        else if (bare[end] === ")") depth--;
+        end++;
+      } while (depth > 0 && end < bare.length);
+      expect(bare.slice(end), selector).toBe("");
+    }
+  });
+
   it("writes one rule, or none", () => {
     expect(stylesheetFor([])).toBe("");
     const css = stylesheetFor([message("Copy message"), banner("gh-context")]);
