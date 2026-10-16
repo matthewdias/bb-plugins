@@ -35,10 +35,17 @@ Read and Archive are the defaults for the two whole swipes. Each is a
 setting, and can be any of bb's own thread actions or nothing.
 
 A quick flick counts as much as a long drag, and a flick back the other way
-cancels. On a trackpad the two whole swipes take more: past the buttons the
-row holds still for a moment, as if caught on them, and from there, and on
-a swipe right, it moves slower than your fingers. A flick that carries on
-with momentum opens the row rather than archiving it. Scrolling the list, Escape and resizing the window all close an open
+cancels. On a trackpad the two whole swipes take more:
+
+- **Momentum doesn't count.** A row stays where your fingers left it while a
+  flick runs on, so a flick can open a row but not swipe it all the way.
+  Push again and the row follows.
+- **Past the buttons the row holds still** for a moment, as if caught on
+  them. From there, and on a swipe right, it moves slower than your fingers.
+
+Browsers don't say which wheel events are momentum. Swipe Controls takes a
+run of ever-smaller events in one direction to be momentum, which fingers
+rarely make. Scrolling the list, Escape and resizing the window all close an open
 row.
 
 ### Which actions

@@ -597,6 +597,49 @@ describe("row actions", () => {
     expect(env.ran.mock.calls).toEqual([["bb--core/archive"]]);
   });
 
+  /**
+   * A trackpad flick: the fingers' deltas, then momentum shrinking by `decay`
+   * a frame. Returns the momentum's total, which alone is far past either
+   * whole swipe.
+   */
+  function flick(target: Element, fingers: number[], decay = 0.93): number {
+    for (const dx of fingers) wheel(target, dx);
+    const way = Math.sign(fingers.at(-1)!);
+    let coasted = 0;
+    for (let size = Math.abs(fingers.at(-1)!) * decay; size >= 1; size *= decay) {
+      wheel(target, way * Math.round(size));
+      coasted += Math.round(size);
+    }
+    return coasted;
+  }
+
+  it("doesn't let a flick's momentum swipe a row all the way", () => {
+    const { env, row, anchor } = start();
+    expect(flick(anchor, [10, 25, 40, 55])).toBeGreaterThan(wheelToFull(LAYOUT));
+    // Where the fingers left it.
+    expect(row.style.translate).toBe(`${-(10 + 25 + 40 + 55)}px 0`);
+    endGesture();
+    vi.advanceTimersByTime(TIMING.slideOutMs + TIMING.settleMs);
+    expect(env.ran).not.toHaveBeenCalled();
+    expect(document.querySelector(".bbsc-row")?.hasAttribute("data-open")).toBe(true);
+  });
+
+  it("swipes all the way when the fingers push on after the momentum", () => {
+    const { env, anchor } = start();
+    flick(anchor, [10, 25, 40, 55], 0.7);
+    for (let pushed = 0; pushed < wheelToFull(LAYOUT); pushed += 40) wheel(anchor, 40);
+    endGesture();
+    vi.advanceTimersByTime(TIMING.slideOutMs);
+    expect(env.ran.mock.calls).toEqual([["bb--core/archive"]]);
+  });
+
+  it("doesn't let a flick right's momentum arm the swipe right", () => {
+    const { env, anchor } = start();
+    expect(flick(anchor, [-10, -20, -30])).toBeGreaterThan(WHEEL_TO_ARM_RIGHT);
+    endGesture();
+    expect(env.ran).not.toHaveBeenCalled();
+  });
+
   it("takes more on a trackpad than a flick to the full swipe's old mark", () => {
     const { env, anchor } = start();
     swipe(anchor, fullPx(LAYOUT) + 10);

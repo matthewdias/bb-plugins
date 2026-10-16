@@ -80,7 +80,13 @@ interface RowSession {
 type WheelRoute =
   | { kind: "none" }
   | { kind: "history"; inset: Element; spent: boolean }
-  | { kind: "row"; target: RowTarget; session: RowSession | null };
+  | {
+      kind: "row";
+      target: RowTarget;
+      session: RowSession | null;
+      /** How far the fingers have moved the row, momentum left out. */
+      travel: number;
+    };
 
 interface TouchSession {
   id: number;
@@ -252,7 +258,7 @@ export function startGestures(env: GestureEnv): () => void {
       const row = rowTarget(target);
       if (row !== null) {
         env.refreshRowActions();
-        return { kind: "row", target: row, session: null };
+        return { kind: "row", target: row, session: null, travel: 0 };
       }
     }
     if (settings.backForward && !env.compact()) {
@@ -328,10 +334,12 @@ export function startGestures(env: GestureEnv): () => void {
     }
 
     if (route.kind === "row") {
-      // Fingers moving left scroll content right (positive deltaX); the row follows the fingers.
-      const delta = -wheel.x;
+      // Fingers moving left scroll content right (positive deltaX); the row
+      // follows the fingers. Momentum carries the row no further: a flick
+      // can open a row, but not swipe it all the way.
+      route.travel = step.locked ? -wheel.x : route.travel - event.deltaX + step.momentumDx;
       if (step.locked) {
-        route.session = beginRow(route.target, delta);
+        route.session = beginRow(route.target, route.travel);
         if (route.session === null) {
           route = { kind: "none" };
           return;
@@ -339,7 +347,7 @@ export function startGestures(env: GestureEnv): () => void {
       }
       if (route.session === null) return;
       if (event.cancelable) event.preventDefault();
-      dragRow(route.session, delta, true);
+      dragRow(route.session, route.travel, true);
       return;
     }
 
