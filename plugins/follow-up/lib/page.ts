@@ -23,7 +23,13 @@
 // A thread that is working and asks nothing is not a card. It is in the "In
 // motion" lane, which says what it is doing rather than what it wants.
 import { z } from "zod";
+import { formSchema, isSpent, type Form } from "./ask.ts";
+import { checklistSchema, type ChecklistSummary } from "./checklist.ts";
+import { hasUnseen, reveal } from "./unseen.ts";
 import { mainActionFor, type FollowUp, type Reason, REASONS } from "./followups.ts";
+
+// Shown-as-code rules for text that could hide something; see unseen.ts.
+export { hasUnseen, reveal };
 
 /** Thread statuses with a turn under way, or about to be. Matches server.ts. */
 export const BUSY_STATUSES: ReadonlySet<string> = new Set([
@@ -411,52 +417,6 @@ function approvalSummary(subject: Record<string, unknown>): string {
   }
 }
 
-/**
- * Characters that draw nothing, or change how what is around them draws: the
- * set next steps refuse (lib/next-steps.ts), less the newline and tab that a
- * command or a plan legitimately holds. A bidi override can make a command
- * read differently from what runs, and a zero-width character can hide part
- * of a path, so in an approval each is shown, as ⟦U+202E⟧, never dropped.
- */
-const UNSEEN = /[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
-const PICTOGRAPH = /[\p{Extended_Pictographic}\p{Emoji_Modifier}]/u;
-
-/** Whether the character at `index` (of code points) draws nothing. */
-function unseenAt(chars: readonly string[], index: number): boolean {
-  const char = chars[index]!;
-  if (char === "\n" || char === "\t" || !UNSEEN.test(char)) return false;
-  // An emoji is drawn with these: a variation selector after a pictograph,
-  // and a joiner between two, belong to a symbol that does show.
-  const before = chars[index - 1] ?? "";
-  const after = chars[index + 1] ?? "";
-  if ((char === "\uFE0F" || char === "\uFE0E") && PICTOGRAPH.test(before)) return false;
-  if (char === "\u200D" && PICTOGRAPH.test(after)) {
-    return !(PICTOGRAPH.test(before) || (before === "\uFE0F" && PICTOGRAPH.test(chars[index - 2] ?? "")));
-  }
-  return true;
-}
-
-/** Text with every unseen character shown as ⟦U+XXXX⟧. */
-export function reveal(text: string): string {
-  const chars = [...text];
-  return chars
-    .map((char, index) =>
-      unseenAt(chars, index) ? `⟦U+${char.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}⟧` : char,
-    )
-    .join("");
-}
-
-/** Whether any string anywhere in a value holds an unseen character. */
-export function hasUnseen(value: unknown): boolean {
-  if (typeof value === "string") {
-    const chars = [...value];
-    return chars.some((_, index) => unseenAt(chars, index));
-  }
-  if (Array.isArray(value)) return value.some(hasUnseen);
-  const row = record(value);
-  return row !== null && Object.values(row).some(hasUnseen);
-}
-
 function strings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string").map(reveal)
@@ -756,6 +716,37 @@ export function prAction(pr: PrSummary): PrAction | null {
   }
 }
 
+/** The states a pull request leaves by itself: its checks finish, the merge queue gets to it. */
+const PR_MOVES_ALONE: readonly string[] = ["checks_pending", "queued"];
+
+/** Whether a pull request will change without anyone touching it. */
+export function prMovesAlone(pr: PrSummary | null): boolean {
+  return pr !== null && PR_MOVES_ALONE.includes(pr.attention);
+}
+
+/** How often such a pull request is looked at again, at first and then later. */
+export const PR_RECHECK_SOON_MS = 30 * 1000;
+export const PR_RECHECK_LATER_MS = 2 * 60 * 1000;
+/** How long it is looked at that often, and how long it is looked at at all. */
+export const PR_RECHECK_SOON_FOR_MS = 10 * 60 * 1000;
+export const PR_RECHECK_FOR_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * How soon to look again at a pull request that will change by itself, given
+ * how long it has been seen that way. Null once it has been so long that a
+ * page's own interval will do.
+ *
+ * bb has no event for a pull request changing, and a page asks again only
+ * when something signals it. So a thread that pushes and goes idle is looked
+ * at once, while its checks still run, and without this its card says nothing
+ * of the pull request until something unrelated happens to refresh the page.
+ */
+export function prRecheckMs(waitedMs: number): number | null {
+  if (waitedMs < PR_RECHECK_SOON_FOR_MS) return PR_RECHECK_SOON_MS;
+  if (waitedMs < PR_RECHECK_FOR_MS) return PR_RECHECK_LATER_MS;
+  return null;
+}
+
 /**
  * Which thread owns each worktree's pull request.
  *
@@ -843,6 +834,10 @@ export const LEADS = [
   "approval",
   "form",
   "stopped",
+  /** A form the agent asked with (`ask_form`), waiting between turns. */
+  "ask",
+  /** An Agent Checklists checklist that has stopped to wait for a person. */
+  "checklist",
   "wrap-up",
   "next",
   "page",
@@ -902,6 +897,10 @@ export const baseCardSchema = z.object({
    */
   attentionAt: z.number(),
   asks: z.array(pendingAskSchema),
+  /** The form the agent ended its turn with, while anything on it is unanswered. */
+  form: formSchema.nullable(),
+  /** The thread's checklist, while it waits on a person. See lib/checklist.ts. */
+  checklist: checklistSchema.nullable(),
   offer: offerSchema.nullable(),
   openFollowUps: z.number(),
   /**
@@ -948,6 +947,10 @@ export interface ThreadInputs {
   asks: PendingAsk[];
   /** Null when there is none, or offers are switched off. */
   offer: { steps: string[]; goalMet: boolean; offeredAt: string } | null;
+  /** The agent's `ask_form`, if one is waiting. Absent means none. */
+  form?: Form | null;
+  /** The thread's checklist, if it is waiting on a person. Absent means none. */
+  checklist?: ChecklistSummary | null;
   openFollowUps: number;
   /** The open rows themselves, in the thread's own order. */
   rows?: readonly FollowUp[];
@@ -1017,10 +1020,17 @@ export function cardFor(input: ThreadInputs): Card | null {
     : null;
   const wrapsUp =
     input.wrapUp?.held != null || (offer?.goalMet === true && input.openFollowUps > 0);
+  const form = input.form != null && !isSpent(input.form) ? input.form : null;
+  const checklist = input.checklist ?? null;
 
   let lead: Lead | null;
   if (blocked) lead = oldest(input.asks).kind;
   else if (thread.status === "error") lead = "stopped";
+  // A form is the agent saying outright what it needs, so it leads what the
+  // thread merely offers.
+  else if (form !== null) lead = "ask";
+  // A checklist that stopped is a run that will not move until someone says so.
+  else if (checklist !== null) lead = "checklist";
   else if (wrapsUp) lead = "wrap-up";
   else if (offer !== null && offer.steps.length > 0) lead = "next";
   else if (pageUrl !== null) lead = "page";
@@ -1044,6 +1054,8 @@ export function cardFor(input: ThreadInputs): Card | null {
     since: blocked ? oldest(input.asks).createdAt : thread.latestAttentionAt,
     attentionAt: thread.latestAttentionAt,
     asks: [...input.asks].sort((a, b) => a.createdAt - b.createdAt),
+    form,
+    checklist,
     offer,
     openFollowUps: input.openFollowUps,
     followUps: (input.rows ?? []).map((row) => laneRow(row, false)),
@@ -1158,6 +1170,8 @@ export function combineFamilies(cards: readonly Card[], threads: readonly Thread
       since,
       attentionAt: root.latestAttentionAt,
       asks: [],
+      form: null,
+      checklist: null,
       offer: null,
       openFollowUps: 0,
       followUps: [],

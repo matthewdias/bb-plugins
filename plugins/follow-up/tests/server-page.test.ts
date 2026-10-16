@@ -2,7 +2,7 @@
 // host, what each card's action calls, and when open pages are told to refetch.
 // lib/page.ts's rules have their own tests; these pin the wiring around them.
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server.ts";
 
@@ -744,4 +744,299 @@ test("page: an approval that offers no choice can't be answered from the page", 
     assert.deepEqual(await call("page_approve", { threadId: "thr_cmd", interactionId: "int_c", decision }), { outcome: "refused" });
   }
   assert.equal(calls("threads.interactions.resolve").length, 0);
+});
+
+// --- checklists (Agent Checklists, read through its own RPC) --------------------
+
+const waitingChecklist = (status: string, extra: Row = {}) => ({
+  checklist: {
+    id: "cl_1",
+    name: "Ship issue",
+    status,
+    lastError: null,
+    steps: [
+      { position: 0, title: "Plan", checked: true },
+      { position: 1, title: "Mutation-test the guard", checked: false },
+    ],
+    notes: [{ stepId: null, content: "Should expired tokens retry?", createdAt: 5 }],
+    ...extra,
+  },
+});
+
+type RpcCall = { pluginId: string; method: string; input: Row };
+
+/** Agent Checklists, answering `getForThread` from `byThread` and accepting anything else. */
+function checklistsPlugin(
+  harness: Awaited<ReturnType<typeof host>>["harness"],
+  byThread: Record<string, unknown>,
+  fails: string[] = [],
+  delayMs = 0,
+) {
+  const made: RpcCall[] = [];
+  harness.sdk.stub("plugins.callRpc", async (args: RpcCall) => {
+    made.push(args);
+    // Another plugin answers over a call, never at once.
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (fails.includes(args.method)) throw new Error(`${args.method} is down`);
+    return args.method === "getForThread" ? (byThread[String(args.input.threadId)] ?? { checklist: null }) : {};
+  });
+  return made;
+}
+
+const recent = (id: string, extra: Row = {}) => threadRow(id, { latestAttentionAt: NOW - 60_000, lastReadAt: NOW, ...extra });
+
+test("page: a checklist that stopped to wait gets its thread a card, read in the background", async () => {
+  const { call, harness, signals } = await host({ threads: [recent("thr_cl"), recent("thr_none")] });
+  const made = checklistsPlugin(harness, { thr_cl: waitingChecklist("paused") }, [], 30);
+  assert.deepEqual((await call("page_snapshot")).cards, [], "the page never waits on another plugin");
+  await settle();
+  assert.ok(signals() >= 1, "a read that found something says so");
+  const page = await call("page_snapshot");
+  assert.deepEqual(page.cards.map((card: Row) => [card.threadId, card.tier, card.lead]), [["thr_cl", "turn", "checklist"]]);
+  assert.deepEqual(page.cards[0].checklist, { id: "cl_1", name: "Ship issue", status: "paused", done: 1, total: 2, next: "Mutation-test the guard", note: "Should expired tokens retry?", noteCut: false, error: null });
+  assert.equal(page.count, 1);
+  assert.deepEqual(made.map((entry) => [entry.pluginId, entry.method, entry.input.threadId]).sort(), [
+    ["agent-checklists", "getForThread", "thr_cl"],
+    ["agent-checklists", "getForThread", "thr_none"],
+  ]);
+  // Read once: a second look at an unmoved thread asks nothing.
+  await call("page_snapshot");
+  await settle();
+  assert.equal(made.length, 2);
+});
+
+test("page: checklists are read only for idle threads that did something lately", async () => {
+  const { call, harness } = await host({
+    threads: [recent("thr_busy", { status: "active" }), threadRow("thr_old", { latestAttentionAt: NOW - 8 * 24 * 60 * 60 * 1000 }), recent("thr_idle")],
+  });
+  const made = checklistsPlugin(harness, {});
+  await call("page_snapshot");
+  await settle();
+  assert.deepEqual(made.map((entry) => entry.input.threadId), ["thr_idle"]);
+});
+
+test("page: a checklist read before its thread moved is not shown, and is read again", async () => {
+  const { call, harness, w } = await host({ threads: [recent("thr_cl")] });
+  const byThread: Record<string, unknown> = { thr_cl: waitingChecklist("paused") };
+  const made = checklistsPlugin(harness, byThread, [], 30);
+  await call("page_snapshot");
+  await settle();
+  assert.equal((await call("page_snapshot")).cards.length, 1);
+  // The agent worked and stopped again: its attention mark moved.
+  w.threads = [recent("thr_cl", { latestAttentionAt: NOW - 1000 })];
+  byThread.thr_cl = { checklist: null };
+  assert.deepEqual((await call("page_snapshot")).cards, [], "what was read about the thread as it was is not shown");
+  await settle();
+  assert.equal(made.length, 2);
+  assert.deepEqual((await call("page_snapshot")).cards, []);
+});
+
+test("page: without Agent Checklists there are no checklist cards, and it is not asked thread by thread", async () => {
+  const { call, harness } = await host({ threads: Array.from({ length: 12 }, (_, n) => recent(`thr_${n}`)) });
+  const made = checklistsPlugin(harness, {}, ["getForThread"]);
+  assert.deepEqual((await call("page_snapshot")).cards, []);
+  await settle();
+  assert.ok(made.length >= 1 && made.length <= 4, `asked ${made.length} times: the first few in flight, then no more`);
+  const asked = made.length;
+  await call("page_snapshot");
+  await settle();
+  assert.equal(made.length, asked, "not asked again until the retry interval has passed");
+});
+
+test("page: Continue approves the continuation a checklist waits on", async () => {
+  const { call, harness, calls } = await host({ threads: [recent("thr_cl")] });
+  const made = checklistsPlugin(harness, { thr_cl: waitingChecklist("awaiting_approval") });
+  assert.deepEqual(await call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "continue" }), { outcome: "done" });
+  assert.deepEqual(made.map((entry) => [entry.method, entry.input]), [
+    ["getForThread", { threadId: "thr_cl" }],
+    ["continue", { checklistId: "cl_1" }],
+  ]);
+  assert.equal(calls("threads.send").length, 0);
+});
+
+test("page: Reply and resume sends the reply first, then sets a paused checklist active", async () => {
+  const { call, harness, calls } = await host({ threads: [recent("thr_cl")] });
+  const made = checklistsPlugin(harness, { thr_cl: waitingChecklist("paused") });
+  // What Agent Checklists had been told to do by the time the reply went.
+  let actedBeforeReply: string[] | null = null;
+  harness.sdk.stub("threads.send", () => {
+    actedBeforeReply = made.filter((entry) => entry.method !== "getForThread").map((entry) => entry.method);
+    return { ok: true, delivery: "sent" };
+  });
+  const result = await call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume", reply: " Yes, retry once. " });
+  assert.deepEqual(result, { outcome: "done" });
+  assert.deepEqual(actedBeforeReply, [], "the reply goes first, so resuming finds the agent already working");
+  assert.deepEqual(made.filter((entry) => entry.method !== "getForThread").map((entry) => entry.method), ["updateSettings"]);
+  assert.equal((calls("threads.send")[0]?.input as Row[])[0]?.text, "Yes, retry once.");
+  assert.equal(calls("threads.send")[0]?.mode, "queue-if-active");
+  assert.deepEqual(made.at(-1)?.input, { checklistId: "cl_1", status: "active" });
+});
+
+test("page: Resume restarts a checklist that ran out of continuations, by its own method", async () => {
+  const { call, harness } = await host({ threads: [recent("thr_cl")] });
+  const made = checklistsPlugin(harness, { thr_cl: waitingChecklist("limit_reached") });
+  assert.deepEqual(await call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume" }), { outcome: "done" });
+  assert.deepEqual([made.at(-1)?.method, made.at(-1)?.input], ["resume", { checklistId: "cl_1" }]);
+});
+
+test("page: a press on a checklist that has moved on does nothing", async () => {
+  const { call, harness, calls } = await host({ threads: [recent("thr_cl")] });
+  const byThread: Record<string, unknown> = { thr_cl: waitingChecklist("paused") };
+  const made = checklistsPlugin(harness, byThread);
+  const acted = () => made.filter((entry) => entry.method !== "getForThread").length;
+  const press = (input: Row) => call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume", ...input });
+  assert.deepEqual(await press({ checklistId: "cl_other" }), { outcome: "stale" }, "another checklist is attached now");
+  assert.deepEqual(await press({ action: "continue" }), { outcome: "stale" }, "its state does not offer that");
+  byThread.thr_cl = waitingChecklist("limit_reached");
+  assert.deepEqual(await press({ reply: "Yes" }), { outcome: "stale" }, "a reply answers a paused checklist only");
+  byThread.thr_cl = waitingChecklist("active");
+  assert.deepEqual(await press({}), { outcome: "stale" }, "it is running again");
+  byThread.thr_cl = { checklist: null };
+  assert.deepEqual(await press({}), { outcome: "stale" });
+  assert.equal(acted(), 0);
+  assert.equal(calls("threads.send").length, 0);
+});
+
+test("page: a checklist action says when Agent Checklists cannot be reached, and when it refuses", async () => {
+  const down = await host({ threads: [recent("thr_cl")] });
+  checklistsPlugin(down.harness, {}, ["getForThread"]);
+  assert.deepEqual(await down.call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume" }), { outcome: "unavailable" });
+  const refusing = await host({ threads: [recent("thr_cl")] });
+  checklistsPlugin(refusing.harness, { thr_cl: waitingChecklist("limit_reached") }, ["resume"]);
+  assert.deepEqual(await refusing.call("page_checklist", { threadId: "thr_cl", checklistId: "cl_1", action: "resume" }), { outcome: "failed" });
+});
+
+// --- a pull request that is waiting on its own checks ---------------------------
+
+/**
+ * A host on a clock the test moves. bb has no event for a pull request
+ * changing, so what is under test is what happens as time passes and nobody
+ * asks: `pass` moves the clock a second at a time and lets each lookup land.
+ */
+async function hostOnAClock(t: TestContext, attention: string) {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: NOW });
+  const made = await host({
+    threads: [threadRow("thr_pr", { environmentId: "env_w", environmentIsWorktree: true })],
+    prs: { env_w: prResponse(attention) },
+  });
+  const landed = () => new Promise((resolve) => setImmediate(resolve));
+  const pass = async (ms: number) => {
+    for (let gone = 0; gone < ms; gone += 1000) {
+      t.mock.timers.tick(Math.min(1000, ms - gone));
+      await landed();
+      await landed();
+    }
+  };
+  const lookups = () => made.calls("environments.pullRequest").length;
+  // The page is opened once, which is the only time anyone asks. Two
+  // seconds: one for the lookup to land, one for the signal it sends.
+  await made.call("page_snapshot");
+  await pass(2000);
+  return { ...made, pass, lookups };
+}
+
+test("page: a pull request first seen with its checks running shows once they pass, with nobody asking", async (t) => {
+  const { call, w, pass, lookups, signals } = await hostOnAClock(t, "checks_pending");
+  assert.equal(lookups(), 1);
+  assert.deepEqual((await call("page_snapshot")).cards, [], "checks still running want nothing yet");
+  const told = signals();
+
+  w.prs.env_w = prResponse("ready_to_merge");
+  await pass(27_000);
+  assert.equal(lookups(), 1, "not before its time");
+  await pass(3000);
+  assert.equal(lookups(), 2);
+  assert.equal(signals(), told + 1, "the open page is told to ask again");
+  assert.deepEqual((await call("page_snapshot")).cards.map((card: any) => [card.threadId, card.pr.action]), [["thr_pr", "merge"]]);
+
+  // It wants you now, and that does not change by itself: no more looks.
+  await pass(4 * 60_000);
+  assert.equal(lookups(), 2);
+});
+
+test("page: one still waiting is looked at every half minute, then every two, then left to the page", async (t) => {
+  const { pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await pass(10 * 60_000);
+  assert.equal(lookups(), 1 + 20, "every 30 seconds for ten minutes");
+  await pass(10 * 60_000);
+  assert.equal(lookups(), 1 + 20 + 5, "then every two minutes");
+  await pass(2 * 60 * 60_000);
+  const last = lookups();
+  await pass(30 * 60_000);
+  assert.equal(lookups(), last, "and after two hours, only when a page asks");
+});
+
+test("page: a turn ending starts the wait for its checks over", async (t) => {
+  const { harness, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await pass(2 * 60 * 60_000 + 5 * 60_000);
+  const stopped = lookups();
+  await pass(5 * 60_000);
+  assert.equal(lookups(), stopped);
+  // The agent pushed again: new checks, a new wait.
+  await harness.emitThreadEvent("thread.idle", { thread: { id: "thr_pr", environmentId: "env_w" } } as never);
+  await pass(1000);
+  assert.equal(lookups(), stopped + 1, "the turn's own look");
+  await pass(31_000);
+  assert.equal(lookups(), stopped + 2, "and half a minute on, another");
+});
+
+test("page: a look in between does not double the looking", async (t) => {
+  const { harness, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await pass(10_000);
+  // A turn ends ten seconds in, with its own look: the one that was due is let go.
+  await harness.emitThreadEvent("thread.idle", { thread: { id: "thr_pr", environmentId: "env_w" } } as never);
+  await pass(1000);
+  assert.equal(lookups(), 2);
+  await pass(5 * 60_000);
+  assert.equal(lookups(), 2 + 10, "one look every half minute, not two");
+});
+
+test("page: checks run again are a new wait, however long the last one was", async (t) => {
+  const { call, w, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await pass(2 * 60 * 60_000 + 6 * 60_000);
+  // Waited out. The page asks, and finds they failed: no longer waiting.
+  w.prs.env_w = prResponse("checks_failed");
+  await call("page_snapshot");
+  await pass(6 * 60_000);
+  // Someone runs them again on GitHub; the page asks once more and sees it.
+  w.prs.env_w = prResponse("checks_pending");
+  await call("page_snapshot");
+  await pass(2000);
+  const seen = lookups();
+  w.prs.env_w = prResponse("ready_to_merge");
+  await pass(31_000);
+  assert.equal(lookups(), seen + 1, "looked at again half a minute on");
+  assert.deepEqual((await call("page_snapshot")).cards.map((card: any) => card.pr.action), ["merge"]);
+});
+
+test("page: a pull request that is not waiting on itself is looked at once", async (t) => {
+  for (const attention of ["ready_to_merge", "draft", "none"]) {
+    const { pass, lookups } = await hostOnAClock(t, attention);
+    await pass(4 * 60_000);
+    assert.equal(lookups(), 1, attention);
+    t.mock.timers.reset();
+  }
+});
+
+test("page: a lookup that fails while it waits does not end the waiting", async (t) => {
+  const { call, harness, w, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  let failing = true;
+  harness.sdk.stub("environments.pullRequest", (args: { environmentId: string }) => {
+    if (failing) throw new Error("GitHub is having a minute");
+    return w.prs[args.environmentId];
+  });
+  await pass(31_000);
+  assert.equal(lookups(), 2);
+  failing = false;
+  w.prs.env_w = prResponse("checks_failed");
+  await pass(31_000);
+  assert.equal(lookups(), 3);
+  assert.deepEqual((await call("page_snapshot")).cards.map((card: any) => card.pr.action), ["fix"]);
+});
+
+test("page: nothing is looked at again once the plugin is let go", async (t) => {
+  const { harness, pass, lookups } = await hostOnAClock(t, "checks_pending");
+  await harness.lifecycle.dispose();
+  await pass(2 * 60_000);
+  assert.equal(lookups(), 1);
 });
