@@ -9,8 +9,10 @@ import { SETTINGS } from "./lib/settings.ts";
 export default async function plugin(bb: BbPluginApi) {
   bb.settings.define({
     rowSwipes: { ...SETTINGS.rowSwipes },
+    swipeRight: { ...SETTINGS.swipeRight, options: [...SETTINGS.swipeRight.options] },
+    swipeLeftFull: { ...SETTINGS.swipeLeftFull, options: [...SETTINGS.swipeLeftFull.options] },
     rowLeftSwipe: { ...SETTINGS.rowLeftSwipe },
-    fullSwipeArchive: { ...SETTINGS.fullSwipeArchive },
+    hideRowActions: { ...SETTINGS.hideRowActions },
     backForward: { ...SETTINGS.backForward, options: [...SETTINGS.backForward.options] },
     haptics: { ...SETTINGS.haptics },
   });

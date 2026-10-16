@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { canScrollX, insetTarget, rowTarget } from "../lib/targets.ts";
 import { markRows } from "../lib/row-marks.ts";
 import { createHaptics } from "../lib/haptics.ts";
-import { backForwardEnabled, parseGestureSettings } from "../lib/settings.ts";
+import { backForwardEnabled, hidesRowActions, parseGestureSettings, parseSwipeActions } from "../lib/settings.ts";
 import { bbRow } from "./helpers.ts";
 
 afterEach(() => {
@@ -192,14 +192,41 @@ describe("settings", () => {
     expect(parseGestureSettings(undefined, true)).toEqual({
       rowSwipes: true,
       rowLeftSwipe: true,
-      fullSwipeArchive: true,
       backForward: true,
     });
     expect(parseGestureSettings({ rowSwipes: "yes", rowLeftSwipe: false }, false)).toEqual({
       rowSwipes: true,
       rowLeftSwipe: false,
-      fullSwipeArchive: true,
       backForward: false,
     });
+  });
+});
+
+describe("the whole swipes' settings", () => {
+  it("default to Mark read on the right and Archive all the way left", () => {
+    expect(parseSwipeActions(undefined)).toEqual({ right: "bb--core/read", fullLeft: "bb--core/archive" });
+  });
+
+  it("name bb's thread actions, or nothing", () => {
+    expect(parseSwipeActions({ swipeRight: "Pin", swipeLeftFull: "Delete" })).toEqual({
+      right: "bb--core/pin",
+      fullLeft: "bb--core/delete",
+    });
+    expect(parseSwipeActions({ swipeRight: "Nothing", swipeLeftFull: "Nothing" })).toEqual({ right: null, fullLeft: null });
+  });
+
+  it("fall back to the default for a value that isn't an option", () => {
+    expect(parseSwipeActions({ swipeRight: "Snooze", swipeLeftFull: true })).toEqual({
+      right: "bb--core/read",
+      fullLeft: "bb--core/archive",
+    });
+  });
+});
+
+describe("hiding bb's row buttons", () => {
+  it("is on by default, and only while rows swipe", () => {
+    expect(hidesRowActions(undefined)).toBe(true);
+    expect(hidesRowActions({ hideRowActions: false })).toBe(false);
+    expect(hidesRowActions({ rowSwipes: false })).toBe(false);
   });
 });
