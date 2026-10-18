@@ -86,6 +86,64 @@ html.bb-top-tabs-on [data-testid="app-nav-rail"] {
   display: none;
 }
 
+/* The rail is a column of the sidebar, not a sibling: bb sizes the sidebar
+   as the rail's width plus the list's, and a collapsed sidebar shrinks to
+   the rail. Without the rail the column would stand empty, so it goes to
+   nothing, the list takes the sidebar's whole width, and a collapsed sidebar
+   is gone, as it was before the rail. */
+html.bb-top-tabs-on [data-sidebar="gap"],
+html.bb-top-tabs-on [data-sidebar="panel"] {
+  --sidebar-rail-width: 0px !important;
+}
+
+html.bb-top-tabs-on [data-sidebar="panel"] {
+  overflow: hidden;
+}
+
+/* The list and the footer are sized in pixels, as the sidebar's width less
+   the rail's. */
+html.bb-top-tabs-on [data-testid="nav-rail-sidebar-body"] > [style*="width"],
+html.bb-top-tabs-on [data-testid="sidebar-footer-row"] [data-sidebar="collapsible-body"] > [style*="width"] {
+  width: 100% !important;
+}
+
+/* The footer's Settings gear sat at the foot of the rail, on the rail's
+   colour. It stays, beside the footer, on the sidebar's. */
+html.bb-top-tabs-on [data-testid="sidebar-footer-row"] > :first-child {
+  background: transparent;
+}
+
+/* In a browser, bb floats the sidebar toggle over the top-left corner, where
+   the rail used to give it room. The sidebar's header row and the page
+   header both make room for it again. */
+html.bb-top-tabs-on [data-testid="app-layout-root"]:not([data-framed]) [data-testid="app-sidebar-top-reserve-row"] {
+  padding-left: 44px;
+}
+
+html.bb-top-tabs-on [data-testid="app-layout-root"]:not([data-framed]) .peer[data-state="collapsed"] ~ [data-sidebar="inset"] [data-testid="app-page-header-content-row"] {
+  padding-left: 44px;
+}
+
+/* bb's desktop app on macOS frames the window: a title bar along the top,
+   with the traffic lights, back and forward, the sidebar toggle and the
+   right panel toggle, and the page as a card below it. The strip takes the
+   title bar's row: the page starts under the strip instead of under both, and
+   the title bar's controls sit in the strip, which leaves them room (see
+   useRowInsets in lib/desktop.ts). The bar lets clicks through to
+   the tabs everywhere but on its own controls. */
+html.bb-top-tabs-on [data-testid="app-layout-root"][data-framed] {
+  --bb-window-frame-top: 0px;
+  padding-top: 0;
+}
+
+html.bb-top-tabs-on [data-testid="app-window-title-bar"] {
+  pointer-events: none;
+}
+
+html.bb-top-tabs-on [data-testid="app-window-title-bar"] > * {
+  pointer-events: auto;
+}
+
 /* Set for a moment while the strip opens or closes the sidebar as part
    of a tab switch (lib/shell.ts): the sidebar, the space it holds, and the
    page header that makes room for its toggle all jump straight to their new

@@ -371,11 +371,22 @@ workarounds are kept small and in one place each:
   rather than `body:has(#bb-top-tabs)` because `:has()` made the browser
   restyle the whole page on every change inside the strip, which cost about
   140ms per tab switch on a long thread.
-- **macOS traffic lights.** In bb's desktop app the lights move into the
-  strip. `lib/desktop.ts` asks bb's desktop bridge the same two questions bb
-  asks: is this macOS, and is the window full screen. The strip then leaves
-  bb's own 84px inset and lowers its controls 2px, as bb does. Below the
-  strip, bb's toggle and page header drop their traffic-light reservation.
+- **The rail's column.** bb sizes the sidebar as the rail's width plus the
+  list's, and collapses it to the rail. While the strip is up, `top-tabs.css`
+  sets the rail's width to nothing and lets the list and footer fill the
+  sidebar, so there is no empty column and a collapsed sidebar is gone. In a
+  browser the sidebar toggle floats over the corner where the rail gave it
+  room, so the sidebar's header row and the page header make room for it.
+- **macOS title bar.** In bb's desktop app on macOS, bb 0.46 draws a title bar
+  along the top of the window, with the traffic lights, back and forward, the
+  sidebar toggle and the right panel toggle, and frames the page as a card
+  below it. The strip takes that row: the page starts under the strip, and the
+  strip pads itself around the title bar's buttons, measured each second and
+  on resize (`lib/desktop.ts`), so they sit in the strip and full screen
+  needs no special case. The title bar lets clicks through to the tabs except
+  on its buttons. `lib/desktop.ts` also asks bb's desktop bridge whether
+  this is macOS outside full screen, as bb does, to give the strip the title
+  bar's height.
 - **The sidebar.** `lib/shell.ts` reads the attributes bb's sidebar primitive
   publishes (`data-side`, `data-state`, `data-collapsible`). It toggles the
   sidebar by clicking bb's own toggle, so the collapse animates and bb's state

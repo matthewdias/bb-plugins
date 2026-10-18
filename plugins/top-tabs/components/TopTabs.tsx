@@ -22,7 +22,7 @@ import {
   type PluginSidebarThread,
 } from "@get-bb/plugin-sdk/app";
 import { publishController } from "../lib/controller.ts";
-import { useReservesTrafficLights } from "../lib/desktop.ts";
+import { useReservesTrafficLights, useRowInsets } from "../lib/desktop.ts";
 import { currentPath, navigateToPath, subscribeLocation } from "../lib/location.ts";
 import type { NavItem } from "../lib/nav-types.ts";
 import {
@@ -661,6 +661,8 @@ export function TopTabs() {
   }, [compact, trafficLights]);
 
   const stripRef = useRef<HTMLElement>(null);
+  // bb's own controls in the strip's row; see useRowInsets.
+  const rowInsets = useRowInsets(stripRef);
   const splitHooks = useRef<SplitHooks>({ partnerLabelFor, splitWithPartner, canBeInPane, openInSplit });
   splitHooks.current = { partnerLabelFor, splitWithPartner, canBeInPane, openInSplit };
   const drag = useTabDrag(tabRefs, live, stripRef, splitHooks);
@@ -826,6 +828,10 @@ export function TopTabs() {
       aria-label="Tabs"
       data-traffic-lights={trafficLights ? "" : undefined}
       data-dragging={drag.state === null ? undefined : ""}
+      style={{
+        paddingLeft: rowInsets.left === 0 ? undefined : rowInsets.left,
+        paddingRight: rowInsets.right === 0 ? undefined : rowInsets.right,
+      }}
     >
       <TabTooltipProvider>
         <div className="bb-top-tabs-list" ref={listRef} onWheel={onWheel} onKeyDown={onKeyDown}>

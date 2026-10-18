@@ -65,3 +65,64 @@ export function useReservesTrafficLights(): boolean {
 
   return mac && !fullScreen;
 }
+
+/**
+ * bb's controls that can sit in the strip's row: the macOS title bar's
+ * buttons, and the right panel toggle, which bb also lifts into the top row
+ * on the web's compose screen.
+ */
+const ROW_CONTROLS =
+  '[data-testid="app-window-title-bar"] button, button[data-testid="window-right-panel-toggle"], button[aria-label*="right panel"]';
+/** Space between those controls and the strip's first and last items. */
+const CONTROL_GAP = 8;
+/** Re-measure without a resize too: controls mount after the strip, and full screen moves them. */
+const MEASURE_MS = 1000;
+
+export interface RowInsets {
+  left: number;
+  right: number;
+}
+
+/**
+ * How much of the strip's row bb's own controls take at each end. Since bb
+ * 0.46 its desktop app on macOS draws a title bar along the top of the
+ * window: the traffic lights, back and forward and the sidebar toggle at the
+ * left, the right panel toggle at the right. The strip sits in that row, so
+ * it starts after the controls at the left and stops before the ones at the
+ * right. Measured rather than fixed, because they move with full screen, with
+ * the page, and with what bb puts there.
+ */
+export function measureRowInsets(rowBottom: number): RowInsets {
+  const width = document.documentElement.clientWidth;
+  let left = 0;
+  let right = 0;
+  for (const control of Array.from(document.querySelectorAll(ROW_CONTROLS))) {
+    if (control.closest("#bb-top-tabs") !== null) continue;
+    const box = control.getBoundingClientRect();
+    if (box.width === 0 || box.top >= rowBottom || box.bottom <= 0) continue;
+    if (box.left + box.width / 2 < width / 2) left = Math.max(left, Math.ceil(box.right + CONTROL_GAP));
+    else right = Math.max(right, Math.ceil(width - box.left + CONTROL_GAP));
+  }
+  return { left, right };
+}
+
+/** `measureRowInsets` for the strip, kept current. */
+export function useRowInsets(strip: { current: HTMLElement | null }): RowInsets {
+  const [insets, setInsets] = useState<RowInsets>({ left: 0, right: 0 });
+  useEffect(() => {
+    const read = () => {
+      const bottom = strip.current?.getBoundingClientRect().bottom;
+      if (bottom === undefined) return;
+      const next = measureRowInsets(bottom);
+      setInsets((before) => (before.left === next.left && before.right === next.right ? before : next));
+    };
+    read();
+    const timer = window.setInterval(read, MEASURE_MS);
+    window.addEventListener("resize", read);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("resize", read);
+    };
+  }, [strip]);
+  return insets;
+}
