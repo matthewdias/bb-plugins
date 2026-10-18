@@ -1,6 +1,6 @@
 # Top Tabs
 
-bb puts every destination in the sidebar, beside the threads. Open GitHub and
+bb puts every destination in a rail beside the threads. Open GitHub and
 your thread is gone. Go back to the thread and GitHub forgets the pull request
 you were reading. Top Tabs moves the destinations into a strip of tabs across
 the top of the window. Keep several open, switch between them, and each one
@@ -20,11 +20,10 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/top-tabs --tag-prefix top-tabs/
 ```
 
-On install, Top Tabs takes the sidebar's **header** slot (**Settings →
-Appearance → Header**). It draws nothing there; it's how the strip reaches
-bb's navigation. bb's own controls stay in the header, and the sidebar keeps
-whichever navigation you use, bb's own by default. If you choose another
-header, the strip keeps working from the last list it saw.
+Top Tabs 0.4 needs bb 0.46 or later. While the strip is up it takes the
+place of bb's navigation rail, which it hides: the strip lists the same
+destinations. On bb 0.45 and earlier, install 0.3.1 instead: put the tag,
+`@top-tabs/v0.3.1`, in place of `@*`, and leave out `--tag-prefix`.
 
 ## Using it
 
@@ -35,10 +34,9 @@ header, the strip keeps working from the last list it saw.
 - **Open one in a split** from the same menu, with the split button on the
   highlighted row or a ⌘-click (Ctrl-click elsewhere), as in bb's own
   navigation.
-- **Reorder, hide and split from the sidebar**, with bb's own navigation:
-  drag a row to reorder it, use its options menu to hide it, drag it into the
-  page to split it. The **+** menu follows bb's order, with Settings last.
-  See [The sidebar](#the-sidebar).
+- **Every destination is in the + menu**, including the ones hidden from
+  bb's rail, in the rail's order, with Settings last. See
+  [bb's navigation rail](#bbs-navigation-rail).
 - **Pin a tab** from its context menu, or with the pin on its row in the
   **+** menu, to keep it. See [Pinned tabs](#pinned-tabs).
 - **Close a tab** with the × that replaces its icon on hover (on a touch
@@ -59,7 +57,7 @@ header, the strip keeps working from the last list it saw.
 - **Right-click** a tab to pin or unpin it, close others, close everything to
   its right, open it in a split, or open the plugin's details.
 
-The first time it runs, the strip opens a tab for each destination your sidebar
+The first time it runs, the strip opens a tab for each destination your rail
 showed, so what you used is where you look for it.
 
 ### The Threads tab
@@ -95,8 +93,8 @@ New Thread. In a split, or already on the compose screen, it does nothing.
 
 ### The Settings tab
 
-bb's Settings can be a tab too. It opens whenever you go to Settings: from
-the sidebar's gear, with ⌘, (Ctrl+, elsewhere), from the palette, or from the
+bb's Settings can be a tab too. It opens whenever you go to Settings: with
+⌘, (Ctrl+, elsewhere), from the palette, or from the
 **+** menu, where it's listed last. Like any tab, you can pin it or close it, and it returns to the
 settings page you left it on.
 
@@ -107,7 +105,7 @@ Two things set it apart:
   there and it stays collapsed on Settings. Leaving gives every other tab back
   its own.
 - **It can't go in a split**, because bb doesn't put Settings in a pane.
-- **Leaving Settings closes it.** Escape, Back to app or the browser's back
+- **Leaving Settings closes it.** Escape or the browser's back
   closes the tab, as if Settings were a dialog. Switching tabs in the strip
   (a click, Ctrl+Tab, the **+** menu) leaves it open, a pinned Settings tab
   never closes, and ⌃⇧T reopens it at the page you left. Turn this off with
@@ -118,8 +116,7 @@ Two things set it apart:
 A pinned tab is one you always want in the strip:
 
 - It sits next to Threads, left of the divider, drawn as an icon. Hover it
-  for its name. **Show names on pinned tabs** names it like any other tab,
-  and **Show badges on pinned tabs** puts its panel's badge beside the icon.
+  for its name. **Show names on pinned tabs** names it like any other tab.
 - It has a home: where it was when you pinned it, or the panel's start if
   you pinned it before opening it. Once you move away from there, a dot
   appears on its icon. Hovering it tells you where it was pinned, unless that
@@ -149,8 +146,7 @@ without going there. Pins persist like every other tab.
 Close to nothing, pinned or not. A tab is a remembered location. A panel
 loads when you switch to it and unloads when you switch away, exactly as it
 did from the sidebar. bb has no way to keep a page alive in the background,
-so ten open tabs cost the same as one, apart from each panel's small sidebar
-badge (Pokédex's "11/1025", say), which bb's own sidebar was already drawing.
+so ten open tabs cost the same as one.
 
 That's also why a tab comes back at its location rather than its exact state.
 See [Where tabs return to](#where-tabs-return-to).
@@ -194,10 +190,10 @@ The strip follows bb's split view:
 - **Switching.** Clicking a tab that is already in a pane focuses that pane
   instead of replacing anything. For Threads, that's the pane showing a
   thread, and the one you were last in if two are.
-- **Opening.** Drag a tab down out of the strip and bb's own split gesture
-  takes over: drop on an edge to split, or in the middle to replace. "Open in
-  split" in the context menu does the same. For Threads, it opens the thread
-  it would return to.
+- **Opening.** Drag a tab down out of the strip into the page, or choose
+  "Open in split" from its context menu or the **+** menu. It opens in a new
+  pane on the right, where bb puts a split, and the drag previews that pane.
+  For Threads, it opens the thread it would return to.
 - **Splitting the tab you're looking at.** bb won't show one destination in
   two panes, so the strip brings in a partner. The partner is the tab you
   were on just before, or Threads if there wasn't one. For Threads, it's your
@@ -268,21 +264,25 @@ makes, such as arriving on a tab where you keep the sidebar open, is instant,
 as a browser's tabs switch. Opening or closing the sidebar yourself still
 slides as bb draws it. With reduced motion on, nothing animates.
 
-Above the thread list, the sidebar keeps bb's own navigation, unchanged.
-Its rows, drag-to-reorder, options menu, More, customize editor and
-drag-to-split all work as they do without Top Tabs, and the strip follows:
+### bb's navigation rail
 
-- Clicking a row opens its tab.
-- The **+** menu lists destinations in the order you set there.
-- Hiding an item from the sidebar leaves its tab alone. The strip holds
-  every destination either way, so the sidebar can carry as few as you like.
-  New thread and Search are a good minimum.
+Since bb 0.46 the destinations live in a rail of icons at the left edge.
+While the strip is up the rail is hidden, because the strip lists the same
+destinations, and the strip reads them from it:
+
+- The **+** menu lists every destination the rail knows, including the ones
+  hidden from it, in the rail's order. Hiding an item from the rail leaves
+  its tab alone.
+- Each tab shows the icon the rail draws for it, a plugin's own artwork
+  included.
+- To change the order, switch Top Tabs off, use **Customize rail**, and
+  switch it back on.
 
 ### On a phone
 
 Below bb's `md` breakpoint the sidebar is a drawer again and the strip steps
-aside. bb's navigation in the drawer has every destination: visible ones as
-rows, hidden ones behind **More**.
+aside. The rail is back, inside the drawer, with every destination: visible
+ones as icons, hidden ones behind **More**.
 
 ### On an iPad
 
@@ -301,7 +301,6 @@ to select. A long press opens a tab's context menu, which closes any tab.
 | After closing a tab, go back to the last one you used | off |
 | Tab labels | Always |
 | Show names on pinned tabs | off |
-| Show badges on pinned tabs | off |
 
 **Remember the sidebar** off keeps the sidebar wherever you leave it. The
 tabs work the same either way.
@@ -323,12 +322,6 @@ the other pins.
 
 Pinned tabs are icons whatever this says, unless **Show names on pinned
 tabs** is on: then they follow it like the rest. Hover any icon for its name.
-
-**Show badges on pinned tabs** draws the badge a panel shows beside its name
-in the sidebar (Pokédex's "11/1025", say) next to its pinned icon too. Named
-tabs always show it. A badge is something the panel draws, not a number Top
-Tabs can read, so it can't be shrunk to a dot, and it disappears on pages
-where bb hides its sidebar header, such as Settings.
 
 ## Commands
 
@@ -356,12 +349,10 @@ Reopen closed tab starts without a shortcut there. Give it one under
 
 ## How it works
 
-Three registrations:
+Two registrations:
 
 - An `experimental_appOverlay` draws the strip. It mounts once per window,
   outside every route, so it survives every navigation.
-- An `experimental_sidebarHeader` component that draws nothing carries bb's
-  navigation to the strip. The sidebar's own navigation is left to bb.
 - Palette commands drive the strip from the keyboard.
 
 Tabs are per client and live in localStorage. The strip on your phone is not
@@ -380,11 +371,27 @@ workarounds are kept small and in one place each:
   rather than `body:has(#bb-top-tabs)` because `:has()` made the browser
   restyle the whole page on every change inside the strip, which cost about
   140ms per tab switch on a long thread.
-- **macOS traffic lights.** In bb's desktop app the lights move into the
-  strip. `lib/desktop.ts` asks bb's desktop bridge the same two questions bb
-  asks: is this macOS, and is the window full screen. The strip then leaves
-  bb's own 84px inset and lowers its controls 2px, as bb does. Below the
-  strip, bb's toggle and page header drop their traffic-light reservation.
+- **The rail's column.** bb sizes the sidebar as the rail's width plus the
+  list's, and collapses it to the rail. While the strip is up, `top-tabs.css`
+  sets the rail's width to nothing and lets the list and footer fill the
+  sidebar, so there is no empty column and a collapsed sidebar is gone. The
+  rail's Settings gear, at the foot of that column, goes too: the strip has
+  Settings as a tab. In a browser bb floats the sidebar toggle over the
+  corner where the rail gave it room, so it moves up into the strip's row,
+  where the macOS app's title bar has it, and the strip starts after it.
+- **macOS title bar.** In bb's desktop app on macOS, bb 0.46 draws a title bar
+  along the top of the window, with the traffic lights, back and forward, the
+  sidebar toggle and the right panel toggle, and frames the page as a card
+  below it. The strip takes that row: the page starts under the strip, and the
+  strip pads itself around the title bar's buttons, measured each second and
+  on resize (`lib/desktop.ts`), so they sit in the strip and full screen
+  needs no special case. The title bar lets clicks through to the tabs except
+  on its buttons, which also get holes in the strip's window-drag region,
+  since Electron would otherwise let the strip's region take their clicks.
+  The strip takes the frame's gray, and the sidebar-and-page card keeps an
+  8px lip on the left where the rail used to be. `lib/desktop.ts` also asks bb's desktop bridge whether
+  this is macOS outside full screen, as bb does, to give the strip the title
+  bar's height.
 - **The sidebar.** `lib/shell.ts` reads the attributes bb's sidebar primitive
   publishes (`data-side`, `data-state`, `data-collapsible`). It toggles the
   sidebar by clicking bb's own toggle, so the collapse animates and bb's state
@@ -393,30 +400,33 @@ workarounds are kept small and in one place each:
 - **Returning to a location.** bb routes with React Router. `lib/location.ts`
   pushes a history entry and dispatches `popstate`, which React Router treats
   as an ordinary navigation.
-- **The header row.** bb gives a header plugin the row between the sidebar
-  toggle and back/forward. The bridge draws nothing there, so `top-tabs.css`
-  shrinks bb's slot to nothing just before the arrows, and the row lays out
-  as if no header were chosen. Plugins that measure the row depend on that,
-  such as compact-nav's "beside sidebar toggle" placement, which expects the
-  row's first element to be the arrows.
-- **Navigation items.** `experimental_useSidebarNavigation()` returns nothing
-  in an app overlay, but answers in the sidebar's slots. So a header-slot
-  component that draws nothing (`components/NavBridge.tsx`) publishes what it
-  sees, and the strip reads that (`lib/navigation-bridge.ts`). bb doesn't
-  mount the header on Settings. There, and if you pick another header, the
-  strip keeps the last items it saw and navigates by path. It also caches
-  them in localStorage, so a window loaded straight onto such a page still
-  shows its tabs.
+- **Navigation items.** bb 0.46 removed the plugin API for reading its
+  navigation, but the rail still draws from the same model: every
+  destination, the active one, and an `activate` that can open a split.
+  The rail hands it to its rows through React context, so `lib/rail.ts`
+  walks up React's tree from the rail's element (`data-testid="app-nav-rail"`)
+  to that context and reads its value, checked against the shape the strip
+  needs. It reads again whenever the rail changes, and once a second for
+  changes the rail doesn't draw, such as hiding an item.
+  `lib/navigation-bridge.ts` holds what it read. If the rail is missing or
+  the model has changed shape, the strip keeps the last items it saw and
+  navigates by path. It also caches them in localStorage, so a window that
+  loads before the rail draws still has its tabs.
+- **Icons.** The strip copies the artwork the rail draws for each item. An
+  item hidden from the rail has none drawn, so its tab draws it the way the
+  rail would: the named icon from bb's set, or, when bb doesn't know the
+  name, the plugin's branding from bb's plugin list. bb's `Icon` draws
+  Zap for an unknown name and says so in `data-icon`, which is how the strip
+  tells.
 - **Settings.** bb has no nav item for Settings, so the strip adds its own
   (`components/destinations.tsx`). It's reached by path, `/settings`, and
   recognised by route.
 - **Splits.** `useSidebarSplitLayout()` works from the overlay and says which
-  panes show threads. Which pane shows each destination comes from
-  `experimental_useSidebarNavigationSplit`, which also only answers in the
-  sidebar's slots, so the header bridge publishes one per destination
-  (`lib/split-bridge.ts`). The same bridge carries the drag handler the strip
-  passes a tab to when it leaves the strip. Closing a pane clicks that pane's
-  own "Close pane" button.
+  panes show threads. Which pane shows a destination is read off the pane:
+  the plugin page inside its `[data-split-pane-id]` element. When one plugin
+  has several destinations the pane can't be told apart, and no tab is marked.
+  Opening a split goes through the model's `activate`. Closing a pane clicks
+  that pane's own "Close pane" button.
 - **bb's Close on a lone page.** Since bb 0.45 a page shown on its own has
   the same "Close pane" button, and it opens New Thread. On a plugin tab the
   strip answers it first, from a capture-phase click listener on the
@@ -425,14 +435,14 @@ workarounds are kept small and in one place each:
   own behaviour comes back.
 
 If bb renames any of these, the likely failure is an element drawn under the
-strip or a sidebar that stops collapsing, not a broken app. If another
-navigation plugin is chosen, the strip shows only Threads.
+strip or a sidebar that stops collapsing, not a broken app. If bb changes the
+rail's model, the strip runs on its last list and opens tabs by path.
 
 ## Development
 
 ```sh
 npm install
-npm test                          # the tab model: tests/tabs-model.test.ts
+npm test                          # the tab model and the rail reader: tests/
 npm run typecheck
 bb plugin install .
 bb plugin dev .                   # rebuild + reload on save

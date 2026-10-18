@@ -57,9 +57,13 @@ html.bb-top-tabs-on [data-sidebar="panel"] {
   height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room));
 }
 
-/* So is the sidebar toggle bb floats over the corner. */
+/* In a browser, bb floats the sidebar toggle over the top-left corner, where
+   the rail used to give it room. Without the rail it would sit on whatever the
+   sidebar or page puts there, so it moves up into the strip's row, as the
+   macOS app's title bar has it, and the strip starts after it (useRowInsets
+   in lib/desktop.ts). */
 html.bb-top-tabs-on [data-testid="app-sidebar-trigger-overlay"] {
-  top: var(--bb-top-tabs-room);
+  height: var(--bb-top-tabs-height);
 }
 
 /* The desktop app has its own toggle, pinned to the window's top edge and
@@ -79,19 +83,70 @@ html.bb-top-tabs-on [data-testid="app-page-header-content-row"].pl-\[104px\] {
   padding-left: 32px;
 }
 
-/* The sidebar header slot, while it holds Top Tabs' bridge (components/
-   NavBridge), which draws nothing. bb gives a header plugin the whole row
-   between the toggle and back/forward; this one needs none of it, so the
-   row is laid out as if no header were chosen: the slot shrinks to nothing
-   just before the arrows. That matters to plugins that measure the row and
-   expect its first element to be the arrows, such as compact-nav's "beside
-   sidebar toggle" placement, which otherwise finds no room. */
-[data-sidebar-header-slot]:has(> [data-bb-plugin="top-tabs"]) {
-  flex: none;
-  width: 0;
-  min-width: 0;
-  margin-left: auto;
-  padding: 0;
+/* bb's navigation rail, while the strip is up. The strip lists the same
+   destinations, so the rail would only repeat them. It stays in the page,
+   hidden: the strip reads bb's navigation off it (lib/rail.ts). */
+html.bb-top-tabs-on [data-testid="app-nav-rail"] {
+  display: none;
+}
+
+/* The rail is a column of the sidebar, not a sibling: bb sizes the sidebar
+   as the rail's width plus the list's, and a collapsed sidebar shrinks to
+   the rail. Without the rail the column would stand empty, so it goes to
+   nothing, the list takes the sidebar's whole width, and a collapsed sidebar
+   is gone, as it was before the rail. */
+html.bb-top-tabs-on [data-sidebar="gap"],
+html.bb-top-tabs-on [data-sidebar="panel"] {
+  --sidebar-rail-width: 0px !important;
+}
+
+html.bb-top-tabs-on [data-sidebar="panel"] {
+  overflow: hidden;
+}
+
+/* The list and the footer are sized in pixels, as the sidebar's width less
+   the rail's. */
+html.bb-top-tabs-on [data-testid="nav-rail-sidebar-body"] > [style*="width"],
+html.bb-top-tabs-on [data-testid="sidebar-footer-row"] [data-sidebar="collapsible-body"] > [style*="width"] {
+  width: 100% !important;
+}
+
+/* The rail's Settings gear sits under the rail, at the left of the footer.
+   The strip has Settings as a tab, so the gear goes with the rail. */
+html.bb-top-tabs-on [data-testid="sidebar-footer-row"] > :first-child {
+  display: none;
+}
+
+/* bb's desktop app on macOS frames the window: a title bar along the top,
+   with the traffic lights, back and forward, the sidebar toggle and the
+   right panel toggle, and the page as a card below it. The strip takes the
+   title bar's row: the page starts under the strip instead of under both, and
+   the title bar's controls sit in the strip, which leaves them room (see
+   useRowInsets in lib/desktop.ts). The bar lets clicks through to
+   the tabs everywhere but on its own controls. */
+html.bb-top-tabs-on [data-testid="app-layout-root"][data-framed] {
+  --bb-window-frame-top: 0px;
+  padding-top: 0;
+}
+
+html.bb-top-tabs-on [data-testid="app-window-title-bar"] {
+  pointer-events: none;
+}
+
+html.bb-top-tabs-on [data-testid="app-window-title-bar"] > * {
+  pointer-events: auto;
+}
+
+/* In the frame, bb draws the sidebar and the page as one rounded card, with
+   the rail on the frame to its left. Without the rail, the card keeps the lip
+   the frame gives it on the other sides. */
+html.bb-top-tabs-on [data-framed] [data-sidebar="gap"] {
+  margin-left: var(--bb-window-frame-lip);
+}
+
+html.bb-top-tabs-on [data-framed] [data-sidebar="panel"] {
+  left: var(--bb-window-frame-lip);
+  height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room) - var(--bb-window-frame-lip));
 }
 
 /* Set for a moment while the strip opens or closes the sidebar as part
@@ -145,6 +200,14 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
 
 /* 84px is where bb puts its own first control beside the traffic lights, and
    2px is how far it lowers chrome controls to sit level with them. */
+/* In the frame (see above) the strip is part of it, as bb's title bar is: the
+   frame's gray, and no rule, since the card's own edge sits right below. */
+.bb-top-tabs[data-framed] {
+  border-bottom-color: transparent;
+  background-color: var(--sidebar);
+  background-image: linear-gradient(var(--surface-recessed), var(--surface-recessed));
+}
+
 .bb-top-tabs[data-traffic-lights] {
   padding-left: 84px;
   -webkit-app-region: drag;
@@ -156,6 +219,18 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
 }
 
 .bb-top-tabs button {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Over bb's own buttons in the strip's row (useRowInsets in lib/desktop.ts):
+   holes in the strip's drag region, so the window doesn't take their clicks.
+   They draw nothing and pass the pointer through to the buttons. */
+.bb-top-tabs .bb-top-tabs-no-drag,
+.bb-top-tabs[data-traffic-lights] > .bb-top-tabs-no-drag {
+  position: fixed;
+  pointer-events: none;
+  translate: none;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -323,6 +398,38 @@ svg.bb-top-tab-icon,
 .bb-top-tab-icon [data-icon-root] {
   width: 16px;
   height: 16px;
+}
+
+/* A destination's artwork copied from the rail (components/destinations),
+   which draws it larger. */
+.bb-top-tab-art {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A plugin's branding image, masked to the text colour as bb's rail draws it. */
+.bb-top-tab-brand {
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+}
+
+.bb-top-tab-art > svg,
+.bb-top-tab-art > img,
+.bb-top-tab-art > [data-icon-root] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
 }
 
 .bb-top-tab-label {

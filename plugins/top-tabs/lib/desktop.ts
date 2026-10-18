@@ -65,3 +65,103 @@ export function useReservesTrafficLights(): boolean {
 
   return mac && !fullScreen;
 }
+
+/**
+ * bb's controls that can sit in the strip's row: the macOS title bar's
+ * buttons; the browser's floating sidebar toggle, which top-tabs.css moves
+ * up into the row; and the right panel toggle, which bb also lifts into the
+ * top row on the web's compose screen.
+ */
+const ROW_CONTROLS = [
+  '[data-testid="app-window-title-bar"] button',
+  '[data-testid="app-sidebar-trigger-overlay"] button',
+  'button[data-testid="window-right-panel-toggle"]',
+  'button[aria-label*="right panel"]',
+].join(", ");
+/** Space between those controls and the strip's first and last items. */
+const CONTROL_GAP = 8;
+/** Re-measure without a resize too: controls mount after the strip, and full screen moves them. */
+const MEASURE_MS = 1000;
+
+export interface RowInsets {
+  left: number;
+  right: number;
+  /**
+   * Where each of those controls is, in the viewport. In bb's desktop app the
+   * strip is a window-drag region, and Electron works drag regions out in
+   * page order: the strip's, coming after bb's title bar, would cover the
+   * title bar's buttons again, and a drag region takes the click. The strip
+   * marks these rectangles no-drag after its own, so the buttons stay
+   * clickable.
+   */
+  holes: readonly { x: number; y: number; width: number; height: number }[];
+  /**
+   * bb frames the window, as its macOS app does: a gray frame around the
+   * page, which the strip then sits on. Read here because it is checked on
+   * the same schedule.
+   */
+  framed: boolean;
+}
+
+const NO_INSETS: RowInsets = { left: 0, right: 0, holes: [], framed: false };
+
+function sameInsets(a: RowInsets, b: RowInsets): boolean {
+  return (
+    a.left === b.left &&
+    a.right === b.right &&
+    a.framed === b.framed &&
+    JSON.stringify(a.holes) === JSON.stringify(b.holes)
+  );
+}
+
+/**
+ * How much of the strip's row bb's own controls take at each end. Since bb
+ * 0.46 its desktop app on macOS draws a title bar along the top of the
+ * window: the traffic lights, back and forward and the sidebar toggle at the
+ * left, the right panel toggle at the right. The strip sits in that row, so
+ * it starts after the controls at the left and stops before the ones at the
+ * right. Measured rather than fixed, because they move with full screen, with
+ * the page, and with what bb puts there.
+ */
+export function measureRowInsets(rowBottom: number): RowInsets {
+  const width = document.documentElement.clientWidth;
+  let left = 0;
+  let right = 0;
+  const holes: RowInsets["holes"][number][] = [];
+  for (const control of Array.from(document.querySelectorAll(ROW_CONTROLS))) {
+    if (control.closest("#bb-top-tabs") !== null) continue;
+    const box = control.getBoundingClientRect();
+    if (box.width === 0 || box.top >= rowBottom || box.bottom <= 0) continue;
+    holes.push({
+      x: Math.floor(box.left),
+      y: Math.floor(box.top),
+      width: Math.ceil(box.width),
+      height: Math.ceil(box.height),
+    });
+    if (box.left + box.width / 2 < width / 2) left = Math.max(left, Math.ceil(box.right + CONTROL_GAP));
+    else right = Math.max(right, Math.ceil(width - box.left + CONTROL_GAP));
+  }
+  const framed = document.querySelector('[data-testid="app-layout-root"][data-framed]') !== null;
+  return { left, right, holes, framed };
+}
+
+/** `measureRowInsets` for the strip, kept current. */
+export function useRowInsets(strip: { current: HTMLElement | null }): RowInsets {
+  const [insets, setInsets] = useState<RowInsets>(NO_INSETS);
+  useEffect(() => {
+    const read = () => {
+      const bottom = strip.current?.getBoundingClientRect().bottom;
+      if (bottom === undefined) return;
+      const next = measureRowInsets(bottom);
+      setInsets((before) => (sameInsets(before, next) ? before : next));
+    };
+    read();
+    const timer = window.setInterval(read, MEASURE_MS);
+    window.addEventListener("resize", read);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("resize", read);
+    };
+  }, [strip]);
+  return insets;
+}

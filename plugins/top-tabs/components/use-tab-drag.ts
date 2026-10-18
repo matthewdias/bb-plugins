@@ -1,6 +1,5 @@
 // Dragging a tab: sideways to reorder, down into the page to split.
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { ExperimentalSidebarNavigationSplit } from "@get-bb/plugin-sdk/app";
 import { contentRect } from "../lib/shell.ts";
 import { getState, update } from "../lib/store.ts";
 import { moveBefore } from "../lib/tabs-model.ts";
@@ -12,13 +11,15 @@ const SPLIT_HANDOFF_PX = 8;
 
 export interface LiveStrip {
   shown: readonly string[];
-  splits: ReadonlyMap<string, ExperimentalSidebarNavigationSplit>;
 }
 
 export interface SplitHooks {
   /** "Split with …" for the tab in view, or null when it cannot be split. */
   partnerLabelFor: (id: string) => string | null;
   splitWithPartner: (id: string) => void;
+  /** Whether a tab not in view can open in a pane beside the focused one. */
+  canBeInPane: (id: string) => boolean;
+  openInSplit: (id: string) => void;
 }
 
 interface DragState {
@@ -26,24 +27,28 @@ interface DragState {
   dx: number;
 }
 
-/** Where the partner will open, drawn while the tab in view is dragged down. */
+/** Where the split will open, drawn while a tab is dragged down into the page. */
 export interface SplitPreview {
   label: string;
   rect: { left: number; top: number; width: number; height: number };
 }
+
+/** What a tab dragged into the page does on release. */
+type Drop = "partner" | "self";
 
 /**
  * Drag a tab sideways to reorder. The order changes live as the dragged tab's
  * centre crosses a neighbour's, and the tab itself follows the pointer
  * between slots, so it never jumps out from under it.
  *
- * Drag it down out of the strip instead and bb's own split gesture takes
- * over: drop zones, the pane cap, focusing a destination that is already
- * open. The order goes back to how it was before the drag.
+ * Drag it down out of the strip instead to open it in a split. bb 0.46 no
+ * longer lends plugins its split gesture for destinations, so the strip runs
+ * the drag itself: it previews the new pane on the right half of the page,
+ * where bb puts a split, and opens it there on release. The order goes back
+ * to how it was before the drag.
  *
- * The tab in view is the exception. bb would only offer to focus the pane it
- * is already in, so the strip runs that drag itself: it previews the partner
- * opening beside the tab and splits on release.
+ * The tab in view is already on screen, so dragging it down opens its split
+ * partner beside it instead.
  */
 export function useTabDrag(
   tabRefs: { current: Map<string, HTMLElement> },
@@ -62,7 +67,7 @@ export function useTabDrag(
     order: readonly string[];
     source: HTMLElement;
     moved: boolean;
-    previewing: boolean;
+    previewing: Drop | null;
   } | null>(null);
   const swallowClick = useRef(false);
   const cleanup = useRef<(() => void) | null>(null);
@@ -82,32 +87,9 @@ export function useTabDrag(
       order: getState().open,
       source: event.currentTarget,
       moved: false,
-      previewing: false,
+      previewing: null,
     };
 
-    const handOffToSplit = (current: NonNullable<typeof press.current>): boolean => {
-      const split = live.current.splits.get(current.id);
-      const begin = split?.isAvailable ? split.splitProps.onPointerDown : undefined;
-      if (begin === undefined) return false;
-      update((s) => ({ ...s, open: current.order }));
-      press.current = null;
-      setState(null);
-      stop();
-      // bb's gesture reads where the press began and the element it began
-      // on, then follows the pointer itself. The press began a while ago, so
-      // it engages on the next movement.
-      begin({
-        button: 0,
-        clientX: current.startX,
-        clientY: current.startY,
-        currentTarget: current.source,
-        target: current.source,
-        pointerId: current.pointerId,
-        preventDefault() {},
-        stopPropagation() {},
-      } as unknown as ReactPointerEvent<HTMLElement>);
-      return true;
-    };
 
     const onMove = (move: PointerEvent) => {
       const current = press.current;
@@ -119,16 +101,18 @@ export function useTabDrag(
       current.moved = true;
       const stripBottom = stripRef.current?.getBoundingClientRect().bottom ?? Infinity;
       if (move.clientY > stripBottom + SPLIT_HANDOFF_PX) {
-        const label = split.current.partnerLabelFor(current.id);
-        const content = label === null ? null : contentRect();
-        if (label !== null && content !== null) {
-          if (!current.previewing) {
-            current.previewing = true;
+        const partner = split.current.partnerLabelFor(current.id);
+        const drop: Drop | null =
+          partner !== null ? "partner" : split.current.canBeInPane(current.id) ? "self" : null;
+        const content = drop === null ? null : contentRect();
+        if (drop !== null && content !== null) {
+          if (current.previewing !== drop) {
+            current.previewing = drop;
             update((s) => ({ ...s, open: current.order }));
             setState(null);
             const inset = 6;
             setPreview({
-              label: `Split with ${label}`,
+              label: drop === "partner" ? `Split with ${partner}` : "Open in split",
               rect: {
                 left: content.left + content.width / 2,
                 top: content.top + inset,
@@ -139,10 +123,9 @@ export function useTabDrag(
           }
           return;
         }
-        if (handOffToSplit(current)) return;
-      } else if (current.previewing) {
+      } else if (current.previewing !== null) {
         // Back over the strip: it is a reorder again.
-        current.previewing = false;
+        current.previewing = null;
         setPreview(null);
       }
 
@@ -166,7 +149,8 @@ export function useTabDrag(
     const onUp = (up: PointerEvent) => {
       const current = press.current;
       if (current === null || up.pointerId !== current.pointerId) return;
-      if (current.previewing) split.current.splitWithPartner(current.id);
+      if (current.previewing === "partner") split.current.splitWithPartner(current.id);
+      if (current.previewing === "self") split.current.openInSplit(current.id);
       setPreview(null);
       if (current.moved) {
         // The click that ends a drag must not open the tab. It arrives right

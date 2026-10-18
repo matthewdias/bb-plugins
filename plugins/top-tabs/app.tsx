@@ -6,29 +6,19 @@
 // where it was left, so switching between GitHub, Usage and the thread you
 // were in returns each to the same place.
 //
-// Three registrations do it:
-//   - an app overlay draws the strip above every route (components/TopTabs);
-//   - a sidebar header slot that draws nothing connects the strip to bb's own
-//     navigation, which stays the sidebar's (components/NavBridge);
+// Two registrations do it:
+//   - an app overlay draws the strip above every route (components/TopTabs),
+//     reading bb's destinations off the navigation rail it hides (lib/rail);
 //   - palette commands switch, close and reopen tabs from the keyboard.
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { getController } from "./lib/controller.ts";
 import { pageClose } from "./lib/shell.ts";
 import { THREADS, closeCommandAction } from "./lib/tabs-model.ts";
-import { NavBridge } from "./components/NavBridge.tsx";
 import { TopTabs } from "./components/TopTabs.tsx";
 import "./top-tabs.css";
 
 export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({ id: "strip", component: TopTabs });
-
-  // server.ts selects this slot on install; keep the id in step with it.
-  app.slots.experimental_sidebarHeader({
-    id: "nav-bridge",
-    title: "Top Tabs",
-    description: "Connects the tab strip to bb's navigation. Draws nothing in the header.",
-    component: NavBridge,
-  });
 
   const hasStrip = () => getController() !== null;
 

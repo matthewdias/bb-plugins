@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-top-tabs",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -21,8 +21,8 @@
     "url": "https://github.com/matthewdias/bb-plugins/issues"
   },
   "engines": {
-    "bb": ">=0.36",
-    "bbPluginSdk": ">=0.5.29"
+    "bb": ">=0.46",
+    "bbPluginSdk": ">=0.6.49"
   },
   "bb": {
     "name": "Top Tabs",
@@ -35,7 +35,7 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@get-bb/plugin-sdk": "0.5.29",
+    "@get-bb/plugin-sdk": "0.6.49",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

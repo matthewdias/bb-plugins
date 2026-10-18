@@ -1,6 +1,6 @@
 // The strip's own glyphs, drawn inline so they never depend on which icon
-// names a given bb build resolves. Destination icons come from bb itself,
-// through `experimental_SidebarNavigationIcon`.
+// names a given bb build resolves. Destination icons come from bb itself:
+// the rail's own artwork where it has drawn it (see components/destinations).
 import type { ScreenPane } from "../lib/tabs-model.ts";
 
 const STROKE = {
