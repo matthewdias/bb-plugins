@@ -210,6 +210,18 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
   app-region: no-drag;
 }
 
+/* Over bb's own buttons in the strip's row (useRowInsets in lib/desktop.ts):
+   holes in the strip's drag region, so the window doesn't take their clicks.
+   They draw nothing and pass the pointer through to the buttons. */
+.bb-top-tabs .bb-top-tabs-no-drag,
+.bb-top-tabs[data-traffic-lights] > .bb-top-tabs-no-drag {
+  position: fixed;
+  pointer-events: none;
+  translate: none;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 .bb-top-tabs-list {
   position: relative;
   display: flex;

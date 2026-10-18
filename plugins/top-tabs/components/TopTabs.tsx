@@ -833,6 +833,14 @@ export function TopTabs() {
         paddingRight: rowInsets.right === 0 ? undefined : rowInsets.right,
       }}
     >
+      {rowInsets.holes.map((hole) => (
+        <span
+          key={`${hole.x},${hole.y}`}
+          className="bb-top-tabs-no-drag"
+          style={{ left: hole.x, top: hole.y, width: hole.width, height: hole.height }}
+          aria-hidden="true"
+        />
+      ))}
       <TabTooltipProvider>
         <div className="bb-top-tabs-list" ref={listRef} onWheel={onWheel} onKeyDown={onKeyDown}>
           <ThreadSwitcher

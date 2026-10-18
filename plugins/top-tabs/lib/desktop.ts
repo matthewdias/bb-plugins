@@ -81,6 +81,21 @@ const MEASURE_MS = 1000;
 export interface RowInsets {
   left: number;
   right: number;
+  /**
+   * Where each of those controls is, in the viewport. In bb's desktop app the
+   * strip is a window-drag region, and Electron works drag regions out in
+   * page order: the strip's, coming after bb's title bar, would cover the
+   * title bar's buttons again, and a drag region takes the click. The strip
+   * marks these rectangles no-drag after its own, so the buttons stay
+   * clickable.
+   */
+  holes: readonly { x: number; y: number; width: number; height: number }[];
+}
+
+const NO_INSETS: RowInsets = { left: 0, right: 0, holes: [] };
+
+function sameInsets(a: RowInsets, b: RowInsets): boolean {
+  return a.left === b.left && a.right === b.right && JSON.stringify(a.holes) === JSON.stringify(b.holes);
 }
 
 /**
@@ -96,25 +111,32 @@ export function measureRowInsets(rowBottom: number): RowInsets {
   const width = document.documentElement.clientWidth;
   let left = 0;
   let right = 0;
+  const holes: RowInsets["holes"][number][] = [];
   for (const control of Array.from(document.querySelectorAll(ROW_CONTROLS))) {
     if (control.closest("#bb-top-tabs") !== null) continue;
     const box = control.getBoundingClientRect();
     if (box.width === 0 || box.top >= rowBottom || box.bottom <= 0) continue;
+    holes.push({
+      x: Math.floor(box.left),
+      y: Math.floor(box.top),
+      width: Math.ceil(box.width),
+      height: Math.ceil(box.height),
+    });
     if (box.left + box.width / 2 < width / 2) left = Math.max(left, Math.ceil(box.right + CONTROL_GAP));
     else right = Math.max(right, Math.ceil(width - box.left + CONTROL_GAP));
   }
-  return { left, right };
+  return { left, right, holes };
 }
 
 /** `measureRowInsets` for the strip, kept current. */
 export function useRowInsets(strip: { current: HTMLElement | null }): RowInsets {
-  const [insets, setInsets] = useState<RowInsets>({ left: 0, right: 0 });
+  const [insets, setInsets] = useState<RowInsets>(NO_INSETS);
   useEffect(() => {
     const read = () => {
       const bottom = strip.current?.getBoundingClientRect().bottom;
       if (bottom === undefined) return;
       const next = measureRowInsets(bottom);
-      setInsets((before) => (before.left === next.left && before.right === next.right ? before : next));
+      setInsets((before) => (sameInsets(before, next) ? before : next));
     };
     read();
     const timer = window.setInterval(read, MEASURE_MS);
