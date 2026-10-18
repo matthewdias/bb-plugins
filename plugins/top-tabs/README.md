@@ -93,8 +93,8 @@ New Thread. In a split, or already on the compose screen, it does nothing.
 
 ### The Settings tab
 
-bb's Settings can be a tab too. It opens whenever you go to Settings: from
-the sidebar's gear, with ⌘, (Ctrl+, elsewhere), from the palette, or from the
+bb's Settings can be a tab too. It opens whenever you go to Settings: with
+⌘, (Ctrl+, elsewhere), from the palette, or from the
 **+** menu, where it's listed last. Like any tab, you can pin it or close it, and it returns to the
 settings page you left it on.
 
@@ -374,9 +374,11 @@ workarounds are kept small and in one place each:
 - **The rail's column.** bb sizes the sidebar as the rail's width plus the
   list's, and collapses it to the rail. While the strip is up, `top-tabs.css`
   sets the rail's width to nothing and lets the list and footer fill the
-  sidebar, so there is no empty column and a collapsed sidebar is gone. In a
-  browser the sidebar toggle floats over the corner where the rail gave it
-  room, so the sidebar's header row and the page header make room for it.
+  sidebar, so there is no empty column and a collapsed sidebar is gone. The
+  rail's Settings gear, at the foot of that column, goes too: the strip has
+  Settings as a tab. In a browser bb floats the sidebar toggle over the
+  corner where the rail gave it room, so it moves up into the strip's row,
+  where the macOS app's title bar has it, and the strip starts after it.
 - **macOS title bar.** In bb's desktop app on macOS, bb 0.46 draws a title bar
   along the top of the window, with the traffic lights, back and forward, the
   sidebar toggle and the right panel toggle, and frames the page as a card
@@ -387,8 +389,7 @@ workarounds are kept small and in one place each:
   on its buttons, which also get holes in the strip's window-drag region,
   since Electron would otherwise let the strip's region take their clicks.
   The strip takes the frame's gray, and the sidebar-and-page card keeps an
-  8px lip on the left where the rail used to be, with the Settings gear moved
-  into the card's bottom-left corner. `lib/desktop.ts` also asks bb's desktop bridge whether
+  8px lip on the left where the rail used to be. `lib/desktop.ts` also asks bb's desktop bridge whether
   this is macOS outside full screen, as bb does, to give the strip the title
   bar's height.
 - **The sidebar.** `lib/shell.ts` reads the attributes bb's sidebar primitive

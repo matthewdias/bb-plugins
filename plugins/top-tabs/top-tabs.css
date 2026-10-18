@@ -57,9 +57,13 @@ html.bb-top-tabs-on [data-sidebar="panel"] {
   height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room));
 }
 
-/* So is the sidebar toggle bb floats over the corner. */
+/* In a browser, bb floats the sidebar toggle over the top-left corner, where
+   the rail used to give it room. Without the rail it would sit on whatever the
+   sidebar or page puts there, so it moves up into the strip's row, as the
+   macOS app's title bar has it, and the strip starts after it (useRowInsets
+   in lib/desktop.ts). */
 html.bb-top-tabs-on [data-testid="app-sidebar-trigger-overlay"] {
-  top: var(--bb-top-tabs-room);
+  height: var(--bb-top-tabs-height);
 }
 
 /* The desktop app has its own toggle, pinned to the window's top edge and
@@ -107,21 +111,10 @@ html.bb-top-tabs-on [data-testid="sidebar-footer-row"] [data-sidebar="collapsibl
   width: 100% !important;
 }
 
-/* The footer's Settings gear sat at the foot of the rail, on the rail's
-   colour. It stays, beside the footer, on the sidebar's. */
+/* The rail's Settings gear sits under the rail, at the left of the footer.
+   The strip has Settings as a tab, so the gear goes with the rail. */
 html.bb-top-tabs-on [data-testid="sidebar-footer-row"] > :first-child {
-  background: transparent;
-}
-
-/* In a browser, bb floats the sidebar toggle over the top-left corner, where
-   the rail used to give it room. The sidebar's header row and the page
-   header both make room for it again. */
-html.bb-top-tabs-on [data-testid="app-layout-root"]:not([data-framed]) [data-testid="app-sidebar-top-reserve-row"] {
-  padding-left: 44px;
-}
-
-html.bb-top-tabs-on [data-testid="app-layout-root"]:not([data-framed]) .peer[data-state="collapsed"] ~ [data-sidebar="inset"] [data-testid="app-page-header-content-row"] {
-  padding-left: 44px;
+  display: none;
 }
 
 /* bb's desktop app on macOS frames the window: a title bar along the top,
@@ -145,9 +138,8 @@ html.bb-top-tabs-on [data-testid="app-window-title-bar"] > * {
 }
 
 /* In the frame, bb draws the sidebar and the page as one rounded card, with
-   the rail and the sidebar's Settings gear on the frame to its left. Without
-   the rail, the card keeps the lip the frame gives it on the other sides, and
-   the gear moves into the card's bottom-left corner. */
+   the rail on the frame to its left. Without the rail, the card keeps the lip
+   the frame gives it on the other sides. */
 html.bb-top-tabs-on [data-framed] [data-sidebar="gap"] {
   margin-left: var(--bb-window-frame-lip);
 }
@@ -155,19 +147,6 @@ html.bb-top-tabs-on [data-framed] [data-sidebar="gap"] {
 html.bb-top-tabs-on [data-framed] [data-sidebar="panel"] {
   left: var(--bb-window-frame-lip);
   height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room) - var(--bb-window-frame-lip));
-}
-
-html.bb-top-tabs-on [data-framed] [data-testid="sidebar-footer-row"] > :first-child {
-  background: var(--sidebar);
-  border-bottom: 1px solid var(--border-seam);
-  border-left: 1px solid var(--border-seam);
-  border-bottom-left-radius: 0.75rem;
-}
-
-html.bb-top-tabs-on [data-framed] [data-testid="sidebar-footer-row"] > [data-sidebar="collapsible-body"] {
-  border-left-width: 0;
-  border-bottom-left-radius: 0;
-  clip-path: none;
 }
 
 /* Set for a moment while the strip opens or closes the sidebar as part

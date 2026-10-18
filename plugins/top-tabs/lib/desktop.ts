@@ -68,11 +68,16 @@ export function useReservesTrafficLights(): boolean {
 
 /**
  * bb's controls that can sit in the strip's row: the macOS title bar's
- * buttons, and the right panel toggle, which bb also lifts into the top row
- * on the web's compose screen.
+ * buttons; the browser's floating sidebar toggle, which top-tabs.css moves
+ * up into the row; and the right panel toggle, which bb also lifts into the
+ * top row on the web's compose screen.
  */
-const ROW_CONTROLS =
-  '[data-testid="app-window-title-bar"] button, button[data-testid="window-right-panel-toggle"], button[aria-label*="right panel"]';
+const ROW_CONTROLS = [
+  '[data-testid="app-window-title-bar"] button',
+  '[data-testid="app-sidebar-trigger-overlay"] button',
+  'button[data-testid="window-right-panel-toggle"]',
+  'button[aria-label*="right panel"]',
+].join(", ");
 /** Space between those controls and the strip's first and last items. */
 const CONTROL_GAP = 8;
 /** Re-measure without a resize too: controls mount after the strip, and full screen moves them. */
