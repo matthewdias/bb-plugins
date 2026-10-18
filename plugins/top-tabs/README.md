@@ -384,7 +384,11 @@ workarounds are kept small and in one place each:
   strip pads itself around the title bar's buttons, measured each second and
   on resize (`lib/desktop.ts`), so they sit in the strip and full screen
   needs no special case. The title bar lets clicks through to the tabs except
-  on its buttons. `lib/desktop.ts` also asks bb's desktop bridge whether
+  on its buttons, which also get holes in the strip's window-drag region,
+  since Electron would otherwise let the strip's region take their clicks.
+  The strip takes the frame's gray, and the sidebar-and-page card keeps an
+  8px lip on the left where the rail used to be, with the Settings gear moved
+  into the card's bottom-left corner. `lib/desktop.ts` also asks bb's desktop bridge whether
   this is macOS outside full screen, as bb does, to give the strip the title
   bar's height.
 - **The sidebar.** `lib/shell.ts` reads the attributes bb's sidebar primitive

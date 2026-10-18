@@ -827,6 +827,7 @@ export function TopTabs() {
       className="bb-top-tabs"
       aria-label="Tabs"
       data-traffic-lights={trafficLights ? "" : undefined}
+      data-framed={rowInsets.framed ? "" : undefined}
       data-dragging={drag.state === null ? undefined : ""}
       style={{
         paddingLeft: rowInsets.left === 0 ? undefined : rowInsets.left,

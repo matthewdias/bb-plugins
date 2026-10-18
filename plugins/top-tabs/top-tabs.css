@@ -144,6 +144,32 @@ html.bb-top-tabs-on [data-testid="app-window-title-bar"] > * {
   pointer-events: auto;
 }
 
+/* In the frame, bb draws the sidebar and the page as one rounded card, with
+   the rail and the sidebar's Settings gear on the frame to its left. Without
+   the rail, the card keeps the lip the frame gives it on the other sides, and
+   the gear moves into the card's bottom-left corner. */
+html.bb-top-tabs-on [data-framed] [data-sidebar="gap"] {
+  margin-left: var(--bb-window-frame-lip);
+}
+
+html.bb-top-tabs-on [data-framed] [data-sidebar="panel"] {
+  left: var(--bb-window-frame-lip);
+  height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room) - var(--bb-window-frame-lip));
+}
+
+html.bb-top-tabs-on [data-framed] [data-testid="sidebar-footer-row"] > :first-child {
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border-seam);
+  border-left: 1px solid var(--border-seam);
+  border-bottom-left-radius: 0.75rem;
+}
+
+html.bb-top-tabs-on [data-framed] [data-testid="sidebar-footer-row"] > [data-sidebar="collapsible-body"] {
+  border-left-width: 0;
+  border-bottom-left-radius: 0;
+  clip-path: none;
+}
+
 /* Set for a moment while the strip opens or closes the sidebar as part
    of a tab switch (lib/shell.ts): the sidebar, the space it holds, and the
    page header that makes room for its toggle all jump straight to their new
@@ -195,6 +221,14 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
 
 /* 84px is where bb puts its own first control beside the traffic lights, and
    2px is how far it lowers chrome controls to sit level with them. */
+/* In the frame (see above) the strip is part of it, as bb's title bar is: the
+   frame's gray, and no rule, since the card's own edge sits right below. */
+.bb-top-tabs[data-framed] {
+  border-bottom-color: transparent;
+  background-color: var(--sidebar);
+  background-image: linear-gradient(var(--surface-recessed), var(--surface-recessed));
+}
+
 .bb-top-tabs[data-traffic-lights] {
   padding-left: 84px;
   -webkit-app-region: drag;

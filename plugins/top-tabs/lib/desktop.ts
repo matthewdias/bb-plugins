@@ -90,12 +90,23 @@ export interface RowInsets {
    * clickable.
    */
   holes: readonly { x: number; y: number; width: number; height: number }[];
+  /**
+   * bb frames the window, as its macOS app does: a gray frame around the
+   * page, which the strip then sits on. Read here because it is checked on
+   * the same schedule.
+   */
+  framed: boolean;
 }
 
-const NO_INSETS: RowInsets = { left: 0, right: 0, holes: [] };
+const NO_INSETS: RowInsets = { left: 0, right: 0, holes: [], framed: false };
 
 function sameInsets(a: RowInsets, b: RowInsets): boolean {
-  return a.left === b.left && a.right === b.right && JSON.stringify(a.holes) === JSON.stringify(b.holes);
+  return (
+    a.left === b.left &&
+    a.right === b.right &&
+    a.framed === b.framed &&
+    JSON.stringify(a.holes) === JSON.stringify(b.holes)
+  );
 }
 
 /**
@@ -125,7 +136,8 @@ export function measureRowInsets(rowBottom: number): RowInsets {
     if (box.left + box.width / 2 < width / 2) left = Math.max(left, Math.ceil(box.right + CONTROL_GAP));
     else right = Math.max(right, Math.ceil(width - box.left + CONTROL_GAP));
   }
-  return { left, right, holes };
+  const framed = document.querySelector('[data-testid="app-layout-root"][data-framed]') !== null;
+  return { left, right, holes, framed };
 }
 
 /** `measureRowInsets` for the strip, kept current. */
