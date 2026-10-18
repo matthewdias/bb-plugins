@@ -202,7 +202,7 @@ export interface RouteTarget {
 }
 
 export interface Route {
-  /** `experimental_useSidebarNavigation().activeItemId`. */
+  /** The rail's active item id (lib/rail.ts). */
   activeItemId: string | null;
   pathname: string;
 }

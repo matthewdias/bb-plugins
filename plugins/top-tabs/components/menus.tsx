@@ -2,7 +2,7 @@
 import { useRef, type ReactNode } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import type { ExperimentalSidebarNavigationItem as NavItem } from "@get-bb/plugin-sdk/app";
+import type { NavItem } from "../lib/nav-types.ts";
 import { usePortalScopeProps } from "../lib/portal-scope.ts";
 import type { TabId } from "../lib/tabs-model.ts";
 import { TabIcon } from "./destinations.tsx";

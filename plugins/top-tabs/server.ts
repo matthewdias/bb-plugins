@@ -1,17 +1,8 @@
 // Top Tabs — server entry.
 //
-// Everything the strip does happens in the app bundle; the server exists for
-// two things only the server can do: declare the plugin's settings, and
-// claim the sidebar header slot when the plugin is installed. That slot is
-// how the strip reaches bb's navigation (see components/NavBridge); it draws
-// nothing, and leaves the header's own controls and the sidebar's
-// navigation to bb. bb picks no header by default, so the install picks this
-// one. The user can switch under Settings → Appearance → Header and that
-// choice sticks.
+// Everything the strip does happens in the app bundle; the server only
+// declares the plugin's settings.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-
-/** Must match the `experimental_sidebarHeader` id registered in app.tsx. */
-const HEADER_SLOT = "nav-bridge";
 
 export default async function plugin(bb: BbPluginApi) {
   bb.settings.define({
@@ -26,7 +17,7 @@ export default async function plugin(bb: BbPluginApi) {
       type: "boolean",
       label: "Close the Settings tab when you leave Settings",
       description:
-        "Escape, Back to app or going back closes the tab, as if Settings were a dialog. Switching tabs in the strip leaves it open, and a pinned Settings tab never closes.",
+        "Escape or going back closes the tab, as if Settings were a dialog. Switching tabs in the strip leaves it open, and a pinned Settings tab never closes.",
       default: true,
     },
     recentAfterClose: {
@@ -51,22 +42,5 @@ export default async function plugin(bb: BbPluginApi) {
         "Pinned tabs show their names as the other tabs do, following Tab labels. When off, they're icons.",
       default: false,
     },
-    pinnedBadges: {
-      type: "boolean",
-      label: "Show badges on pinned tabs",
-      description:
-        "A pinned icon shows the badge its panel draws beside its name in the sidebar, such as a count. Pinned tabs that show their names always show it.",
-      default: false,
-    },
-  });
-
-  bb.onInstall(async () => {
-    const key = "sidebar.headerProvider";
-    const { preferences } = await bb.sdk.system.uiPreferences.list();
-    await bb.sdk.system.uiPreferences.set({
-      key,
-      value: `${bb.pluginId}/${HEADER_SLOT}`,
-      expectedRevision: preferences[key].revision,
-    });
   });
 }

@@ -1,30 +1,21 @@
-// bb's navigation items, carried from the sidebar header to the strip.
+// bb's navigation items, carried from the rail to the strip.
 //
-// `experimental_useSidebarNavigation()` only has data inside the sidebar's
-// own slots: called from an app overlay it returns no items, and its actions
-// belong to the component that called it. So a header slot component that
-// draws nothing (components/NavBridge) publishes what it sees, and the strip
-// reads it here.
+// lib/rail.ts reads them off bb's navigation rail and publishes them here.
+// When the rail is gone, or stops offering a model the strip understands,
+// the strip keeps the last items it was given so its tabs stay put, but
+// marks them stale: the active item no longer describes the route and the
+// actions cannot be trusted, so the strip navigates by path instead until
+// the rail comes back.
 //
-// bb does not mount the header on every page (Settings has its own). The
-// strip keeps the last items it was given so its tabs stay put, but marks
-// them stale: the active item no longer describes the route, and the actions
-// do nothing once their component is gone, so the strip navigates by path
-// instead until the header comes back. When another header is chosen the
-// bridge never mounts and the strip runs on what it last saw.
-//
-// The items are also kept in localStorage, so a window loaded straight onto
-// one of those pages still has its tabs. A restored list is stale from the
+// The items are also kept in localStorage, so a window that loads before the
+// rail has drawn still has its tabs. A restored list is stale from the
 // start, exactly like a retired one.
 import { useSyncExternalStore } from "react";
-import type {
-  ExperimentalSidebarNavigationItem as NavItem,
-  ExperimentalSidebarNavigationState,
-} from "@get-bb/plugin-sdk/app";
+import type { NavItem, NavState } from "./nav-types.ts";
 
 export interface BridgedNavigation {
-  state: ExperimentalSidebarNavigationState;
-  /** False once the slot that published `state` has unmounted. */
+  state: NavState;
+  /** False once the rail that published `state` is gone. */
   live: boolean;
 }
 
@@ -36,13 +27,13 @@ function set(next: BridgedNavigation | null): void {
   for (const listener of listeners) listener();
 }
 
-export function publishNavigation(state: ExperimentalSidebarNavigationState): void {
+export function publishNavigation(state: NavState): void {
   if (current?.state === state && current.live) return;
   set({ state, live: true });
   persist(state.items);
 }
 
-/** The slot unmounted: keep its items, stop trusting its route and actions. */
+/** The rail went away: keep its items, stop trusting its route and actions. */
 export function retireNavigation(): void {
   if (current === null || !current.live) return;
   set({ state: current.state, live: false });
@@ -75,7 +66,7 @@ function persist(items: readonly NavItem[]): void {
   try {
     localStorage.setItem(snapshotKey, snapshot);
   } catch {
-    // Storage full or blocked: the strip just starts empty off the slot's pages.
+    // Storage full or blocked: the strip just starts empty until the rail draws.
   }
 }
 
@@ -84,7 +75,7 @@ const isString = (value: unknown): value is string => typeof value === "string" 
 function parseIcon(raw: unknown): NavItem["icon"] | null {
   if (typeof raw !== "object" || raw === null) return null;
   const icon = raw as Record<string, unknown>;
-  if (icon.kind === "host" && isString(icon.name)) return { kind: "host", name: icon.name } as NavItem["icon"];
+  if (icon.kind === "host" && isString(icon.name)) return { kind: "host", name: icon.name };
   if (icon.kind === "plugin" && isString(icon.pluginId) && (icon.icon === null || isString(icon.icon))) {
     return { kind: "plugin", pluginId: icon.pluginId, icon: icon.icon as string | null };
   }
@@ -129,24 +120,19 @@ function parseSnapshot(raw: unknown): NavItem[] {
       shortcut,
       isDisabled: false,
       isLoading: false,
-      experimental_Accessory: null,
     });
   }
   return items;
 }
 
-/** Actions for a list no slot is behind: none of them can do anything. */
-const STALE_ACTIONS: ExperimentalSidebarNavigationState["actions"] = {
+/** Actions for a list no rail is behind: none of them can do anything. */
+const STALE_ACTIONS: NavState["actions"] = {
   activate() {},
-  setVisible() {},
-  setOrder() {},
-  openCustomize() {},
   openDetails() {},
-  disablePlugin: async () => {},
 };
 
 /**
- * Key the snapshot by plugin id, and if no slot has published yet in this
+ * Key the snapshot by plugin id, and if the rail has not published yet in this
  * window, start from the last list it saw. Idempotent.
  */
 export function restoreNavigation(pluginId: string): void {

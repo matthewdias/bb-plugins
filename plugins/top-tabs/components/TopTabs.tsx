@@ -15,18 +15,23 @@ import {
 } from "react";
 import {
   experimental_usePluginId,
-  experimental_useSidebarThreadActions,
   experimental_useSidebarThreads,
   useBbNavigate,
   useSettings,
   useSidebarSplitLayout,
-  type ExperimentalSidebarNavigationItem as NavItem,
   type PluginSidebarThread,
 } from "@get-bb/plugin-sdk/app";
 import { publishController } from "../lib/controller.ts";
 import { useReservesTrafficLights } from "../lib/desktop.ts";
 import { currentPath, navigateToPath, subscribeLocation } from "../lib/location.ts";
-import { restoreNavigation, useBridgedNavigation } from "../lib/navigation-bridge.ts";
+import type { NavItem } from "../lib/nav-types.ts";
+import {
+  publishNavigation,
+  restoreNavigation,
+  retireNavigation,
+  useBridgedNavigation,
+} from "../lib/navigation-bridge.ts";
+import { destinationPanes, watchRail } from "../lib/rail.ts";
 import {
   COMPACT_QUERY,
   closePane,
@@ -41,7 +46,6 @@ import {
   toggleSidebar,
   type Ready,
 } from "../lib/shell.ts";
-import { useBridgedSplits } from "../lib/split-bridge.ts";
 import { getState, initStore, update, useTabsState } from "../lib/store.ts";
 import {
   SETTINGS,
@@ -111,6 +115,12 @@ function labelModeOf(value: unknown): LabelMode {
 }
 
 const NO_ITEMS: readonly NavItem[] = [];
+const NO_PANES: ReadonlyMap<string, readonly string[]> = new Map();
+
+/** The same panes for the same destinations. */
+function samePanes(a: ReadonlyMap<string, readonly string[]>, b: ReadonlyMap<string, readonly string[]>): boolean {
+  return JSON.stringify([...a]) === JSON.stringify([...b]);
+}
 
 function useMediaQuery(query: string): boolean {
   const subscribe = useCallback(
@@ -127,7 +137,7 @@ function useMediaQuery(query: string): boolean {
 function routeTarget(item: NavItem): RouteTarget {
   const { action } = item;
   return action.kind === "open-plugin-panel"
-    ? { id: item.id, kind: action.kind, pluginId: action.pluginId, panelId: action.panelId }
+    ? { id: item.id, kind: action.kind, pluginId: action.pluginId ?? null, panelId: action.panelId ?? null }
     : { id: item.id, kind: action.kind, pluginId: null, panelId: null };
 }
 
@@ -170,16 +180,20 @@ export function TopTabs() {
   const closeSettingsOnExit = values?.closeSettingsOnExit !== false;
   const labelMode = labelModeOf(values?.tabLabels);
   const pinnedLabels = values?.pinnedLabels === true;
-  const pinnedBadges = values?.pinnedBadges === true;
   const closeOrder = closeOrderOf(values?.recentAfterClose);
   const compact = useMediaQuery(COMPACT_QUERY);
   const trafficLights = useReservesTrafficLights();
   const path = useSyncExternalStore(subscribeLocation, currentPath);
   const pathname = pathnameOf(path);
   const splitLayout = useSidebarSplitLayout();
-  const splits = useBridgedSplits();
   const { threads } = experimental_useSidebarThreads();
-  const threadActions = experimental_useSidebarThreadActions();
+
+  // bb's destinations, read off the navigation rail for as long as the strip
+  // is mounted. See lib/rail.ts.
+  useEffect(
+    () => watchRail((state) => (state === null ? retireNavigation() : publishNavigation(state))),
+    [],
+  );
 
   const destinations = useMemo(() => destinationsOf(nav?.items ?? NO_ITEMS), [nav?.items]);
   const byId = useMemo(() => new Map(destinations.map((item) => [item.id, item])), [destinations]);
@@ -189,15 +203,27 @@ export function TopTabs() {
   // storage but not on screen, so they come back with their plugin.
   const shown = useMemo(() => tabs.open.filter((id) => byId.has(id)), [tabs.open, byId]);
 
+  // Which destination each pane of a split shows. bb says only which thread
+  // a pane holds, so the rest is read off the panes themselves, once bb has
+  // drawn them: after the layout changes, and again on the next frame.
+  const [paneOwners, setPaneOwners] = useState(NO_PANES);
+  const navItems = nav?.items ?? NO_ITEMS;
+  useEffect(() => {
+    const read = () =>
+      setPaneOwners((before) => {
+        const next = splitLayout === null ? NO_PANES : destinationPanes(navItems);
+        return samePanes(before, next) ? before : next;
+      });
+    read();
+    const frame = requestAnimationFrame(read);
+    return () => cancelAnimationFrame(frame);
+  }, [splitLayout, navItems]);
+
   // What each pane of a split shows, or null when nothing is split.
-  const screen = useMemo(() => {
-    const destinationPanes = new Map<string, string[]>();
-    for (const [id, split] of splits) {
-      const paneIds = split.layout?.panes.filter((p) => p.isMe).map((p) => p.paneId) ?? [];
-      if (paneIds.length > 0) destinationPanes.set(id, paneIds);
-    }
-    return panesOnScreen(splitLayout?.panes ?? null, destinationPanes, active);
-  }, [splitLayout, splits, active]);
+  const screen = useMemo(
+    () => panesOnScreen(splitLayout?.panes ?? null, paneOwners, active),
+    [splitLayout, paneOwners, active],
+  );
   // bb holding a split at all, on screen or not. The sidebar waits on this
   // rather than on `screen`, which blinks off for a render whenever focus
   // moves between panes.
@@ -205,8 +231,8 @@ export function TopTabs() {
 
   // Callbacks below read the latest of these rather than closing over them,
   // so the controller and window listeners never act on a stale strip.
-  const live = useRef({ active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit, closeOrder });
-  live.current = { active, byId, shown, nav, navLive, bbNavigate, screen, threads, splits, threadActions, compact, collapseSidebar, inSplit, closeOrder };
+  const live = useRef({ active, byId, shown, nav, navLive, bbNavigate, screen, threads, compact, collapseSidebar, inSplit, closeOrder });
+  live.current = { active, byId, shown, nav, navLive, bbNavigate, screen, threads, compact, collapseSidebar, inSplit, closeOrder };
 
   // First run: the destinations the sidebar showed become the open tabs.
   // Wait for the list to settle, since plugin panels register as their
@@ -416,7 +442,7 @@ export function TopTabs() {
   /** Go to one thread from the switcher: Threads, at that thread. */
   const openThread = useCallback(
     (thread: PluginSidebarThread) => {
-      const { active, threadActions } = live.current;
+      const { active, bbNavigate } = live.current;
       setSwitcher(null);
       stripMove.current = { to: THREADS, at: performance.now() };
       if (active !== THREADS) {
@@ -424,7 +450,7 @@ export function TopTabs() {
         if (!live.current.inSplit) playEntrance("page");
       }
       // bb's own open: it focuses the thread's pane if a split shows it.
-      threadActions.open(thread.id);
+      bbNavigate.toThread(thread.id);
     },
     [syncSidebar],
   );
@@ -528,25 +554,20 @@ export function TopTabs() {
 
   /** Whether `id` can occupy a split pane right now. */
   const canBeInPane = useCallback((id: TabId): boolean => {
-    const { byId, navLive, splits } = live.current;
+    const { byId, navLive } = live.current;
     if (id === THREADS) return threadIdFromPath(getState().paths[THREADS]) !== null;
     const item = byId.get(id);
     // Only plugin panels can sit in a pane, and opening one takes bb's
-    // navigation actions, which only work while the header bridge is mounted.
-    return (
-      item !== undefined &&
-      item.action.kind === "open-plugin-panel" &&
-      navLive &&
-      splits.get(id)?.isAvailable !== false
-    );
+    // navigation actions, which only work while the rail is there to read.
+    return item !== undefined && item.action.kind === "open-plugin-panel" && navLive;
   }, []);
 
   /** Put `id` in a new pane beside the focused one. */
   const openInSplit = useCallback((id: TabId) => {
-    const { nav, threadActions } = live.current;
+    const { nav, bbNavigate } = live.current;
     if (id === THREADS) {
       const threadId = threadIdFromPath(getState().paths[THREADS]);
-      if (threadId !== null) threadActions.open(threadId, { split: true });
+      if (threadId !== null) bbNavigate.toThread(threadId, { split: true });
       return;
     }
     nav?.actions.activate(id, { openInSplit: true });
@@ -640,8 +661,8 @@ export function TopTabs() {
   }, [compact, trafficLights]);
 
   const stripRef = useRef<HTMLElement>(null);
-  const splitHooks = useRef<SplitHooks>({ partnerLabelFor, splitWithPartner });
-  splitHooks.current = { partnerLabelFor, splitWithPartner };
+  const splitHooks = useRef<SplitHooks>({ partnerLabelFor, splitWithPartner, canBeInPane, openInSplit });
+  splitHooks.current = { partnerLabelFor, splitWithPartner, canBeInPane, openInSplit };
   const drag = useTabDrag(tabRefs, live, stripRef, splitHooks);
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -737,7 +758,6 @@ export function TopTabs() {
     // worth naming.
     const home = away ? subPathOf(tabs.homes[id], root) : null;
     const pinNote = home === null ? null : `Pinned at ${home}`;
-    const badged = labelled || (isPinned && pinnedBadges);
     return (
       <TabMenu key={id} {...menuFor(id)}>
         <div
@@ -776,11 +796,6 @@ export function TopTabs() {
                 {away && <span className="bb-top-tab-moved" aria-hidden="true" />}
               </span>
               {labelled && <span className="bb-top-tab-label">{item.label}</span>}
-              {badged && item.experimental_Accessory !== null && (
-                <span className="bb-top-tab-accessory">
-                  <item.experimental_Accessory />
-                </span>
-              )}
               {navLive && nav?.isShortcutModifierHeld === true && item.shortcut !== null && (
                 <kbd className="bb-top-tab-shortcut">{item.shortcut.label}</kbd>
               )}

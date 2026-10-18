@@ -79,19 +79,11 @@ html.bb-top-tabs-on [data-testid="app-page-header-content-row"].pl-\[104px\] {
   padding-left: 32px;
 }
 
-/* The sidebar header slot, while it holds Top Tabs' bridge (components/
-   NavBridge), which draws nothing. bb gives a header plugin the whole row
-   between the toggle and back/forward; this one needs none of it, so the
-   row is laid out as if no header were chosen: the slot shrinks to nothing
-   just before the arrows. That matters to plugins that measure the row and
-   expect its first element to be the arrows, such as compact-nav's "beside
-   sidebar toggle" placement, which otherwise finds no room. */
-[data-sidebar-header-slot]:has(> [data-bb-plugin="top-tabs"]) {
-  flex: none;
-  width: 0;
-  min-width: 0;
-  margin-left: auto;
-  padding: 0;
+/* bb's navigation rail, while the strip is up. The strip lists the same
+   destinations, so the rail would only repeat them. It stays in the page,
+   hidden: the strip reads bb's navigation off it (lib/rail.ts). */
+html.bb-top-tabs-on [data-testid="app-nav-rail"] {
+  display: none;
 }
 
 /* Set for a moment while the strip opens or closes the sidebar as part
@@ -323,6 +315,38 @@ svg.bb-top-tab-icon,
 .bb-top-tab-icon [data-icon-root] {
   width: 16px;
   height: 16px;
+}
+
+/* A destination's artwork copied from the rail (components/destinations),
+   which draws it larger. */
+.bb-top-tab-art {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A plugin's branding image, masked to the text colour as bb's rail draws it. */
+.bb-top-tab-brand {
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+}
+
+.bb-top-tab-art > svg,
+.bb-top-tab-art > img,
+.bb-top-tab-art > [data-icon-root] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
 }
 
 .bb-top-tab-label {
