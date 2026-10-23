@@ -16,6 +16,53 @@ function run(samples: [number, number, number][]): { gesture: WheelGesture | nul
   return { gesture, locks, begins };
 }
 
+/** deltaX each sample found to be momentum, in order. */
+function momentum(dxs: number[]): number[] {
+  let gesture: WheelGesture | null = null;
+  return dxs.map((dx, index) => {
+    const step = stepWheel(gesture, { dx, dy: 0, t: index * 16 });
+    gesture = step.gesture;
+    return step.momentumDx;
+  });
+}
+
+describe("momentum", () => {
+  it("is a run of samples one way, each smaller than the last, counted back to its start", () => {
+    expect(momentum([10, 20, 30, 28, 25, 21, 18, 15])).toEqual([0, 0, 0, 0, 0, 28 + 25 + 21, 18, 15]);
+  });
+
+  it("goes on through momentum's repeated last few pixels", () => {
+    expect(momentum([30, 20, 10, 6, 2, 2, 1, 1])).toEqual([0, 0, 0, 20 + 10 + 6, 2, 2, 1, 1]);
+  });
+
+  it("isn't fingers moving steadily, or slowing a little and speeding up again", () => {
+    expect(momentum([10, 10, 10, 10, 10, 10])).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(momentum([20, 18, 16, 19, 17, 15, 18])).toEqual([0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it("ends when the fingers push again", () => {
+    expect(momentum([40, 30, 20, 10, 25, 25])).toEqual([0, 0, 0, 30 + 20 + 10, 0, 0]);
+  });
+
+  it("ends when the swipe turns back", () => {
+    expect(momentum([-40, -30, -20, -10, 5, 4, 3])).toEqual([0, 0, 0, -30 - 20 - 10, 0, 0, 0]);
+  });
+
+  it("starts afresh with each gesture", () => {
+    let gesture: WheelGesture | null = null;
+    const steps = [30, 20, 10, 5].map((dx, index) => {
+      const step = stepWheel(gesture, { dx, dy: 0, t: index * 16 });
+      gesture = step.gesture;
+      return step;
+    });
+    expect(steps.at(-1)?.gesture.coasting).toBe(true);
+    const next = stepWheel(gesture, { dx: 4, dy: 0, t: 48 + WHEEL.gestureGapMs + 1 });
+    expect(next.began).toBe(true);
+    expect(next.gesture.coasting).toBe(false);
+    expect(next.momentumDx).toBe(0);
+  });
+});
+
 describe("stepWheel", () => {
   it("locks a slow horizontal swipe made of small deltas", () => {
     const { gesture, locks } = run([

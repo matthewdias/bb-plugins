@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ROW, type RowLayout, armOf, clampOffset, fullPx, releaseOf, revealWidth } from "../lib/row.ts";
+import { ROW, type RowLayout, WHEEL_ROW, armOf, clampOffset, fullPx, releaseOf, revealWidth, wheelOffset } from "../lib/row.ts";
 
 const layout = (overrides: Partial<RowLayout> = {}): RowLayout => ({
   width: 300,
@@ -96,5 +96,40 @@ describe("releaseOf", () => {
 
   it("only opens, never archives, when the full swipe is off", () => {
     expect(releaseOf(-280, 0, layout({ full: false }))).toBe("open");
+  });
+
+  it("has nothing to stay open on with a full swipe and no buttons", () => {
+    const bare = layout({ trailingActions: 0 });
+    expect(releaseOf(-40, 0, bare)).toBe("close");
+    expect(releaseOf(-40, -1, bare)).toBe("close");
+    expect(releaseOf(-(fullPx(bare) + 1), 0, bare)).toBe("full");
+  });
+});
+
+describe("wheelOffset", () => {
+  const reveal = revealWidth(layout());
+
+  it("follows the fingers until the buttons are uncovered, and a little way right", () => {
+    expect(wheelOffset(-reveal, layout())).toBe(-reveal);
+    expect(wheelOffset(WHEEL_ROW.leadingFreePx, layout())).toBe(WHEEL_ROW.leadingFreePx);
+  });
+
+  it("holds the row at its buttons for the detent", () => {
+    expect(wheelOffset(-(reveal + WHEEL_ROW.detentPx), layout())).toBe(-reveal);
+  });
+
+  it("then moves it at a fraction of the fingers' speed, either way", () => {
+    expect(wheelOffset(-(reveal + WHEEL_ROW.detentPx + 100), layout())).toBeCloseTo(-(reveal + 100 * WHEEL_ROW.resistance));
+    expect(wheelOffset(WHEEL_ROW.leadingFreePx + 100, layout())).toBeCloseTo(
+      WHEEL_ROW.leadingFreePx + 100 * WHEEL_ROW.resistance,
+    );
+  });
+
+  it("slows a row with no buttons from the start, with nothing to catch on", () => {
+    expect(wheelOffset(-100, layout({ trailingActions: 0 }))).toBeCloseTo(-100 * WHEEL_ROW.resistance);
+  });
+
+  it("leaves a row without a full swipe to its buttons' own overdrag", () => {
+    expect(wheelOffset(-(reveal + 100), layout({ full: false }))).toBe(-(reveal + 100));
   });
 });

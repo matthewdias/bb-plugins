@@ -3,12 +3,20 @@
  * DOM outside React (lib/views.ts).
  *
  * The action colours are Mail's hues, since bb's theme has no blue and its
- * primary is neutral. Each is a custom property so a theme can set its own.
+ * primary is neutral. bb's actions that Mail lacks take hues of their own.
+ * Any other action, another plugin's included, is grey, or bb's destructive
+ * red when it says it is destructive. Each is a custom property so a theme
+ * can set its own.
  */
 :root {
   --bbsc-read: oklch(60% 0.18 255);
   --bbsc-pin: var(--warning, oklch(70% 0.16 50));
   --bbsc-archive: oklch(55% 0.2 295);
+  --bbsc-split: oklch(52% 0.09 265);
+  --bbsc-copy-link: oklch(58% 0.11 200);
+  --bbsc-rename: oklch(58% 0.12 155);
+  --bbsc-other: oklch(54% 0.02 260);
+  --bbsc-destructive: var(--destructive, oklch(58% 0.22 27));
   --bbsc-action-foreground: oklch(100% 0 0);
 }
 
@@ -34,7 +42,6 @@
 .bbsc-lead {
   left: 0;
   align-items: center;
-  background: var(--bbsc-read);
   color: var(--bbsc-action-foreground);
 }
 
@@ -82,17 +89,91 @@
   transition: flex-grow 160ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.bbsc-action[data-action="pin"] {
+/* An action's colour, on the strip a swipe right uncovers and on a button. */
+.bbsc-lead,
+.bbsc-action {
+  background: var(--bbsc-other);
+}
+
+/* Two buttons of one colour still read as two. */
+.bbsc-action + .bbsc-action {
+  box-shadow: inset 1px 0 0 oklch(100% 0 0 / 0.18);
+}
+
+:is(.bbsc-lead, .bbsc-action)[data-destructive] {
+  background: var(--bbsc-destructive);
+}
+
+/* bb's own actions, by their thread action keys. */
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/read"] {
+  background: var(--bbsc-read);
+}
+
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/pin"] {
   background: var(--bbsc-pin);
 }
 
-.bbsc-action[data-action="archive"] {
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/archive"] {
   background: var(--bbsc-archive);
 }
 
-/* Armed for a full swipe: Archive takes the whole strip. */
-.bbsc-trail[data-full] .bbsc-action[data-action="pin"] {
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/split"] {
+  background: var(--bbsc-split);
+}
+
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/copyLink"] {
+  background: var(--bbsc-copy-link);
+}
+
+:is(.bbsc-lead, .bbsc-action)[data-action="bb--core/rename"] {
+  background: var(--bbsc-rename);
+}
+
+.bbsc-action:disabled {
+  cursor: default;
+}
+
+.bbsc-action:disabled > * {
+  opacity: 0.45;
+}
+
+/*
+ * Armed for a full swipe: its action takes the whole strip. When that action
+ * isn't one of the buttons it has no width until then.
+ */
+.bbsc-action.bbsc-full-only {
   flex-grow: 0;
+  cursor: default;
+}
+
+.bbsc-trail[data-full] .bbsc-action:not([data-full-swipe]) {
+  flex-grow: 0;
+}
+
+.bbsc-trail[data-full] .bbsc-action[data-full-swipe] {
+  flex-grow: 1;
+}
+
+/*
+ * bb's own quick-action buttons on a thread row, which a swipe now offers.
+ * The overlay sets the attribute while thread swipes and "Hide bb's row
+ * buttons" are both on.
+ *
+ * Only the buttons beside the row's menu, which itself stays. An archived
+ * row's Unarchive button stands outside those controls and is left alone: an
+ * archived thread doesn't swipe, so nothing else offers it.
+ */
+[data-bbsc-hide-row-actions] [class~="group/thread-row"] [data-sidebar-row-controls] [data-thread-action] {
+  display: none !important;
+}
+
+/*
+ * bb makes room for those buttons by padding the title on hover, by a width
+ * it sets inline on the title's wrapper as this variable. Without the
+ * buttons the title keeps its room.
+ */
+[data-bbsc-hide-row-actions] [class~="group/thread-row"]:has([data-sidebar-row-controls]) :has(> [data-sidebar-thread-id]) {
+  --bb-sidebar-hover-actions-inset: 0px !important;
 }
 
 .bbsc-icon {
@@ -100,9 +181,11 @@
   flex-shrink: 0;
 }
 
-.bbsc-icon svg {
+/* bb's icon, whatever element it draws with, and the arrows' own SVG. */
+.bbsc-icon > * {
   width: 16px;
   height: 16px;
+  flex-shrink: 0;
 }
 
 .bbsc-icon[hidden] {
@@ -111,14 +194,17 @@
 
 .bbsc-label {
   display: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 11px;
   font-weight: 500;
-  line-height: 1;
+  line-height: 1.2;
 }
 
 /* Tall touch rows have room for a name under each icon. */
 .bbsc-row[data-labels] .bbsc-label {
-  display: inline;
+  display: block;
 }
 
 .bbsc-row[data-labels] .bbsc-action {

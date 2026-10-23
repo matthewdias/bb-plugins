@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-swipe-controls",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -22,8 +22,8 @@
     "url": "https://github.com/matthewdias/bb-plugins/issues"
   },
   "engines": {
-    "bb": ">=0.45",
-    "bbPluginSdk": ">=0.6.15"
+    "bb": ">=0.46",
+    "bbPluginSdk": ">=0.6.37"
   },
   "bb": {
     "name": "Swipe Controls",
@@ -34,9 +34,12 @@
     "server": "./server.ts",
     "app": "./app.tsx"
   },
-  "dependencies": {},
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
   "devDependencies": {
-    "@get-bb/plugin-sdk": "0.6.15",
+    "@get-bb/plugin-sdk": "0.6.37",
+    "@testing-library/react": "^16.3.3",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

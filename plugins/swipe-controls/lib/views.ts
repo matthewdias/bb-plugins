@@ -8,21 +8,24 @@
 //
 // The row slides with the `translate` property, which composes with any
 // transform bb sets. bb's list doesn't clip sideways, so the part of the row
-// that slides past its own edge is clipped away with `clip-path`. Both inline
-// values are put back exactly as found.
+// that slides past its own edge is clipped away with `clip-path`. bb rounds a
+// row's corners, which would leave a notch where the row meets what it
+// uncovers, so the row is square while it slides. Every inline value is put
+// back exactly as found.
 // What it uncovers is drawn over the vacated strip, in a fixed layer on
 // <body>, not inside bb's row.
+//
+// A row's icons are bb's, named by the actions bb evaluated, and only React
+// can draw those. The view leaves an empty slot for each and hands it to
+// `drawIcon`, which the overlay fills.
 
 import { ICONS, type IconName } from "./icons.ts";
 import type { RowArm } from "./row.ts";
 import type { HistoryDirection } from "./history.ts";
+import type { RowButton, RowContent } from "./row-actions.ts";
 
-export type TrailingAction = "pin" | "archive";
-
-export interface RowViewContent {
-  leading: { icon: IconName; label: string };
-  trailing: { id: TrailingAction; icon: IconName; label: string }[];
-}
+/** Draw the bb icon `name` into `slot`. Returns what takes it out again. */
+export type DrawIcon = (slot: HTMLElement, name: string) => () => void;
 
 interface Box {
   top: number;
@@ -53,6 +56,12 @@ function icon(doc: Document, name: IconName): HTMLSpanElement {
   return span;
 }
 
+function slot(doc: Document): HTMLSpanElement {
+  const span = doc.createElement("span");
+  span.className = "bbsc-icon";
+  return span;
+}
+
 function label(doc: Document, text: string): HTMLSpanElement {
   const span = doc.createElement("span");
   span.className = "bbsc-label";
@@ -60,29 +69,49 @@ function label(doc: Document, text: string): HTMLSpanElement {
   return span;
 }
 
+/**
+ * The view on each row now. A swipe can start on a row whose last swipe is
+ * still easing closed, and two views on one row would each save what the
+ * other set: the newer one would then put back the older one's square
+ * corners. So a new view ends the one before it first.
+ */
+const current = new WeakMap<HTMLElement, RowView>();
+
 export class RowView {
   readonly row: HTMLElement;
   private readonly root: HTMLDivElement;
   private readonly lead: HTMLDivElement;
   private readonly trail: HTMLDivElement;
-  private readonly saved: { translate: string; transition: string; willChange: string; clipPath: string };
+  private readonly saved: {
+    translate: string;
+    transition: string;
+    willChange: string;
+    clipPath: string;
+    borderRadius: string;
+  };
+  private readonly icons: (() => void)[] = [];
   private destroyed = false;
 
   constructor(
     doc: Document,
     row: HTMLElement,
     box: Box,
-    content: RowViewContent,
-    onAction: (action: TrailingAction) => void,
+    content: RowContent,
+    onAction: (button: RowButton) => void,
+    drawIcon: DrawIcon,
   ) {
     this.row = row;
+    current.get(row)?.destroy();
+    current.set(row, this);
     this.saved = {
       translate: row.style.translate,
       transition: row.style.transition,
       willChange: row.style.willChange,
       clipPath: row.style.clipPath,
+      borderRadius: row.style.borderRadius,
     };
     row.style.willChange = "translate";
+    row.style.borderRadius = "0";
 
     this.root = layer(doc, "bbsc-row");
     Object.assign(this.root.style, {
@@ -93,12 +122,23 @@ export class RowView {
     });
     if (box.height >= LABEL_MIN_HEIGHT_PX) this.root.setAttribute("data-labels", "");
 
+    /** An action's colour, icon and name, on a strip or a button. */
+    const dress = (element: HTMLElement, action: RowButton) => {
+      element.dataset.action = action.key;
+      if (action.destructive) element.setAttribute("data-destructive", "");
+      const glyph = slot(doc);
+      this.icons.push(drawIcon(glyph, action.icon));
+      return [glyph, label(doc, action.label)];
+    };
+
     this.lead = doc.createElement("div");
     this.lead.className = "bbsc-lead";
-    const leadAction = doc.createElement("span");
-    leadAction.className = "bbsc-lead-action";
-    leadAction.append(icon(doc, content.leading.icon), label(doc, content.leading.label));
-    this.lead.append(leadAction);
+    if (content.leading !== null) {
+      const leadAction = doc.createElement("span");
+      leadAction.className = "bbsc-lead-action";
+      leadAction.append(...dress(this.lead, content.leading));
+      this.lead.append(leadAction);
+    }
 
     this.trail = doc.createElement("div");
     this.trail.className = "bbsc-trail";
@@ -106,16 +146,27 @@ export class RowView {
       const button = doc.createElement("button");
       button.type = "button";
       button.className = "bbsc-action";
-      button.dataset.action = action.id;
-      button.setAttribute("aria-label", action.label);
+      button.append(...dress(button, action));
+      if (action === content.full) button.setAttribute("data-full-swipe", "");
+      button.disabled = action.disabled;
+      button.setAttribute("aria-label", action.title);
       button.tabIndex = -1;
-      button.append(icon(doc, action.icon), label(doc, action.label));
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        onAction(action.id);
+        onAction(action);
       });
       this.trail.append(button);
+    }
+    // A full swipe's action that isn't one of the buttons: nothing to tap,
+    // only what takes over the strip once the swipe is far enough.
+    if (content.full !== null && !content.trailing.includes(content.full)) {
+      const full = doc.createElement("div");
+      full.className = "bbsc-action bbsc-full-only";
+      full.append(...dress(full, content.full));
+      full.setAttribute("data-full-swipe", "");
+      full.setAttribute("aria-hidden", "true");
+      this.trail.append(full);
     }
 
     this.root.append(this.lead, this.trail);
@@ -150,11 +201,13 @@ export class RowView {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    for (const remove of this.icons) remove();
     this.root.remove();
     this.row.style.translate = this.saved.translate;
     this.row.style.transition = this.saved.transition;
     this.row.style.willChange = this.saved.willChange;
     this.row.style.clipPath = this.saved.clipPath;
+    this.row.style.borderRadius = this.saved.borderRadius;
   }
 
   private toggle(element: Element, attribute: string, on: boolean): void {
