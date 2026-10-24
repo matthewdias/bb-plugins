@@ -58,6 +58,28 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("the Updates deck over RPC", () => {
+  it("names each plugin's store and category, for the grid's groups", async () => {
+    const { harness, deck, service } = await host();
+    harness.sdk.stub("plugins.catalog.search", () => ({
+      results: [
+        { entryId: "alpha", pluginId: "alpha", marketplaceDisplayName: "Acme", category: "Utilities", installed: false },
+        { entryId: "alpha", pluginId: "alpha", marketplaceDisplayName: "BB Community", category: "Code & Reviews", installed: true },
+      ],
+    }));
+    const listing = Object.fromEntries((await deck()).cards.map((card) => [card.pluginId, card.listing]));
+    expect(listing).toEqual({ alpha: { category: "Code & Reviews", store: "BB Community" }, beta: null, [SELF]: null });
+    service.controller.abort();
+  });
+
+  it("still deals when the catalog can't be read", async () => {
+    const { harness, cards, service } = await host();
+    harness.sdk.stub("plugins.catalog.search", () => {
+      throw new Error("offline");
+    });
+    expect(await cards()).toEqual(["alpha", "beta", SELF]);
+    service.controller.abort();
+  });
+
   it("lists every plugin with an update, this one last", async () => {
     const { cards, service } = await host();
     expect(await cards()).toEqual(["alpha", "beta", SELF]);

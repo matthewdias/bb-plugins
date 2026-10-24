@@ -10,13 +10,34 @@ import type { Plan } from "./decisions";
 import { Gallery } from "./Gallery";
 import { haptic } from "./haptics";
 
-export function PluginIcon({ card, className }: { card: Pick<NewCard, "icon" | "iconUrl" | "displayName">; className?: string }) {
+/** `compact` is the size bb's store gives a listing's icon in its grid. */
+export function PluginIcon({
+  card,
+  className,
+  compact = false,
+}: {
+  card: Pick<NewCard, "icon" | "iconUrl" | "displayName">;
+  className?: string;
+  compact?: boolean;
+}) {
   if (card.iconUrl !== null) {
-    return <img src={card.iconUrl} alt="" className={cn("size-12 shrink-0 rounded-lg object-contain", className)} />;
+    return (
+      <img
+        src={card.iconUrl}
+        alt=""
+        className={cn("shrink-0 object-contain", compact ? "size-6 rounded" : "size-12 rounded-lg", className)}
+      />
+    );
   }
   return (
-    <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-lg bg-muted", className)}>
-      <Icon name={card.icon ?? "Puzzle"} fallback="Puzzle" className="size-6" aria-hidden />
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center bg-muted",
+        compact ? "size-6 rounded border border-border" : "size-12 rounded-lg",
+        className,
+      )}
+    >
+      <Icon name={card.icon ?? "Puzzle"} fallback="Puzzle" className={compact ? "size-4" : "size-6"} aria-hidden />
     </span>
   );
 }

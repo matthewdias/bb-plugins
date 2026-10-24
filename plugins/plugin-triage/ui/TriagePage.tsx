@@ -1,5 +1,6 @@
 // The Triage page, drawn inside bb's Plugins screen: the New deck, Updates,
-// Cleanup, and the plugins saved for later, each dealt as a deck.
+// Cleanup, and the plugins saved for later, each dealt as a deck or, at the
+// flip of a switch, laid out all at once as bb's plugin store lays them out.
 import { useEffect, useSyncExternalStore } from "react";
 import { useRpc, experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
@@ -8,11 +9,40 @@ import type { rpcContract } from "../lib/contract";
 import { TABS, type Tab } from "../lib/tabs";
 import { EntryDeck } from "./EntryDeck";
 import { CleanupPanel } from "./CleanupPanel";
+import { setLayout, useLayout, type Layout } from "./layout";
 import { QueueBar } from "./QueueBar";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { triageStore } from "./triage-store";
 
 const TAB_LABELS: Record<Tab, string> = { new: "New", updates: "Updates", cleanup: "Cleanup", saved: "Saved" };
+
+const LAYOUTS: { id: Layout; label: string; icon: string }[] = [
+  { id: "deck", label: "One card at a time", icon: "Layers" },
+  { id: "grid", label: "All cards at once", icon: "GridView" },
+];
+
+function LayoutSwitch({ layout }: { layout: Layout }) {
+  return (
+    <div className="flex shrink-0 rounded-lg border border-border p-0.5" role="group" aria-label="Layout">
+      {LAYOUTS.map(({ id, label, icon }) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={layout === id}
+          aria-label={label}
+          title={label}
+          onClick={() => setLayout(id)}
+          className={cn(
+            "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground",
+            layout === id && "bg-state-active text-foreground",
+          )}
+        >
+          <Icon name={icon} className="size-4" aria-hidden />
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /**
  * The tab comes from the address, so Back walks tabs and a reload or a link
@@ -22,6 +52,7 @@ const TAB_LABELS: Record<Tab, string> = { new: "New", updates: "Updates", cleanu
 export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (tab: Tab) => void; heading?: boolean }) {
   const rpc = useRpc<typeof rpcContract>();
   const deck = useSyncExternalStore(triageStore.subscribe, triageStore.getSnapshot);
+  const layout = useLayout();
 
   useEffect(() => {
     void triageStore.load(rpc);
@@ -64,7 +95,7 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
           <Button
             variant="ghost"
             size="sm"
-            className="ml-auto text-xs text-muted-foreground"
+            className="ml-auto shrink-0 text-xs text-muted-foreground"
             aria-pressed={deck.includeIncompatible}
             onClick={() => triageStore.setIncludeIncompatible(rpc, !deck.includeIncompatible)}
             title="Also show plugins that need a newer bb"
@@ -74,6 +105,9 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
             <span className="sm:hidden">Incompatible</span>
           </Button>
         )}
+        <div className={cn("shrink-0", tab !== "new" && "ml-auto")}>
+          <LayoutSwitch layout={layout} />
+        </div>
       </header>
 
       {/* The queue floats over the bottom of the page rather than sitting
@@ -101,14 +135,15 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
             deck="new"
             cards={deck.cards}
             keyboard
+            layout={layout}
             empty={<Empty title="You're all caught up" detail="New plugins appear here as they're published." />}
           />
         )}
         {deck.status === "ready" && tab === "updates" && (
-          <UpdatesPanel rpc={rpc} updates={deck.updates} keyboard={tab === "updates"} />
+          <UpdatesPanel rpc={rpc} updates={deck.updates} keyboard={tab === "updates"} layout={layout} />
         )}
         {deck.status === "ready" && tab === "cleanup" && (
-          <CleanupPanel rpc={rpc} cleanup={deck.cleanup} keyboard={tab === "cleanup"} />
+          <CleanupPanel rpc={rpc} cleanup={deck.cleanup} keyboard={tab === "cleanup"} layout={layout} />
         )}
         {deck.status === "ready" && tab === "saved" && (
           <EntryDeck
@@ -116,6 +151,7 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
             deck="saved"
             cards={deck.saved}
             keyboard
+            layout={layout}
             empty={<Empty title="Nothing saved" detail="Drag a new plugin up, or press ↑, to keep it here for later." />}
           />
         )}

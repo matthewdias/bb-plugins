@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Changes } from "../lib/changes";
 import type { UpdateCard as Card } from "../lib/updates-deck";
+import { CardGrid, GridCard } from "./CardGrid";
 import { CardStack, type DeckActions } from "./CardStack";
-import { ago } from "./EntryCard";
+import { PluginIcon, ago } from "./EntryCard";
 import { haptic } from "./haptics";
+import type { Layout } from "./layout";
 import { navigateInApp, pluginDetailsPath } from "./navigate";
 import type { TriageRpc, UpdatesState } from "./triage-store";
 import { UpdateCard } from "./UpdateCard";
@@ -95,13 +97,56 @@ function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updates: UpdatesState; keyboard: boolean }) {
+/** What should give pause about an update, for its grid card. */
+function updateNote(card: Card): { text: string; tone?: "warn" } | null {
+  if (card.lastFailure !== null) return { text: `Last attempt: ${card.lastFailure}`, tone: "warn" };
+  if (card.blocked !== null) return { text: `${card.blocked.version} needs more: ${card.blocked.reasons.join("; ")}` };
+  if (card.isSelf) return { text: "Updates last; this page reloads" };
+  if (!card.enabled) return { text: "Disabled" };
+  return null;
+}
+
+/** An update previewed from the grid: the deck's card, opened in full, with what it changes. */
+function UpdatePreview({ rpc, card, close }: { rpc: TriageRpc; card: Card; close: () => void }) {
+  const navigate = useBbNavigate();
+  const [expanded, setExpanded] = useState(true);
+  const { changes, load } = useChanges(rpc, card);
+  return (
+    <UpdateCard
+      card={card}
+      top
+      changes={changes}
+      onLoadChanges={load}
+      onChanges={() => card.compareUrl !== null && navigate.openUrl(card.compareUrl)}
+      expanded={expanded}
+      onToggleDetails={() => setExpanded((value) => !value)}
+      onOpen={() => {
+        close();
+        navigateInApp(pluginDetailsPath(card.pluginId, "updates"));
+      }}
+    />
+  );
+}
+
+export function UpdatesPanel({
+  rpc,
+  updates,
+  keyboard,
+  layout = "deck",
+}: {
+  rpc: TriageRpc;
+  updates: UpdatesState;
+  keyboard: boolean;
+  layout?: Layout;
+}) {
   const navigate = useBbNavigate();
   const [checking, setChecking] = useState<string | "all" | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
   const top = updates.cards[0] ?? null;
   useEffect(() => setExpanded(false), [top?.key]);
-  const { changes, load: loadChanges } = useChanges(rpc, top);
+  // A grid shows no change list, so it spends nothing of GitHub's limit.
+  const { changes, load: loadChanges } = useChanges(rpc, layout === "grid" ? null : top);
 
   async function check(pluginId?: string) {
     setChecking(pluginId ?? "all");
@@ -116,7 +161,44 @@ export function UpdatesPanel({ rpc, updates, keyboard }: { rpc: TriageRpc; updat
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {updates.cards.length > 0 ? (
+      {updates.cards.length > 0 && layout === "grid" ? (
+        <CardGrid
+          cards={updates.cards}
+          facts={(card) => ({
+            name: card.displayName,
+            published: null,
+            installs: null,
+            category: card.listing?.category ?? null,
+            source: card.listing?.store ?? null,
+          })}
+          sorts={["name"]}
+          noun={["update", "updates"]}
+          onUndo={() => void undoLastUpdate(rpc)}
+          keyboard={keyboard}
+          actions={() => UPDATE_ACTIONS}
+          onDecide={(card, direction) => void decideUpdate(rpc, card, direction)}
+          previewKey={previewKey}
+          onPreview={setPreviewKey}
+          renderPreview={(card, close) => <UpdatePreview key={card.key} rpc={rpc} card={card} close={close} />}
+          render={(card) => (
+            <GridCard
+              title={card.displayName}
+              leading={<PluginIcon card={card} compact />}
+              description={card.description ?? ""}
+              note={updateNote(card)}
+              byline={
+                <span className="font-mono" title={`${card.from.display} → ${card.to.display}`}>
+                  {card.from.short} → {card.to.short}
+                </span>
+              }
+              actions={UPDATE_ACTIONS}
+              onDecide={(direction) => void decideUpdate(rpc, card, direction)}
+              openLabel={`Preview ${card.displayName}`}
+              onOpen={() => setPreviewKey(card.key)}
+            />
+          )}
+        />
+      ) : updates.cards.length > 0 ? (
         // The lists below share this scroll area, so the deck keeps a height
         // of its own rather than being squeezed under its buttons.
         <div className="flex h-[min(520px,calc(100dvh-14rem))] min-h-[26rem] shrink-0 flex-col">

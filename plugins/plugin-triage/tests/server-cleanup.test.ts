@@ -104,6 +104,16 @@ describe("the Cleanup deck over RPC", () => {
     service.controller.abort();
   });
 
+  it("names each plugin's store and category, for the grid's groups", async () => {
+    const { harness, deck, service } = await host();
+    harness.sdk.stub("plugins.catalog.search", () => ({
+      results: [{ entryId: "off", pluginId: "off", marketplaceDisplayName: "BB Community", category: "Utilities", installed: true }],
+    }));
+    const listing = Object.fromEntries((await deck()).cards.map((card) => [card.pluginId, card.listing]));
+    expect(listing).toEqual({ broken: null, off: { category: "Utilities", store: "BB Community" } });
+    service.controller.abort();
+  });
+
   it("samples usage hourly, so a quiet plugin shows up after a month", async () => {
     const { harness, cards, find, service } = await host();
     vi.setSystemTime(NOW + 31 * 24 * 60 * 60 * 1000);

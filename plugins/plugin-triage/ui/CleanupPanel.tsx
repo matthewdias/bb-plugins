@@ -7,9 +7,11 @@ import { cn } from "@/lib/utils";
 import type { CleanupCard as Card, CleanupReason } from "../lib/cleanup-deck";
 import type { RemoveJob } from "../lib/queue";
 import { describeCost, type RemovalCost } from "../lib/removal-cost";
+import { CardGrid, GridCard } from "./CardGrid";
 import { CardStack } from "./CardStack";
 import { cleanupActions, decideCleanup, undoLastCleanup } from "./cleanup-decisions";
 import { PluginIcon, ago } from "./EntryCard";
+import type { Layout } from "./layout";
 import { navigateInApp, pluginDetailsPath } from "./navigate";
 import type { CleanupState, TriageRpc } from "./triage-store";
 
@@ -59,12 +61,55 @@ function useCost(rpc: TriageRpc, pluginId: string | null): RemovalCost | null | 
   return loaded !== null && loaded.pluginId === pluginId ? loaded.cost : undefined;
 }
 
+/** What uninstalling each of these plugins would delete, asked once per plugin. */
+function useCosts(rpc: TriageRpc, pluginIds: readonly string[]): ReadonlyMap<string, RemovalCost | null> {
+  const [loaded, setLoaded] = useState<ReadonlyMap<string, RemovalCost | null>>(new Map());
+  const key = pluginIds.join("\n");
+  useEffect(() => {
+    let live = true;
+    for (const pluginId of pluginIds) {
+      let request = costs.get(pluginId);
+      if (request === undefined) {
+        request = rpc.call("cleanup_cost", { pluginId }).catch(() => null);
+        costs.set(pluginId, request);
+      }
+      void request.then((cost) => live && setLoaded((before) => new Map(before).set(pluginId, cost)));
+    }
+    return () => {
+      live = false;
+    };
+    // `key` is `pluginIds`, as a value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, rpc]);
+  return loaded;
+}
+
+/** The sentence a card shows before it can be queued to uninstall; undefined while asking. */
+export function costText(cost: RemovalCost | null | undefined): string {
+  return cost === undefined
+    ? "Checking what uninstalling would delete…"
+    : cost === null
+      ? "Uninstalling deletes its settings, secrets and schedules, for good."
+      : describeCost(cost);
+}
+
 /** Tests only. */
 export function resetCosts(): void {
   costs.clear();
 }
 
-function CleanupCardView({ card, top, cost }: { card: Card; top: boolean; cost?: RemovalCost | null }) {
+function CleanupCardView({
+  card,
+  top,
+  cost,
+  onDetails,
+}: {
+  card: Card;
+  top: boolean;
+  cost?: RemovalCost | null;
+  /** Before it leaves for bb's detail pane: a preview closes. */
+  onDetails?: () => void;
+}) {
   const reason = reasonText(card.reason);
   return (
     <article
@@ -104,17 +149,21 @@ function CleanupCardView({ card, top, cost }: { card: Card; top: boolean; cost?:
         )}
         {top && (
           <p className="text-xs text-muted-foreground" data-testid="removal-cost">
-            {cost === undefined
-              ? "Checking what uninstalling would delete…"
-              : cost === null
-                ? "Uninstalling deletes its settings, secrets and schedules, for good."
-                : describeCost(cost)}
+            {costText(cost)}
           </p>
         )}
       </div>
       {top && (
         <footer className="border-t border-border p-2">
-          <Button variant="ghost" size="sm" className="w-full" onClick={() => navigateInApp(pluginDetailsPath(card.pluginId, "cleanup"))}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full"
+            onClick={() => {
+              onDetails?.();
+              navigateInApp(pluginDetailsPath(card.pluginId, "cleanup"));
+            }}
+          >
             <Icon name="Info" aria-hidden /> Details
           </Button>
         </footer>
@@ -150,12 +199,67 @@ function Recent({ history }: { history: RemoveJob[] }) {
   );
 }
 
-export function CleanupPanel({ rpc, cleanup, keyboard }: { rpc: TriageRpc; cleanup: CleanupState; keyboard: boolean }) {
+export function CleanupPanel({
+  rpc,
+  cleanup,
+  keyboard,
+  layout = "deck",
+}: {
+  rpc: TriageRpc;
+  cleanup: CleanupState;
+  keyboard: boolean;
+  layout?: Layout;
+}) {
   const top = cleanup.cards[0] ?? null;
-  const cost = useCost(rpc, top?.pluginId ?? null);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const cost = useCost(rpc, layout === "grid" ? null : top?.pluginId ?? null);
+  // The deck says it on the card on top; the grid, on every card, since any
+  // of them can be queued to uninstall. Asking reads bb's settings, locally.
+  const gridCosts = useCosts(rpc, layout === "grid" ? cleanup.cards.map((card) => card.pluginId) : []);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {top !== null ? (
+      {top !== null && layout === "grid" ? (
+        <CardGrid
+          cards={cleanup.cards}
+          facts={(card) => ({
+            name: card.displayName,
+            published: null,
+            installs: null,
+            category: card.listing?.category ?? null,
+            source: card.listing?.store ?? null,
+          })}
+          sorts={["name"]}
+          noun={["plugin to look at", "plugins to look at"]}
+          onUndo={() => void undoLastCleanup(rpc)}
+          keyboard={keyboard}
+          actions={(card) => cleanupActions(card).labels}
+          onDecide={(card, direction) => void decideCleanup(rpc, card, direction)}
+          previewKey={previewKey}
+          onPreview={setPreviewKey}
+          renderPreview={(card, close) => (
+            <CleanupCardView key={card.key} card={card} top cost={gridCosts.get(card.pluginId)} onDetails={close} />
+          )}
+          render={(card) => {
+            const reason = reasonText(card.reason);
+            const removal = costText(gridCosts.get(card.pluginId));
+            return (
+              <GridCard
+                title={card.displayName}
+                leading={<PluginIcon card={card} compact />}
+                description={card.description ?? ""}
+                note={{ text: reason.detail === null ? reason.title : `${reason.title}: ${reason.detail}`, tone: reason.tone }}
+                footnote={removal}
+                hints={{ left: removal }}
+                byline={card.surfaces.length > 0 ? card.surfaces.join(", ") : <span className="font-mono">{card.source}</span>}
+                actions={cleanupActions(card).labels}
+                onDecide={(direction) => void decideCleanup(rpc, card, direction)}
+                openLabel={`Preview ${card.displayName}`}
+                onOpen={() => setPreviewKey(card.key)}
+              />
+            );
+          }}
+        />
+      ) : top !== null ? (
         <div className="flex h-[min(520px,calc(100dvh-14rem))] min-h-[26rem] shrink-0 flex-col">
           <CardStack
             cards={cleanup.cards}
