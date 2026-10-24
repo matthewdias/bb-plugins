@@ -28,7 +28,7 @@
   },
   "bb": {
     "name": "Workflow Stages",
-    "description": "Files every thread under a workflow stage you define, and moves it as the work progresses. Requires the Ribbon sidebar.",
+    "description": "Unmaintained: Ribbon no longer accepts outside groupings, so this has nowhere to draw. Filed every thread under a workflow stage you define, in the Ribbon sidebar.",
     "branding": {
       "icon": "ArrowUpDown"
     },

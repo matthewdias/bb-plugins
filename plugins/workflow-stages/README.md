@@ -1,5 +1,12 @@
 # Workflow Stages
 
+> [!WARNING]
+> **Unmaintained.** Ribbon has removed the extension point this plugin plugs
+> into: Ribbon sidebar was folded into Ribbon's own Thread stages plugin, which
+> takes no groupings from other plugins. Workflow Stages has nowhere to draw on
+> a current Ribbon and gets no further fixes. For stages in the sidebar, use
+> Ribbon's Thread stages.
+
 Threads pile up, and a sidebar sorted by time tells you when you last touched
 something and nothing about where it stands. A stage says where the work is:
 still being figured out, being written, waiting on a review, or stopped on
