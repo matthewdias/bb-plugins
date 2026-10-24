@@ -33,8 +33,11 @@ import { WrapUp } from "../wrap-up.tsx";
 import { setRows } from "../store.ts";
 import { isChangeSignal } from "../use-follow-ups.ts";
 import { StillOpen } from "./rows.tsx";
+import { AskForm } from "../ask-form.tsx";
 import { ApprovalForm } from "./approvals.tsx";
+import { ChecklistCard } from "./checklist.tsx";
 import { NoDeckKeys, useDeckKeys } from "./deck-keys.tsx";
+import { openChanges } from "./open-changes.ts";
 import type { FollowUpRpc } from "../rpc.ts";
 import {
   DropdownMenu,
@@ -53,6 +56,8 @@ const LEAD: Record<Card["lead"], { label: string; icon: IconName }> = {
   approval: { label: "Approval", icon: "SecurityCheck" },
   form: { label: "Form", icon: "ListTodo" },
   stopped: { label: "Stopped", icon: "AlertTriangle" },
+  ask: { label: "Asks", icon: "MessageSquare" },
+  checklist: { label: "Checklist", icon: "ListTodo" },
   "wrap-up": { label: "Wrap up", icon: "Archive" },
   next: { label: "Next", icon: "ArrowRight" },
   page: { label: "Page", icon: "Browser" },
@@ -96,6 +101,8 @@ export function wantsLabel(card: { lead: Card["lead"]; pr: Card["pr"] }): string
     approval: "needs approval",
     form: "waits on a form",
     stopped: "stopped",
+    ask: "asks with a form",
+    checklist: "checklist is waiting",
     "wrap-up": "ready to wrap up",
     next: "offers next steps",
     page: "asks on its page",
@@ -255,6 +262,12 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
       break;
     case "stopped":
       main = <Stopped card={card} rpc={rpc} />;
+      break;
+    case "ask":
+      main = card.form === null ? null : <AskForm threadId={card.threadId} form={card.form} />;
+      break;
+    case "checklist":
+      main = <ChecklistCard card={card} />;
       break;
     case "wrap-up":
       main = (
@@ -480,6 +493,7 @@ export function MessageBox({
         rows={3}
         autoFocus
         placeholder={placeholder}
+        aria-label="The message to send"
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && text.trim() !== "") {
@@ -1032,6 +1046,15 @@ function PullRequest({ card, rpc }: { card: Card; rpc: Rpc }) {
           {pr.action === "rebase" && (
             <Button size="sm" onClick={() => setBox({ kind: "message", text: prRebaseMessage(pr), label: "Send to the thread" })}>
               Ask the thread to rebase
+            </Button>
+          )}
+          {pr.action !== "merged" && (
+            // A pull request is read in bb's own diff view, in its thread: a
+            // card is for a quick answer, and reading a change is not one.
+            <Button size="sm" variant="outline" onClick={() => openChanges(card.threadId, (threadId) => navigate.toThread(threadId))}>
+              <Icon name="FileDiff" aria-hidden />
+              Open the changes
+              <Icon name="ArrowUpRight" aria-hidden />
             </Button>
           )}
           {(pr.action === "merge" || pr.action === "review") && (
