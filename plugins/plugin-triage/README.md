@@ -64,6 +64,30 @@ and a failed install puts its card back
 with the error. Queued items count toward the number waiting, so a queue
 nobody ran doesn't go unnoticed.
 
+### All at once
+
+The switch at the right of the tab bar lays the tab out as a grid instead,
+the way bb's own plugin store does: every card at once, with its icon,
+description and byline. Each card carries its decisions on its footer: the
+deck's ←, ↑ and → as buttons, so any card can be decided without dealing the
+ones before it. Tap a card to preview it: the deck's own card for it, opened in full
+over the grid (the overview, screenshots and **Vet**; an update's change
+list; what uninstalling would delete), with the deck's three decisions
+under it. Deciding there moves the preview on to the next card in the grid,
+so a group can be worked through without closing it. The arrows decide as
+in the deck, Escape closes, and Z still takes back the last decision. The choice holds for every tab and is remembered in
+this browser.
+
+Above the grid, **Sort** orders the cards by name, and on New and Saved also
+by publish date or install count; choose the same order again to turn it
+round, or **Deck order** to go back to the deck's own. **Group** splits them
+by category or by source, the store a plugin is listed in, with the ones
+that have neither last. Updates and Cleanup group by the listing of the
+installed plugin in the catalog. Sort and Group are remembered with the
+switch; the deck itself always deals in its own order, so Z can put a card
+back on top. A Cleanup card says what uninstalling it would delete, as the
+deck's top card does.
+
 **Saved** deals the plugins you saved, most recent first, as the same cards
 as New, which open, vet and link the same way.
 

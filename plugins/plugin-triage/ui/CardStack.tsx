@@ -43,7 +43,7 @@ function reducedMotion(): boolean {
 }
 
 /** Ignore keys meant for a field, a menu, or anything that is not the page. */
-function typingTarget(target: EventTarget | null): boolean {
+export function typingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }

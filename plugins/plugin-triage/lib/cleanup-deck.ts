@@ -1,6 +1,7 @@
 // The Cleanup deck: installed plugins worth a second look, broken ones first,
 // then ones put aside to try without, then ones you turned off (not bb's own,
 // which ship off), then ones with no activity in a month. Pure, so the server and the tests build the same deck.
+import type { Listing } from "./arrange.ts";
 import { liveJob, type Job } from "./queue.ts";
 import type { Observations } from "./usage.ts";
 
@@ -59,6 +60,8 @@ export interface CleanupCard {
   /** What it adds: agent tools, skills, a CLI command… */
   surfaces: string[];
   reason: CleanupReason;
+  /** Its store listing, for the grid's groups; the server adds it from the catalog. */
+  listing?: Listing | null;
 }
 
 const BROKEN = new Set(["error", "incompatible", "missing", "degraded"]);

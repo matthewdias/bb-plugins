@@ -16,6 +16,12 @@ exact tag and commit for a third-party store.
 Drag it left, or press ←, to dismiss it. Drag it up, or press ↑, to save it
 for later.
 
+**Or all at once.** A switch lays any tab out as a grid, the way bb's own
+plugin store does, so you can see the whole list and decide on any card from
+its own buttons. Sort it by name, publish date or installs, and group it by
+category or by the store it comes from. Tap a card to preview it in full and
+decide from there, then move straight on to the next.
+
 **One queue.** Installs and updates you queue wait in a bar above every tab
 until you press Run all, then run in the background, one at a time, and keep
 going if you close the window. Review the queue and take anything back off

@@ -55,6 +55,7 @@ import {
   type CleanupDecisions,
   type Installed,
 } from "./lib/cleanup-deck.ts";
+import { listingsByPlugin, type Listing } from "./lib/arrange.ts";
 import { COUNT_SETTINGS } from "./lib/count.ts";
 import { removalCost } from "./lib/removal-cost.ts";
 import { observe, type Observations, type PluginSample } from "./lib/usage.ts";
@@ -196,6 +197,18 @@ export default async function plugin(bb: BbPluginApi) {
   async function catalog(): Promise<CatalogEntry[]> {
     const { results } = await bb.sdk.plugins.catalog.search({ query: "" });
     return results as CatalogEntry[];
+  }
+
+  /**
+   * Installed plugins' store listings, for the grid's groups. Only a nicety:
+   * without the catalog the Updates and Cleanup decks still deal.
+   */
+  async function listings() {
+    try {
+      return listingsByPlugin(await catalog());
+    } catch {
+      return new Map<string, Listing>();
+    }
   }
 
   /** The first visit fixes how far back "new" reaches, for good. */
@@ -459,11 +472,12 @@ export default async function plugin(bb: BbPluginApi) {
     jobs_list: async () => ({ jobs: await readJobs() }),
 
     updates_deck: async () => {
-      const [results, list, decisions, jobs] = await Promise.all([
+      const [results, list, decisions, jobs, listed] = await Promise.all([
         bb.sdk.plugins.listUpdateResults(),
         bb.sdk.plugins.list(),
         readUpdateDecisions(),
         readJobs(),
+        listings(),
       ]);
       const { cards, unavailable } = buildUpdatesDeck({
         results: results as UpdateResult[],
@@ -473,6 +487,7 @@ export default async function plugin(bb: BbPluginApi) {
         now: Date.now(),
         selfId: bb.pluginId,
       });
+      for (const card of cards) card.listing = listed.get(card.pluginId) ?? null;
       const updates = jobs.filter((job): job is UpdateJob => job.kind === "update");
       return {
         cards,
@@ -625,11 +640,12 @@ export default async function plugin(bb: BbPluginApi) {
     },
 
     cleanup_deck: async () => {
-      const [list, observations, decisions, jobs] = await Promise.all([
+      const [list, observations, decisions, jobs, listed] = await Promise.all([
         bb.sdk.plugins.list(),
         kv.get<Observations>(OBSERVATIONS),
         readCleanupDecisions(),
         readJobs(),
+        listings(),
       ]);
       return {
         cards: buildCleanupDeck({
@@ -639,7 +655,7 @@ export default async function plugin(bb: BbPluginApi) {
           jobs,
           now: Date.now(),
           selfId: bb.pluginId,
-        }),
+        }).map((card) => ({ ...card, listing: listed.get(card.pluginId) ?? null })),
         history: jobs
           .filter((job): job is RemoveJob => job.kind === "remove" && (job.state === "done" || job.state === "failed"))
           .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))

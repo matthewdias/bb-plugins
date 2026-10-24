@@ -1,6 +1,7 @@
 // The Updates deck: installed plugins with a newer compatible version, less
 // the ones queued, skipped at this version, or snoozed. Pure, so the server
 // and the tests build the same deck from bb's update results.
+import type { Listing } from "./arrange.ts";
 import { failuresByKey, liveJob, type Job, type VersionLabel } from "./queue.ts";
 
 /** bb's per-plugin update result, as far as this plugin reads it. */
@@ -49,6 +50,8 @@ export interface UpdateCard {
   compareUrl: string | null;
   /** This plugin: its update reloads it, so it runs last. */
   isSelf: boolean;
+  /** Its store listing, for the grid's groups; the server adds it from the catalog. */
+  listing?: Listing | null;
 }
 
 export interface Unavailable {
