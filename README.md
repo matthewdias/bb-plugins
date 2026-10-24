@@ -1,6 +1,7 @@
 # bb-plugins
 
-Eleven plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
+Ten plugins for [bb](https://github.com/get-bb/bb), the agent IDE, and one that
+is [no longer maintained](#unmaintained).
 
 | Plugin | |
 | --- | --- |
@@ -14,15 +15,12 @@ Eleven plugins for [bb](https://github.com/get-bb/bb), the agent IDE.
 | **[Thread Summary](plugins/thread-summary)** | A card under the thread header with the thread's branch, its pull request and what other plugins publish about it, like Follow Up's progress. The most urgent sit beside the button as chips. |
 | **[Swipe Controls](plugins/swipe-controls)** | Swipe sidebar threads to mark them read, pin or archive them, and swipe the page with two fingers to go back and forward, with haptic ticks in bb's phone app. |
 | **[Top Tabs](plugins/top-tabs)** | Opens destinations as tabs across the top of the window, beside a permanent Threads tab, so you can keep several open and switch without losing your place. |
-| **[Workflow Stages](plugins/workflow-stages)** | Files every thread under a workflow stage you define, and moves it as the work progresses. Requires the Ribbon sidebar. |
 
 Each is independent. A few soft connections exist and none is required: Thread
 Badges draws Follow Up's progress ring once you turn it on, and a ports plug
 when [Worktree Ports](https://github.com/to-infinity-labs/bb-plugin-worktree-ports)
 is installed; Thread Summary draws Follow Up's ring on its card, and its Git and
-pull-request values can be turned on in Thread Badges too; and Workflow Stages
-needs [Ribbon sidebar](https://github.com/ariofrio/ribbon) to have anywhere to
-draw.
+pull-request values can be turned on in Thread Badges too.
 
 ## Install
 
@@ -58,9 +56,6 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
 
 bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
   --subdirectory plugins/top-tabs --tag-prefix top-tabs/
-
-bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
-  --subdirectory plugins/workflow-stages --tag-prefix workflow-stages/
 ```
 
 Each plugin is released under its own tag prefix, so the range `*` resolves to
@@ -68,9 +63,19 @@ the newest release of that plugin alone and these lines never go stale. A caret
 range would: on a `0.x` version `^0.1.0` cannot reach `0.2.0` at all, which is
 how this page came to offer a plugin two minor versions behind.
 `--plugin <name>` works instead of `--subdirectory` — the repository carries a
-`.bb/plugins.json` index naming all eleven.
+`.bb/plugins.json` index naming every plugin here.
 
 See each plugin's README for what it does, its settings, and its agent surface.
+
+## Unmaintained
+
+**[Workflow Stages](plugins/workflow-stages)** filed every thread under a
+workflow stage you define, as a grouping provider for the
+[Ribbon sidebar](https://github.com/ariofrio/ribbon). Ribbon has since removed
+that extension point — Ribbon sidebar was folded into its own Thread stages
+plugin, which takes no groupings from other plugins — so Workflow Stages has
+nowhere to draw. Its code and releases stay here for reference, but it gets no
+fixes. For stages in the sidebar, use Ribbon's Thread stages.
 
 ## Development
 
