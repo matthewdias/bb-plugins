@@ -115,7 +115,7 @@ filed* section. Each is one of two kinds:
   Atlassian MCP" — carried out by a hidden helper in the thread's checkout, on
   the model you pick (Describe's by default), for every row filed at once. It
   reports each row back with its link; anything it does not report is open
-  again, saying why.
+  again, with the helper's own reason for skipping it.
 
 File one row from its ⋯ menu (*File to GitHub*), or every open row from the
 *File all* menu in the card's header: opening the menu files nothing, choosing
