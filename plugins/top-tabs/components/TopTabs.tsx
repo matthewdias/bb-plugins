@@ -175,6 +175,10 @@ export function TopTabs() {
   const pinnedBadges = values?.pinnedBadges === true;
   const closeOrder = closeOrderOf(values?.recentAfterClose);
   const compact = useMediaQuery(COMPACT_QUERY);
+  // The strip is up: not on a phone, and Top Tabs is the sidebar's
+  // navigation. While it isn't, nothing below acts: no sidebar moves, no
+  // tabs adopted or closed, no commands, no answer to bb's Close.
+  const visible = !compact && bridged !== null;
   const trafficLights = useReservesTrafficLights();
   const path = useSyncExternalStore(subscribeLocation, currentPath);
   const pathname = pathnameOf(path);
@@ -206,8 +210,8 @@ export function TopTabs() {
 
   // Callbacks below read the latest of these rather than closing over them,
   // so the controller and window listeners never act on a stale strip.
-  const live = useRef({ active, byId, shown, nav, navLive, splits, bbNavigate, screen, threads, compact, collapseSidebar, inSplit, closeOrder });
-  live.current = { active, byId, shown, nav, navLive, splits, bbNavigate, screen, threads, compact, collapseSidebar, inSplit, closeOrder };
+  const live = useRef({ active, byId, shown, nav, navLive, splits, bbNavigate, screen, threads, visible, collapseSidebar, inSplit, closeOrder });
+  live.current = { active, byId, shown, nav, navLive, splits, bbNavigate, screen, threads, visible, collapseSidebar, inSplit, closeOrder };
 
   // First run: the destinations the sidebar showed become the open tabs.
   // Wait for the list to settle, since plugin panels register as their
@@ -233,7 +237,7 @@ export function TopTabs() {
   // A destination reached any other way — the palette, a shortcut, a link —
   // gets a tab, and every tab remembers where it was left.
   useEffect(() => {
-    if (active === null) return;
+    if (active === null || !visible) return;
     if (resetting.current !== active) resetting.current = null;
     // Read the location now rather than from the render: it is the one
     // source that cannot lag behind.
@@ -247,7 +251,7 @@ export function TopTabs() {
       if (resetting.current === active) return next;
       return pathFits(active, target, pathnameOf(here)) ? recordPath(next, active, here) : next;
     });
-  }, [active, path, byId]);
+  }, [active, path, byId, visible]);
 
   // Each tab keeps the sidebar as the user left it; see sidebarStep for the
   // rules. A split is the user's own arrangement, and the sidebar is where
@@ -273,8 +277,8 @@ export function TopTabs() {
     // Only on a real move: this runs again once bb has rendered the page,
     // and the exit started on the way out has to survive that.
     if (next !== before && next !== THREADS) stopEntrances();
-    const { compact, collapseSidebar, inSplit } = live.current;
-    if (compact || !collapseSidebar || inSplit) return;
+    const { visible, collapseSidebar, inSplit } = live.current;
+    if (!visible || !collapseSidebar || inSplit) return;
     const sidebarOpen = isSidebarOpen();
     if (sidebarOpen === null) return;
     const step = sidebarStep({ previous: before, next, sidebarOpen, sidebar: getState().sidebar });
@@ -297,7 +301,7 @@ export function TopTabs() {
     if (wasInSplit.current && !inSplit) previous.current = undefined;
     wasInSplit.current = inSplit;
     syncSidebar(active);
-  }, [active, compact, collapseSidebar, inSplit, syncSidebar]);
+  }, [active, visible, collapseSidebar, inSplit, syncSidebar]);
 
   // The user's own toggling is the preference of the tab they are on. It is
   // filed under `previous`, not the route: a tab click toggles the sidebar
@@ -305,7 +309,7 @@ export function TopTabs() {
   // strip's own toggles set the state the tab already wants, so recording
   // them changes nothing.
   useEffect(() => {
-    if (compact || !collapseSidebar) return;
+    if (!visible || !collapseSidebar) return;
     return observeSidebar((open) => {
       const tab = previous.current;
       if (tab === undefined || tab === null || live.current.inSplit) return;
@@ -314,7 +318,7 @@ export function TopTabs() {
         return sidebar === s.sidebar ? s : { ...s, sidebar };
       });
     });
-  }, [active, compact, collapseSidebar]);
+  }, [active, visible, collapseSidebar]);
 
   // Close the Settings tab when bb takes the route out of Settings — Escape,
   // Back to app, the browser's back — rather than the strip switching tabs.
@@ -325,14 +329,14 @@ export function TopTabs() {
   useEffect(() => {
     const before = lastActive.current;
     lastActive.current = active;
-    if (before === active) return;
+    if (before === active || !visible) return;
     const move = stripMove.current;
     stripMove.current = null;
     const byStrip = move !== null && performance.now() - move.at < STRIP_MOVE_MS;
     if (closeSettingsOnExit && leavesSettings(before, active, byStrip)) {
       update((s) => close(s, [SETTINGS]));
     }
-  }, [active, closeSettingsOnExit]);
+  }, [active, closeSettingsOnExit, visible]);
 
   const activate = useCallback((id: TabId) => {
     const { active, byId, nav, navLive, bbNavigate, screen, threads } = live.current;
@@ -471,7 +475,8 @@ export function TopTabs() {
   useEffect(
     () =>
       interceptPageClose(() => {
-        const { active } = live.current;
+        const { active, visible } = live.current;
+        if (!visible) return false;
         const action = pageCloseAction(active, getState().pinned);
         if (action === "tab") closeTab(active!);
         else if (action === "pin") closePinned(active!);
@@ -600,25 +605,24 @@ export function TopTabs() {
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  useEffect(
-    () =>
-      publishController({
-        active: () => live.current.active,
-        activate: activateSoon,
-        close: closeTab,
-        closePinned,
-        cycle: (direction) => {
-          const { active, shown } = live.current;
-          activateSoon(cycle([THREADS, ...shown], active, direction));
-        },
-        reopen: reopenTab,
-        openPicker: () => setPickerOpen(true),
-        isPinned: (id) => getState().pinned.includes(id),
-        togglePin,
-        openSwitcher: () => setSwitcher({ keyboard: true }),
-      }),
-    [activateSoon, closeTab, closePinned, reopenTab, togglePin],
-  );
+  useEffect(() => {
+    if (!visible) return;
+    return publishController({
+      active: () => live.current.active,
+      activate: activateSoon,
+      close: closeTab,
+      closePinned,
+      cycle: (direction) => {
+        const { active, shown } = live.current;
+        activateSoon(cycle([THREADS, ...shown], active, direction));
+      },
+      reopen: reopenTab,
+      openPicker: () => setPickerOpen(true),
+      isPinned: (id) => getState().pinned.includes(id),
+      togglePin,
+      openSwitcher: () => setSwitcher({ keyboard: true }),
+    });
+  }, [visible, activateSoon, closeTab, closePinned, reopenTab, togglePin]);
 
   // Keep the tab in view visible when the strip scrolls.
   const tabRefs = useRef(new Map<string, HTMLElement>());
@@ -630,7 +634,6 @@ export function TopTabs() {
   // Tell top-tabs.css the strip is up, so it makes room for it. A class on
   // <html> rather than `body:has(#bb-top-tabs)`, which restyled the whole page
   // on every change inside the strip.
-  const visible = !compact && bridged !== null;
   useLayoutEffect(() => {
     if (!visible) return;
     const root = document.documentElement;
