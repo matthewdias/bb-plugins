@@ -23,7 +23,7 @@ import {
   type PluginSidebarThread,
 } from "@get-bb/plugin-sdk/app";
 import { publishController } from "../lib/controller.ts";
-import { useReservesTrafficLights, useRowInsets } from "../lib/desktop.ts";
+import { isFramed, useReservesTrafficLights, useRowInsets } from "../lib/desktop.ts";
 import { currentPath, navigateToPath, subscribeLocation } from "../lib/location.ts";
 import { tabName } from "../lib/badge.ts";
 import { navigation, useBridgedNavigation, type ItemSplit, type NavItem } from "../lib/navigation-bridge.ts";
@@ -100,6 +100,11 @@ const STRIP_MOVE_MS = 2000;
 const ON_CLASS = "bb-top-tabs-on";
 /** Set on <html> while the strip leaves the corner to macOS traffic lights. */
 const TRAFFIC_LIGHTS_CLASS = "bb-top-tabs-traffic-lights";
+/**
+ * Set on <html> while bb frames the window, as its macOS app does: the strip
+ * takes the title bar's row and top-tabs.css leaves bb's frame alone.
+ */
+const FRAMED_CLASS = "bb-top-tabs-framed";
 
 type LabelMode = "always" | "active" | "never";
 
@@ -666,6 +671,14 @@ export function TopTabs() {
   const stripRef = useRef<HTMLElement>(null);
   // bb's own controls in the strip's row; see useRowInsets.
   const rowInsets = useRowInsets(stripRef);
+  // Read from the page as well as from the last measure, so the first paint
+  // already has the frame's layout rather than a second later.
+  useLayoutEffect(() => {
+    if (!visible) return;
+    const root = document.documentElement;
+    root.classList.toggle(FRAMED_CLASS, isFramed());
+    return () => root.classList.remove(FRAMED_CLASS);
+  }, [visible, rowInsets.framed]);
   const splitHooks = useRef<SplitHooks>({ partnerLabelFor, splitWithPartner, canBeInPane, openInSplit });
   splitHooks.current = { partnerLabelFor, splitWithPartner, canBeInPane, openInSplit };
   const drag = useTabDrag(tabRefs, live, stripRef, splitHooks);

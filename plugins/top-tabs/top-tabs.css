@@ -30,16 +30,20 @@ html.bb-top-tabs-on {
   }
 }
 
-/* bb's desktop app on macOS draws traffic lights over the top-left corner,
-   in a title bar whose height the desktop app sets
-   (`--bb-window-title-bar-height`), and frames the page below it. The strip
-   takes the title bar's height, so the page starts where bb starts it, and
-   leaves the corner to the lights. Without that height, bb's 48px chrome row. */
-html.bb-top-tabs-traffic-lights {
+/* bb's desktop app on macOS frames the window: a title bar along the top,
+   with the traffic lights, back and forward, the sidebar toggle and the
+   right panel toggle, and the page and sidebar as cards below it, masked
+   and rounded for that title bar's height. The strip takes the title bar's
+   row exactly (`--bb-window-title-bar-height`, which bb sets on <html>), so
+   bb's frame is left as bb lays it out: none of the rules below that move
+   the page down for the strip apply in it. The title bar's controls sit in
+   the strip, which leaves them room (useRowInsets in lib/desktop.ts).
+   `bb-top-tabs-framed` is set by the strip while bb draws the frame. */
+html.bb-top-tabs-framed {
   --bb-top-tabs-height: var(--bb-window-title-bar-height, var(--bb-app-chrome-row-height, 48px));
 }
 
-html.bb-top-tabs-on #root {
+html.bb-top-tabs-on:not(.bb-top-tabs-framed) #root {
   box-sizing: border-box;
   padding-top: var(--bb-top-tabs-room);
 }
@@ -48,13 +52,13 @@ html.bb-top-tabs-on #root {
    bar, and pads its content and sidebar down by the safe area to clear the
    clock. The strip's room already includes it, so below the strip that
    padding would only be an empty band. */
-html.bb-top-tabs-on [data-app-content-shell],
-html.bb-top-tabs-on [data-sidebar="panel"] [data-sidebar="sidebar"] {
+html.bb-top-tabs-on:not(.bb-top-tabs-framed) [data-app-content-shell],
+html.bb-top-tabs-on:not(.bb-top-tabs-framed) [data-sidebar="panel"] [data-sidebar="sidebar"] {
   padding-top: 0;
 }
 
 /* The sidebar panel is fixed to the viewport, so #root's padding misses it. */
-html.bb-top-tabs-on [data-sidebar="panel"] {
+html.bb-top-tabs-on:not(.bb-top-tabs-framed) [data-sidebar="panel"] {
   top: var(--bb-top-tabs-room);
   height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room));
 }
@@ -71,7 +75,7 @@ html.bb-top-tabs-on [data-testid="app-sidebar-trigger-overlay"] {
    pushed right of the traffic lights. The lights now sit in the strip, so
    below it the toggle takes the position bb gives it when there are no
    lights to clear (`left-0 pl-[12px]`). */
-html.bb-top-tabs-on [data-testid="app-desktop-sidebar-trigger"] {
+html.bb-top-tabs-on:not(.bb-top-tabs-framed) [data-testid="app-desktop-sidebar-trigger"] {
   top: var(--bb-top-tabs-room);
   left: 0;
   padding-left: 12px;
@@ -84,31 +88,14 @@ html.bb-top-tabs-on [data-testid="app-page-header-content-row"] {
   --bb-macos-collapsed-top-left-reserve: 32px;
 }
 
-/* bb's desktop app on macOS frames the window: a title bar along the top,
-   with the traffic lights, back and forward, the sidebar toggle and the
-   right panel toggle, and the page as a card below it. The strip takes the
-   title bar's row: the page starts under the strip instead of under both, and
-   the title bar's controls sit in the strip, which leaves them room (see
-   useRowInsets in lib/desktop.ts). The bar lets clicks through to
-   the tabs everywhere but on its own controls. */
-html.bb-top-tabs-on [data-testid="app-layout-root"][data-framed] {
-  --bb-window-frame-top: 0px;
-  padding-top: 0;
-}
-
+/* In the frame, bb's title bar lets clicks through to the tabs everywhere
+   but on its own controls. */
 html.bb-top-tabs-on [data-testid="app-window-title-bar"] {
   pointer-events: none;
 }
 
 html.bb-top-tabs-on [data-testid="app-window-title-bar"] > * {
   pointer-events: auto;
-}
-
-/* In the frame the sidebar panel stops short of the window's bottom edge by
-   the frame's lip, as the page card does, so both cards keep their rounded
-   corners clear of the window's. */
-html.bb-top-tabs-on [data-framed] [data-sidebar="panel"] {
-  height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room) - var(--bb-window-frame-lip, 0px));
 }
 
 /* Set for a moment while the strip opens or closes the sidebar as part

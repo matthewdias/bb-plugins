@@ -122,6 +122,11 @@ function sameInsets(a: RowInsets, b: RowInsets): boolean {
   );
 }
 
+/** Whether bb frames the window, as its macOS app does (see RowInsets.framed). */
+export function isFramed(): boolean {
+  return document.querySelector('[data-testid="app-layout-root"][data-framed]') !== null;
+}
+
 /**
  * How much of the strip's row bb's own controls take at each end. Since bb
  * 0.46 its desktop app on macOS draws a title bar along the top of the
@@ -151,8 +156,7 @@ export function measureRowInsets(row: { top: number; bottom: number }): RowInset
     if (box.left + box.width / 2 < width / 2) left = Math.max(left, Math.ceil(box.right + CONTROL_GAP));
     else right = Math.max(right, Math.ceil(width - box.left + CONTROL_GAP));
   }
-  const framed = document.querySelector('[data-testid="app-layout-root"][data-framed]') !== null;
-  return { left, right, holes, framed, shift: rowShift(middles, row) };
+  return { left, right, holes, framed: isFramed(), shift: rowShift(middles, row) };
 }
 
 /**
