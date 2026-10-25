@@ -101,15 +101,23 @@ export interface RowInsets {
    * the same schedule.
    */
   framed: boolean;
+  /**
+   * How far below the strip's middle those controls' middle sits, or null
+   * with none in the row. bb's macOS app centres its title bar controls on
+   * the traffic lights, which the desktop shell places, not on the row; the
+   * strip moves its contents by this much to sit level with them.
+   */
+  shift: number | null;
 }
 
-const NO_INSETS: RowInsets = { left: 0, right: 0, holes: [], framed: false };
+const NO_INSETS: RowInsets = { left: 0, right: 0, holes: [], framed: false, shift: null };
 
 function sameInsets(a: RowInsets, b: RowInsets): boolean {
   return (
     a.left === b.left &&
     a.right === b.right &&
     a.framed === b.framed &&
+    a.shift === b.shift &&
     JSON.stringify(a.holes) === JSON.stringify(b.holes)
   );
 }
@@ -123,15 +131,17 @@ function sameInsets(a: RowInsets, b: RowInsets): boolean {
  * right. Measured rather than fixed, because they move with full screen, with
  * the page, and with what bb puts there.
  */
-export function measureRowInsets(rowBottom: number): RowInsets {
+export function measureRowInsets(row: { top: number; bottom: number }): RowInsets {
   const width = document.documentElement.clientWidth;
   let left = 0;
   let right = 0;
   const holes: RowInsets["holes"][number][] = [];
+  const middles: number[] = [];
   for (const control of Array.from(document.querySelectorAll(ROW_CONTROLS))) {
     if (control.closest("#bb-top-tabs") !== null) continue;
     const box = control.getBoundingClientRect();
-    if (box.width === 0 || box.top >= rowBottom || box.bottom <= 0) continue;
+    if (box.width === 0 || box.top >= row.bottom || box.bottom <= 0) continue;
+    middles.push(box.top + box.height / 2);
     holes.push({
       x: Math.floor(box.left),
       y: Math.floor(box.top),
@@ -142,7 +152,19 @@ export function measureRowInsets(rowBottom: number): RowInsets {
     else right = Math.max(right, Math.ceil(width - box.left + CONTROL_GAP));
   }
   const framed = document.querySelector('[data-testid="app-layout-root"][data-framed]') !== null;
-  return { left, right, holes, framed };
+  return { left, right, holes, framed, shift: rowShift(middles, row) };
+}
+
+/**
+ * How far to move the strip's contents so their middle meets the controls',
+ * to the half pixel: the median control, so one control bb has moved
+ * elsewhere does not pull the row with it. Null with no controls.
+ */
+export function rowShift(middles: readonly number[], row: { top: number; bottom: number }): number | null {
+  if (middles.length === 0) return null;
+  const sorted = [...middles].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)]!;
+  return Math.round((median - (row.top + row.bottom) / 2) * 2) / 2;
 }
 
 /** `measureRowInsets` for the strip, kept current. */
@@ -150,9 +172,12 @@ export function useRowInsets(strip: { current: HTMLElement | null }): RowInsets 
   const [insets, setInsets] = useState<RowInsets>(NO_INSETS);
   useEffect(() => {
     const read = () => {
-      const bottom = strip.current?.getBoundingClientRect().bottom;
-      if (bottom === undefined) return;
-      const next = measureRowInsets(bottom);
+      const el = strip.current;
+      if (el === null) return;
+      // The row below the strip's top padding, which clears an iPad's status bar.
+      const box = el.getBoundingClientRect();
+      const top = box.top + (Number.parseFloat(getComputedStyle(el).paddingTop) || 0);
+      const next = measureRowInsets({ top, bottom: box.bottom });
       setInsets((before) => (sameInsets(before, next) ? before : next));
     };
     read();

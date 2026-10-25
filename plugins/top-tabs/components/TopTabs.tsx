@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
@@ -81,7 +82,7 @@ import {
   type ScreenPane,
   type TabId,
 } from "../lib/tabs-model.ts";
-import { CloseGlyph, PaneMap, ThreadsGlyph } from "./glyphs.tsx";
+import { CloseGlyph, ComposeGlyph, PaneMap, ThreadsGlyph } from "./glyphs.tsx";
 import { TabBadge, TabIcon, destinationsOf } from "./destinations.tsx";
 import { TabMenu, TabPicker, type SplitAction, type TabMenuProps } from "./menus.tsx";
 import { TabTooltip, TabTooltipProvider } from "./tab-tooltip.tsx";
@@ -434,6 +435,23 @@ export function TopTabs() {
     [syncSidebar],
   );
 
+  /**
+   * New thread, from its button in the Threads tab: bb's own New thread,
+   * which opens the compose screen, arriving on Threads as a tab switch does.
+   */
+  const newThread = useCallback(() => {
+    const { active, nav, navLive, bbNavigate } = live.current;
+    setSwitcher(null);
+    stripMove.current = { to: THREADS, at: performance.now() };
+    if (active !== THREADS) {
+      syncSidebar(THREADS);
+      if (!live.current.inSplit) playEntrance("page");
+    }
+    const item = nav?.items.find((candidate) => candidate.action.kind === "new-thread");
+    if (navLive && item !== undefined && !item.isDisabled) nav!.actions.activate(item.id, { target: "current" });
+    else bbNavigate.toCompose();
+  }, [syncSidebar]);
+
   const closeTab = useCallback(
     (id: TabId) => {
       // Threads and pinned tabs stay; a pinned tab has to be unpinned first.
@@ -728,6 +746,7 @@ export function TopTabs() {
     (pinnedLabels || !tabs.pinned.includes(id)) &&
     (labelMode === "always" || (labelMode === "active" && id === selected));
   const threadsLabelled = showsLabel(THREADS);
+  const newThreadItem = nav?.items.find((item) => item.action.kind === "new-thread");
 
   const destinationTab = (id: TabId) => {
     const item = byId.get(id)!;
@@ -821,7 +840,8 @@ export function TopTabs() {
       style={{
         paddingLeft: rowInsets.left === 0 ? undefined : rowInsets.left,
         paddingRight: rowInsets.right === 0 ? undefined : rowInsets.right,
-      }}
+        ...(rowInsets.shift === null ? {} : { "--bb-top-tabs-shift": `${rowInsets.shift}px` }),
+      } as CSSProperties}
     >
       {rowInsets.holes.map((hole) => (
         <span
@@ -880,6 +900,16 @@ export function TopTabs() {
                     )}
                     <ThreadsStatus />
                     {threadsLabelled && <PaneMap screen={screen} tab={THREADS} />}
+                  </button>
+                  <button
+                    type="button"
+                    className="bb-top-tab-new-thread"
+                    aria-label="New thread"
+                    aria-keyshortcuts={newThreadItem?.shortcut?.ariaKeyShortcuts}
+                    title={newThreadItem?.shortcut ? `New thread (${newThreadItem.shortcut.label})` : "New thread"}
+                    onClick={newThread}
+                  >
+                    <ComposeGlyph />
                   </button>
                 </div>
               </SwitcherTrigger>

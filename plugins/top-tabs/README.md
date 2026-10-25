@@ -23,7 +23,7 @@ bb plugin install "git:https://github.com/matthewdias/bb-plugins.git@*" \
 Top Tabs 0.5 needs bb 0.47.1 or later. It is one of bb's navigations, the
 way bb's own Rail and Top list are: the strip holds the destinations, the
 sidebar keeps the thread list, and New thread moves to a button in the
-sidebar header. With **Settings → Appearance → Navigation** on Automatic, bb
+Threads tab. With **Settings → Appearance → Navigation** on Automatic, bb
 picks Top Tabs unless another navigation plugin came first; otherwise
 choose **Top Tabs** there. Top Tabs doesn't change that setting itself. See
 [Top Tabs as bb's navigation](#top-tabs-as-bbs-navigation).
@@ -72,7 +72,8 @@ navigation showed, so what you used is where you look for it.
 While another tab is in view, the Threads tab shows the thread it will return
 to beside its name. The name slides open as you leave and shut as you come
 back, so the tabs after it move rather than jump. Clicking it returns to that
-thread, or to the compose screen if you were there.
+thread, or to the compose screen if you were there. The pen at the tab's end
+is New thread.
 
 It always shows three counts:
 
@@ -286,7 +287,7 @@ sidebar.
   or another navigation and the strip steps aside, leaving bb as it would be
   without Top Tabs. Your tabs are kept, and come back when you choose Top
   Tabs again.
-- **New thread** is the button in the sidebar header.
+- **New thread** is the pen at the end of the Threads tab.
 - **The + menu** lists every destination bb knows, including the ones hidden
   in its navigation, in bb's order. Hiding one leaves its tab alone.
 - **Each tab** shows the icon bb's navigation draws for it, and its badge
@@ -377,8 +378,8 @@ Reopen closed tab starts without a shortcut there. Give it one under
 Three registrations:
 
 - An `experimental_sidebarNavigation` with `placement: "list"`
-  (`components/NavProvider.tsx`). It draws nothing in the sidebar, and its
-  `headerComponent` is the New thread button. bb lends its navigation model
+  (`components/NavProvider.tsx`). It draws nothing in the sidebar; New
+  thread is a button in the strip's Threads tab. bb lends its navigation model
   only to components inside the sidebar, so this is how the strip reaches
   it: the provider publishes the model, and which split pane holds each
   destination, to `lib/navigation-bridge.ts`.
@@ -412,7 +413,8 @@ workarounds are kept small and in one place each:
   below it. The strip takes that row: the page starts under the strip, and the
   strip pads itself around the title bar's buttons, measured each second and
   on resize (`lib/desktop.ts`), so they sit in the strip and full screen
-  needs no special case. The title bar lets clicks through to the tabs except
+  needs no special case. It also moves its tabs level with those buttons,
+  which bb centres on the traffic lights rather than on the row. The title bar lets clicks through to the tabs except
   on its buttons, which also get holes in the strip's window-drag region,
   since Electron would otherwise let the strip's region take their clicks.
   The strip takes the frame's gray. `lib/desktop.ts` also asks bb's desktop bridge whether
@@ -456,7 +458,7 @@ strip or a sidebar that stops collapsing, not a broken app.
 
 ```sh
 npm install
-npm test                          # the tab model, the navigation bridge and badges: tests/
+npm test                          # the tab model, the navigation bridge, badges and the row: tests/
 npm run typecheck
 bb plugin install .
 bb plugin dev .                   # rebuild + reload on save

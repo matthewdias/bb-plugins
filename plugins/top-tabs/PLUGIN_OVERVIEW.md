@@ -27,7 +27,7 @@ destination has the whole window, and returns with Threads. Each tab keeps it
 as you left it there, so a panel you like beside the thread list keeps it.
 Top Tabs is one of bb's navigations: the strip lists every destination bb
 knows, hidden ones included, the sidebar keeps the thread list, and New
-thread is a button in the sidebar header.
+thread is a button in the Threads tab.
 
 **Pinned tabs.** Pin the destinations you always want: they sit beside
 Threads as icons and never close by accident. A pin remembers where you

@@ -151,8 +151,8 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
   user-select: none;
 }
 
-/* 84px is where bb puts its own first control beside the traffic lights, and
-   2px is how far it lowers chrome controls to sit level with them. */
+/* 84px is where bb puts its own first control beside the traffic lights,
+   until the strip has measured the controls in its row (useRowInsets). */
 /* In the frame (see above) the strip is part of it, as bb's title bar is: the
    frame's gray, and no rule, since the card's own edge sits right below. */
 .bb-top-tabs[data-framed] {
@@ -167,8 +167,21 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
   app-region: drag;
 }
 
+/* Level with bb's own controls in the row: their middle, measured
+   (`--bb-top-tabs-shift`, useRowInsets), since bb's macOS app centres them on
+   the traffic lights rather than on the row. Before the first measure, 2px is
+   how far bb lowers them beside the lights. */
+.bb-top-tabs > * {
+  translate: 0 var(--bb-top-tabs-shift, 0px);
+}
+
 .bb-top-tabs[data-traffic-lights] > * {
-  translate: 0 2px;
+  translate: 0 var(--bb-top-tabs-shift, 2px);
+}
+
+/* The split preview is placed in the page, not in the row. */
+.bb-top-tabs > .bb-top-tabs-split-preview {
+  translate: none;
 }
 
 .bb-top-tabs button {
@@ -289,6 +302,46 @@ html.bb-top-tabs-instant-sidebar [data-testid="app-page-header-content-row"] {
   flex: none;
   min-width: 0;
   max-width: none;
+}
+
+/* New thread, at the end of the Threads tab. Always there, as the strip's
+   one way to start a thread, and quieter than the tab it sits in. */
+.bb-top-tab-new-thread {
+  all: unset;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 3px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+@media (hover: hover) {
+  .bb-top-tab-new-thread:hover {
+    background: var(--state-hover, var(--sidebar-accent));
+    color: var(--foreground);
+  }
+}
+
+.bb-top-tab-new-thread:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.bb-top-tab-new-thread svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (pointer: coarse) {
+  .bb-top-tab-new-thread {
+    width: 30px;
+    height: 30px;
+  }
 }
 
 .bb-top-tab-threads-label {
@@ -690,37 +743,6 @@ svg.bb-top-tab-icon,
     width: 36px;
     height: 36px;
   }
-}
-
-/* ----------------------------------------------------- sidebar header */
-
-/* New thread, in the sidebar header while Top Tabs is the navigation
-   (components/NavProvider), sized by bb to its own header buttons. */
-.bb-top-tabs-new-thread {
-  all: unset;
-  display: grid;
-  flex: none;
-  place-items: center;
-  border-radius: var(--bui-radius-control, 8px);
-  color: var(--muted-foreground);
-}
-
-@media (hover: hover) {
-  .bb-top-tabs-new-thread:hover {
-    background: var(--state-hover, var(--sidebar-accent));
-    color: var(--foreground);
-  }
-}
-
-.bb-top-tabs-new-thread:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
-}
-
-.bb-top-tabs-new-thread svg,
-.bb-top-tabs-new-thread [data-icon-root] {
-  width: 16px;
-  height: 16px;
 }
 
 /* ---------------------------------------------------------------- menus */
