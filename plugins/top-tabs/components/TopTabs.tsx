@@ -852,7 +852,10 @@ export function TopTabs() {
       data-dragging={drag.state === null ? undefined : ""}
       style={{
         paddingLeft: rowInsets.left === 0 ? undefined : rowInsets.left,
-        paddingRight: rowInsets.right === 0 ? undefined : rowInsets.right,
+        // In bb's frame the strip stops short of the controls at the row's
+        // right end, which are the page's own and drawn under it; elsewhere
+        // they float above it, and it pads itself clear of them.
+        ...(rowInsets.right === 0 ? {} : rowInsets.framed ? { right: rowInsets.right } : { paddingRight: rowInsets.right }),
         ...(rowInsets.shift === null ? {} : { "--bb-top-tabs-shift": `${rowInsets.shift}px` }),
       } as CSSProperties}
     >

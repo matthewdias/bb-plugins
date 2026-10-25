@@ -68,16 +68,21 @@ export function useReservesTrafficLights(): boolean {
 
 /**
  * bb's controls that can sit in the strip's row: the macOS title bar's
- * buttons; the browser's floating sidebar toggle, which top-tabs.css moves
- * up into the row; and the right panel toggle ("Show right panel", "Hide
- * right panel"), which bb also lifts into the top row on the web's compose
- * screen.
+ * buttons, and the browser's floating sidebar toggle, which top-tabs.css
+ * moves up into the row.
  */
 const ROW_CONTROLS = [
   '[data-testid="app-window-title-bar"] button',
   '[data-testid="app-sidebar-trigger-overlay"] button',
-  'button[aria-label*="right panel"]',
 ].join(", ");
+/**
+ * A page's own controls, which bb puts in the same row: in its macOS frame
+ * every page header is part of the title bar, and on the web's compose
+ * screen bb lifts the right panel toggle into the top row. Only the last
+ * page's, at the row's right end, are left clear; in a split the others sit
+ * mid-row, under the tabs, whose menus close those panes.
+ */
+const PAGE_CONTROLS = ['button[aria-label="Close pane"]', 'button[aria-label*="right panel"]'].join(", ");
 /** Space between those controls and the strip's first and last items. */
 const CONTROL_GAP = 8;
 /** Re-measure without a resize too: controls mount after the strip, and full screen moves them. */
@@ -142,10 +147,12 @@ export function measureRowInsets(row: { top: number; bottom: number }): RowInset
   let right = 0;
   const holes: RowInsets["holes"][number][] = [];
   const middles: number[] = [];
-  for (const control of Array.from(document.querySelectorAll(ROW_CONTROLS))) {
+  const pageControls = new Set(Array.from(document.querySelectorAll(PAGE_CONTROLS)));
+  for (const control of Array.from(document.querySelectorAll(`${ROW_CONTROLS}, ${PAGE_CONTROLS}`))) {
     if (control.closest("#bb-top-tabs") !== null) continue;
     const box = control.getBoundingClientRect();
     if (box.width === 0 || box.top >= row.bottom || box.bottom <= 0) continue;
+    if (pageControls.has(control) && box.left + box.width / 2 < width / 2) continue;
     middles.push(box.top + box.height / 2);
     holes.push({
       x: Math.floor(box.left),
