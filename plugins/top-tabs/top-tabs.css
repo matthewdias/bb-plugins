@@ -443,7 +443,15 @@ html.bb-tab-nav-instant-sidebar [data-testid="app-page-header-content-row"] {
   width: 6px;
   height: 6px;
   margin: 6px 5px 0 0;
+  border: none;
+  border-radius: 999px;
+  animation: none;
   box-shadow: 0 0 0 1.5px var(--sidebar, var(--background));
+}
+
+/* Running, as a dot: the spinner is too small to read at this size. */
+.bb-tab-nav-status[data-compact] .bb-tab-nav-mark[data-kind="running"] {
+  background: var(--primary, var(--muted-foreground));
 }
 
 .bb-tab-nav-attention {
