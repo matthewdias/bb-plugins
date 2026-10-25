@@ -9,9 +9,10 @@
  * <html> only while it is on screen:
  *   - wide (`bb-tab-nav-wide`) raises --bb-sidebar-rail-padding, from which
  *     bb derives the rail column's width, the collapsed sidebar's width and
- *     the page header's offset beside it, so all three widen together. bb
- *     does not promise that variable: without it the rail stays narrow, and
- *     the names hide (the container query below);
+ *     the page header's offset beside it, so all three widen together, and
+ *     widens the open sidebar by the same amount so the thread list keeps
+ *     its room. bb does not promise these: without them the rail stays
+ *     narrow, and the names hide (the container query below);
  *   - `bb-tab-nav-instant-sidebar`, for a moment while a tab switch moves
  *     the sidebar, switches off bb's slide (lib/shell.ts).
  */
@@ -20,6 +21,25 @@
   html.bb-tab-nav-wide {
     --bb-tab-nav-wide-width: 200px;
     --bb-sidebar-rail-padding: calc((var(--bb-tab-nav-wide-width) - var(--bb-sidebar-control-size, 28px)) / 2);
+    /* What the rail gains over bb's own width, which bb still keeps in
+       --bb-frame-rail-padding. */
+    --bb-tab-nav-wide-extra: calc(
+      var(--bb-tab-nav-wide-width) - var(--bb-sidebar-control-size, 28px) - 2 * var(--bb-frame-rail-padding, 12px)
+    );
+  }
+
+  /* bb sizes the open sidebar as your chosen width (--sidebar-width, set
+     inline), rail included, and the thread list as that width less the
+     rail. A wider rail would take its room from the thread list, so while
+     the sidebar is open it grows by what the rail gains, and the list fills
+     its column. Your chosen width is untouched. */
+  html.bb-tab-nav-wide [data-side="left"][data-state="expanded"] [data-sidebar="gap"],
+  html.bb-tab-nav-wide [data-side="left"][data-state="expanded"] [data-sidebar="panel"] {
+    width: calc(var(--sidebar-width) + var(--bb-tab-nav-wide-extra)) !important;
+  }
+
+  html.bb-tab-nav-wide [data-testid="nav-rail-sidebar-body"] > [style*="width"] {
+    width: 100% !important;
   }
 }
 
