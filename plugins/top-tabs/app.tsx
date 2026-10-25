@@ -1,67 +1,67 @@
-// Top Tabs — bb destinations as tabs across the top of the window.
+// Tab Nav — bb destinations as vertical tabs in the sidebar's rail.
 //
-// Threads is the first tab and cannot close: it is the sidebar, the thread
-// list and the thread in view, as bb draws them. Every other destination —
-// a plugin panel, Plugins, Skills — opens as a tab beside it and remembers
-// where it was left, so switching between GitHub, Usage and the thread you
-// were in returns each to the same place.
+// Threads is the first tab and cannot close: it is the thread list and the
+// thread in view, as bb draws them. Every other destination — a plugin
+// panel, Plugins, Skills — opens as a tab below it and remembers where it
+// was left, so switching between GitHub, Usage and the thread you were in
+// returns each to the same place.
 //
-// Three registrations do it:
-//   - a sidebar navigation that draws nothing and hands bb's navigation to
-//     the strip (components/NavProvider);
-//   - an app overlay draws the strip above every route while that
-//     navigation is the one bb shows (components/TopTabs);
+// Two registrations do it:
+//   - a sidebar navigation with `placement: "rail"`, which draws the tabs in
+//     the column bb lays out at the sidebar's edge (components/TabRail);
 //   - palette commands switch, close and reopen tabs from the keyboard.
+//
+// The plugin id stays `top-tabs`, from when the tabs ran across the top:
+// tabs, settings and installs are keyed on it.
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { getController } from "./lib/controller.ts";
 import { pageClose } from "./lib/shell.ts";
+import { isWide, setWide } from "./lib/store.ts";
 import { THREADS, closeCommandAction } from "./lib/tabs-model.ts";
-import { NavProvider } from "./components/NavProvider.tsx";
-import { TopTabs } from "./components/TopTabs.tsx";
+import { TabNavigation } from "./components/TabRail.tsx";
 import "./top-tabs.css";
 
 export default definePluginApp((app) => {
-  app.slots.experimental_appOverlay({ id: "strip", component: TopTabs });
   app.slots.experimental_sidebarNavigation({
     id: "tabs",
-    title: "Top Tabs",
-    description: "Destinations as tabs across the top of the window. The sidebar keeps the thread list.",
-    placement: "list",
-    component: NavProvider,
+    title: "Tab Nav",
+    description: "Destinations as tabs in the rail: Threads, your pinned and open tabs, and + for more.",
+    placement: "rail",
+    component: TabNavigation,
   });
 
-  const hasStrip = () => getController() !== null;
+  const hasRail = () => getController() !== null;
 
   app.commands.register({
     id: "next-tab",
-    title: "Top Tabs: Next tab",
+    title: "Tab Nav: Next tab",
     defaultShortcut: { key: "Tab", control: true },
-    isAvailable: hasStrip,
+    isAvailable: hasRail,
     run: () => getController()?.cycle(1),
   });
   app.commands.register({
     id: "previous-tab",
-    title: "Top Tabs: Previous tab",
+    title: "Tab Nav: Previous tab",
     defaultShortcut: { key: "Tab", control: true, shift: true },
-    isAvailable: hasStrip,
+    isAvailable: hasRail,
     run: () => getController()?.cycle(-1),
   });
   app.commands.register({
     id: "go-to-threads",
-    title: "Top Tabs: Go to Threads",
-    isAvailable: hasStrip,
+    title: "Tab Nav: Go to Threads",
+    isAvailable: hasRail,
     run: () => getController()?.activate(THREADS),
   });
   app.commands.register({
     id: "switch-thread",
-    title: "Top Tabs: Switch thread…",
-    isAvailable: hasStrip,
+    title: "Tab Nav: Switch thread…",
+    isAvailable: hasRail,
     run: () => getController()?.openSwitcher(),
   });
   app.commands.register({
     id: "open-tab",
-    title: "Top Tabs: Open a tab…",
-    isAvailable: hasStrip,
+    title: "Tab Nav: Open a tab…",
+    isAvailable: hasRail,
     run: () => getController()?.openPicker(),
   });
   /** The destination tab in view, or null on Threads and pages no tab holds. */
@@ -72,7 +72,7 @@ export default definePluginApp((app) => {
 
   app.commands.register({
     id: "toggle-pin",
-    title: "Top Tabs: Pin or unpin tab",
+    title: "Tab Nav: Pin or unpin tab",
     isAvailable: () => activeDestination() !== null,
     run: () => {
       const active = activeDestination();
@@ -90,7 +90,7 @@ export default definePluginApp((app) => {
   };
   app.commands.register({
     id: "close-tab",
-    title: "Top Tabs: Close tab",
+    title: "Tab Nav: Close tab",
     isAvailable: () => closeAction().action !== null,
     run: () => {
       const { controller, active, action } = closeAction();
@@ -100,10 +100,22 @@ export default definePluginApp((app) => {
     },
   });
   app.commands.register({
+    id: "toggle-names",
+    title: "Tab Nav: Show or hide tab names",
+    isAvailable: hasRail,
+    run: () => setWide(!isWide()),
+  });
+  app.commands.register({
+    id: "new-thread",
+    title: "Tab Nav: New thread",
+    isAvailable: hasRail,
+    run: () => getController()?.newThread(),
+  });
+  app.commands.register({
     id: "reopen-closed-tab",
-    title: "Top Tabs: Reopen closed tab",
+    title: "Tab Nav: Reopen closed tab",
     defaultShortcut: { key: "t", control: true, shift: true },
-    isAvailable: hasStrip,
+    isAvailable: hasRail,
     run: () => getController()?.reopen(),
   });
 });

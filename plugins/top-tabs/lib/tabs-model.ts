@@ -1,4 +1,4 @@
-// The tab strip as data: which tabs are open, where each one was left, and
+// Tab Nav's tabs as data: which tabs are open, where each one was left, and
 // what the sidebar should do when the user moves between them.
 //
 // Nothing here touches React, the DOM or the SDK, so every rule the strip
@@ -10,11 +10,10 @@
 export const THREADS = "threads";
 
 /**
- * bb's Settings, which has no nav item to borrow an id from. A tab like any
- * destination — open, pin, close — except that its own navigation is the
- * sidebar, which bb fills with Settings' sections on that route.
+ * Top Tabs' own Settings tab, up to 0.4. bb's rail draws Settings at its
+ * foot, so Tab Nav has none; a saved one is dropped when state loads.
  */
-export const SETTINGS = "__top-tabs__/settings";
+const RETIRED_SETTINGS = "__top-tabs__/settings";
 
 export type TabId = string;
 
@@ -108,7 +107,7 @@ export function isAppPath(value: unknown): value is string {
 }
 
 function isTabId(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 256;
+  return typeof value === "string" && value.length > 0 && value.length <= 256 && value !== RETIRED_SETTINGS;
 }
 
 /** Parse persisted state, keeping every well-formed part of it. */
@@ -229,13 +228,12 @@ function isSettingsPath(pathname: string): boolean {
  * Whether `pathname` is on bb's own page for an action kind. bb reports no
  * active item on these pages, so the strip recognises them by route.
  */
-/** The route kinds the strip recognises itself; `open-settings` is its own. */
-const HOST_KINDS = new Set(["open-extensions", "open-skills", "open-settings"]);
+/** The route kinds Tab Nav recognises itself. */
+const HOST_KINDS = new Set(["open-extensions", "open-skills"]);
 
 function isHostRoute(kind: string, pathname: string): boolean {
   if (kind === "open-extensions") return pathname === "/plugins" || PLUGIN_PAGE_PATH.test(pathname);
   if (kind === "open-skills") return pathname === "/skills" || pathname.startsWith("/skills/");
-  if (kind === "open-settings") return isSettingsPath(pathname);
   return false;
 }
 
@@ -298,7 +296,6 @@ export function defaultPathFor(target: RouteTarget): string | null {
   }
   if (target.kind === "open-extensions") return "/plugins";
   if (target.kind === "open-skills") return "/skills";
-  if (target.kind === "open-settings") return "/settings";
   return null;
 }
 
@@ -326,21 +323,6 @@ export function threadIdFromPath(path: string | undefined): string | null {
 /** `open` with the pinned tabs moved to the front, each group keeping its order. */
 function pinnedFirst(open: readonly string[], pinned: readonly string[]): string[] {
   return [...open.filter((id) => pinned.includes(id)), ...open.filter((id) => !pinned.includes(id))];
-}
-
-/**
- * Whether a move closes the Settings tab: the route left Settings, and the
- * strip did not take it there. bb's own ways out of Settings — Escape, Back
- * to app, the browser's back — treat Settings as a place you visit and
- * leave; a tab switch in the strip is the user moving between tabs, and
- * leaves it open.
- */
-export function leavesSettings(
-  previous: TabId | null | undefined,
-  next: TabId | null,
-  byStrip: boolean,
-): boolean {
-  return previous === SETTINGS && next !== SETTINGS && !byStrip;
 }
 
 /** Open a tab for a destination the user reached some other way. */
@@ -720,14 +702,12 @@ export interface SidebarStep {
 }
 
 /**
- * Whether the sidebar is open on a tab the strip has no memory of. Settings
- * opens it, because bb fills the sidebar with Settings' own sections there;
- * any other destination collapses it, so the page gets the whole window.
- * Threads has no default: the strip learns it from what it finds there.
+ * Whether the sidebar is open on a tab Tab Nav has no memory of. A
+ * destination collapses it to the rail, so the page gets the window. Threads
+ * has no default: Tab Nav learns it from what it finds there.
  */
 function sidebarDefault(tab: TabId): boolean | undefined {
-  if (tab === THREADS) return undefined;
-  return tab === SETTINGS;
+  return tab === THREADS ? undefined : false;
 }
 
 /** `memory` with `tab` set to `open`, or `memory` itself if it already was. */

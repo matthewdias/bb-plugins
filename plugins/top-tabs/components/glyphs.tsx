@@ -1,4 +1,4 @@
-// The strip's own glyphs, drawn inline so they never depend on which icon
+// Tab Nav's own glyphs, drawn inline so they never depend on which icon
 // names a given bb build resolves. Destination icons come from bb itself:
 // bb's navigation icon component (see components/destinations).
 import type { ScreenPane } from "../lib/tabs-model.ts";
@@ -39,21 +39,25 @@ export function ComposeGlyph({ className }: { className?: string }) {
   );
 }
 
+/**
+ * The rail's width toggle: a sidebar with its rail, and an arrow pointing to
+ * where the names go — out when the rail is narrow, back in when it is wide.
+ */
+export function NamesGlyph({ wide, className }: { wide: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...STROKE}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+      <path d={wide ? "m16 15-3-3 3-3" : "m14 9 3 3-3 3"} />
+    </svg>
+  );
+}
+
 export function PlusGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...STROKE}>
       <path d="M5 12h14" />
       <path d="M12 5v14" />
-    </svg>
-  );
-}
-
-/** A gear: bb's Settings, which brings no icon of its own to the strip. */
-export function GearGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...STROKE}>
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }
@@ -91,7 +95,7 @@ interface PaneMapProps {
 
 /**
  * The split layout in miniature, with the panes this tab is on screen in
- * filled — so the strip says where each tab is, not just that it is open.
+ * filled — so the rail says where each tab is, not just that it is open.
  * Draws nothing outside a split or for a tab that is not on screen.
  */
 export function PaneMap({ screen, tab }: PaneMapProps) {
@@ -100,7 +104,7 @@ export function PaneMap({ screen, tab }: PaneMapProps) {
   const height = 11;
   const inset = 0.75;
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="bb-top-tab-panes" aria-hidden="true">
+    <svg viewBox={`0 0 ${width} ${height}`} className="bb-tab-nav-panes" aria-hidden="true">
       {screen.map((pane) => (
         <rect
           key={pane.paneId}

@@ -1,73 +1,40 @@
-// Dragging a tab: sideways to reorder, down into the page to split.
+// Dragging a tab up or down the rail to reorder it.
+//
+// Dragging it out of the sidebar into the page opens a split. That is bb's
+// own drag: each tab also spreads bb's `splitProps` (TabRail), which engage
+// once the pointer leaves the sidebar, and bb sends Escape as it does so "to
+// cancel a sidebar reorder". This drag listens for exactly that and puts the
+// order back.
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { contentRect } from "../lib/shell.ts";
 import { getState, update } from "../lib/store.ts";
 import { moveBefore } from "../lib/tabs-model.ts";
 
 /** Pointer travel before a press on a tab becomes a drag. */
 const DRAG_THRESHOLD_PX = 5;
-/** How far below the strip a dragged tab goes before it becomes a split. */
-const SPLIT_HANDOFF_PX = 8;
 
-export interface LiveStrip {
+export interface LiveRail {
   shown: readonly string[];
-}
-
-export interface SplitHooks {
-  /** "Split with …" for the tab in view, or null when it cannot be split. */
-  partnerLabelFor: (id: string) => string | null;
-  splitWithPartner: (id: string) => void;
-  /** Whether a tab not in view can open in a pane beside the focused one. */
-  canBeInPane: (id: string) => boolean;
-  openInSplit: (id: string) => void;
 }
 
 interface DragState {
   id: string;
-  dx: number;
+  dy: number;
 }
-
-/** Where the split will open, drawn while a tab is dragged down into the page. */
-export interface SplitPreview {
-  label: string;
-  rect: { left: number; top: number; width: number; height: number };
-}
-
-/** What a tab dragged into the page does on release. */
-type Drop = "partner" | "self";
 
 /**
- * Drag a tab sideways to reorder. The order changes live as the dragged tab's
- * centre crosses a neighbour's, and the tab itself follows the pointer
+ * Drag a tab up or down to reorder. The order changes live as the dragged
+ * tab's middle crosses a neighbour's, and the tab itself follows the pointer
  * between slots, so it never jumps out from under it.
- *
- * Drag it down out of the strip instead to open it in a split. bb 0.46 no
- * longer lends plugins its split gesture for destinations, so the strip runs
- * the drag itself: it previews the new pane on the right half of the page,
- * where bb puts a split, and opens it there on release. The order goes back
- * to how it was before the drag.
- *
- * The tab in view is already on screen, so dragging it down opens its split
- * partner beside it instead.
  */
-export function useTabDrag(
-  tabRefs: { current: Map<string, HTMLElement> },
-  live: { current: LiveStrip },
-  stripRef: { current: HTMLElement | null },
-  split: { current: SplitHooks },
-) {
+export function useTabDrag(tabRefs: { current: Map<string, HTMLElement> }, live: { current: LiveRail }) {
   const [state, setState] = useState<DragState | null>(null);
-  const [preview, setPreview] = useState<SplitPreview | null>(null);
   const press = useRef<{
     id: string;
     pointerId: number;
-    startX: number;
     startY: number;
-    startLeft: number;
+    startTop: number;
     order: readonly string[];
-    source: HTMLElement;
     moved: boolean;
-    previewing: Drop | null;
   } | null>(null);
   const swallowClick = useRef(false);
   const cleanup = useRef<(() => void) | null>(null);
@@ -81,57 +48,21 @@ export function useTabDrag(
     press.current = {
       id,
       pointerId: event.pointerId,
-      startX: event.clientX,
       startY: event.clientY,
-      startLeft: tab.offsetLeft,
+      startTop: tab.offsetTop,
       order: getState().open,
-      source: event.currentTarget,
       moved: false,
-      previewing: null,
     };
-
 
     const onMove = (move: PointerEvent) => {
       const current = press.current;
       if (current === null || move.pointerId !== current.pointerId) return;
-      const delta = move.clientX - current.startX;
-      if (!current.moved && Math.abs(delta) < DRAG_THRESHOLD_PX && Math.abs(move.clientY - current.startY) < DRAG_THRESHOLD_PX) {
-        return;
-      }
+      const delta = move.clientY - current.startY;
+      if (!current.moved && Math.abs(delta) < DRAG_THRESHOLD_PX) return;
       current.moved = true;
-      const stripBottom = stripRef.current?.getBoundingClientRect().bottom ?? Infinity;
-      if (move.clientY > stripBottom + SPLIT_HANDOFF_PX) {
-        const partner = split.current.partnerLabelFor(current.id);
-        const drop: Drop | null =
-          partner !== null ? "partner" : split.current.canBeInPane(current.id) ? "self" : null;
-        const content = drop === null ? null : contentRect();
-        if (drop !== null && content !== null) {
-          if (current.previewing !== drop) {
-            current.previewing = drop;
-            update((s) => ({ ...s, open: current.order }));
-            setState(null);
-            const inset = 6;
-            setPreview({
-              label: drop === "partner" ? `Split with ${partner}` : "Open in split",
-              rect: {
-                left: content.left + content.width / 2,
-                top: content.top + inset,
-                width: content.width / 2 - inset,
-                height: content.height - inset * 2,
-              },
-            });
-          }
-          return;
-        }
-      } else if (current.previewing !== null) {
-        // Back over the strip: it is a reorder again.
-        current.previewing = null;
-        setPreview(null);
-      }
-
       const dragged = tabRefs.current.get(current.id);
       if (dragged === undefined) return;
-      const centre = current.startLeft + delta + dragged.offsetWidth / 2;
+      const middle = current.startTop + delta + dragged.offsetHeight / 2;
       // A tab moves among its own group only: dragging never pins or unpins.
       const { pinned } = getState();
       const group = pinned.includes(current.id);
@@ -139,19 +70,16 @@ export function useTabDrag(
         live.current.shown.find((other) => {
           if (other === current.id || pinned.includes(other) !== group) return false;
           const el = tabRefs.current.get(other);
-          return el !== undefined && el.offsetLeft + el.offsetWidth / 2 > centre;
+          return el !== undefined && el.offsetTop + el.offsetHeight / 2 > middle;
         }) ?? null;
       update((s) => moveBefore(s, current.id, before));
       // Follow the pointer from wherever the slot is now.
-      setState({ id: current.id, dx: current.startLeft + delta - dragged.offsetLeft });
+      setState({ id: current.id, dy: current.startTop + delta - dragged.offsetTop });
     };
 
     const onUp = (up: PointerEvent) => {
       const current = press.current;
       if (current === null || up.pointerId !== current.pointerId) return;
-      if (current.previewing === "partner") split.current.splitWithPartner(current.id);
-      if (current.previewing === "self") split.current.openInSplit(current.id);
-      setPreview(null);
       if (current.moved) {
         // The click that ends a drag must not open the tab. It arrives right
         // after this event, or not at all if the pointer left the tab.
@@ -171,12 +99,11 @@ export function useTabDrag(
       if (current.moved) update((s) => ({ ...s, open: current.order }));
       press.current = null;
       setState(null);
-      setPreview(null);
       stop();
     };
+    // Escape, from the user or from bb taking the drag over for a split.
     const onKeyDown = (key: KeyboardEvent) => {
       if (key.key !== "Escape") return;
-      key.preventDefault();
       onCancel();
     };
 
@@ -184,14 +111,14 @@ export function useTabDrag(
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
-      window.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
       cleanup.current = null;
     };
     cleanup.current?.();
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
-    window.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
     cleanup.current = stop;
   };
 
@@ -202,5 +129,5 @@ export function useTabDrag(
     return swallow;
   };
 
-  return { state, preview, onPointerDown, consumeClick };
+  return { state, onPointerDown, consumeClick };
 }

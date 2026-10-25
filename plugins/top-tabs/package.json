@@ -8,6 +8,7 @@
     "bb-plugin",
     "navigation",
     "tabs",
+    "rail",
     "sidebar",
     "threads"
   ],
@@ -25,8 +26,8 @@
     "bbPluginSdk": ">=0.6.79"
   },
   "bb": {
-    "name": "Top Tabs",
-    "description": "Opens bb destinations as tabs across the top of the window, beside a permanent Threads tab, so you can keep several open and switch without losing your place.",
+    "name": "Tab Nav",
+    "description": "bb's destinations as vertical tabs in the sidebar's rail: Threads, your pinned and open tabs, each back where you left it, with names or icons only.",
     "branding": {
       "icon": "AppWindow"
     },
