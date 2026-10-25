@@ -407,19 +407,22 @@ workarounds are kept small and in one place each:
 - **The sidebar toggle.** In a browser bb floats the sidebar toggle over the
   top-left corner, so it moves up into the strip's row, where the macOS
   app's title bar has it, and the strip starts after it.
-- **macOS title bar.** In bb's desktop app on macOS, bb 0.46 draws a title bar
-  along the top of the window, with the traffic lights, back and forward, the
-  sidebar toggle and the right panel toggle, and frames the page as a card
-  below it. The strip takes that row: the page starts under the strip, and the
-  strip pads itself around the title bar's buttons, measured each second and
-  on resize (`lib/desktop.ts`), so they sit in the strip and full screen
-  needs no special case. It also moves its tabs level with those buttons,
-  which bb centres on the traffic lights rather than on the row. The title bar lets clicks through to the tabs except
-  on its buttons, which also get holes in the strip's window-drag region,
-  since Electron would otherwise let the strip's region take their clicks.
-  The strip takes the frame's gray. `lib/desktop.ts` also asks bb's desktop bridge whether
-  this is macOS outside full screen, as bb does, to give the strip the title
-  bar's height.
+- **macOS title bar.** In bb's desktop app on macOS, bb draws a title bar
+  along the top of the window, with the traffic lights, back and forward and
+  the sidebar toggle, and frames the pages as cards below it. Since 0.47 each
+  page's header is part of that row too: its name, Close pane and the right
+  panel toggle. The strip takes the row exactly, at the height bb gives it
+  (`--bb-window-title-bar-height`), and leaves bb's frame as bb lays it out,
+  since the cards are masked and rounded for that height. It covers the page
+  names, which its tabs already show, and stops short of the last page's
+  controls at the row's right end. It pads itself around the title bar's
+  buttons and moves its tabs level with them, since bb centres them on the
+  traffic lights rather than on the row; both are measured each second and
+  on resize (`lib/desktop.ts`), so full screen needs no special case. The
+  title bar lets clicks through to the tabs except on its buttons, which also
+  get holes in the strip's window-drag region, since Electron would otherwise
+  let the strip's region take their clicks. In a split, the other panes'
+  controls sit mid-row under the tabs; close those panes from the tabs.
 - **The sidebar.** `lib/shell.ts` reads the attributes bb's sidebar primitive
   publishes (`data-side`, `data-state`, `data-collapsible`). It toggles the
   sidebar by clicking bb's own toggle, so the collapse animates and bb's state
