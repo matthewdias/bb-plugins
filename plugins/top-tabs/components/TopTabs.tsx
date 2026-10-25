@@ -24,14 +24,8 @@ import {
 import { publishController } from "../lib/controller.ts";
 import { useReservesTrafficLights, useRowInsets } from "../lib/desktop.ts";
 import { currentPath, navigateToPath, subscribeLocation } from "../lib/location.ts";
-import type { NavItem } from "../lib/nav-types.ts";
-import {
-  publishNavigation,
-  restoreNavigation,
-  retireNavigation,
-  useBridgedNavigation,
-} from "../lib/navigation-bridge.ts";
-import { destinationPanes, watchRail } from "../lib/rail.ts";
+import { tabName } from "../lib/badge.ts";
+import { navigation, useBridgedNavigation, type ItemSplit, type NavItem } from "../lib/navigation-bridge.ts";
 import {
   COMPACT_QUERY,
   closePane,
@@ -59,6 +53,7 @@ import {
   closeToRight,
   cycle,
   defaultPathFor,
+  destinationPanesFrom,
   leavesSettings,
   pin,
   panesOf,
@@ -87,7 +82,7 @@ import {
   type TabId,
 } from "../lib/tabs-model.ts";
 import { CloseGlyph, PaneMap, ThreadsGlyph } from "./glyphs.tsx";
-import { TabIcon, destinationsOf } from "./destinations.tsx";
+import { TabBadge, TabIcon, destinationsOf } from "./destinations.tsx";
 import { TabMenu, TabPicker, type SplitAction, type TabMenuProps } from "./menus.tsx";
 import { TabTooltip, TabTooltipProvider } from "./tab-tooltip.tsx";
 import { ThreadsLabel, ThreadsStatus } from "./threads-tab.tsx";
@@ -115,12 +110,7 @@ function labelModeOf(value: unknown): LabelMode {
 }
 
 const NO_ITEMS: readonly NavItem[] = [];
-const NO_PANES: ReadonlyMap<string, readonly string[]> = new Map();
-
-/** The same panes for the same destinations. */
-function samePanes(a: ReadonlyMap<string, readonly string[]>, b: ReadonlyMap<string, readonly string[]>): boolean {
-  return JSON.stringify([...a]) === JSON.stringify([...b]);
-}
+const NO_SPLITS: ReadonlyMap<string, ItemSplit> = new Map();
 
 function useMediaQuery(query: string): boolean {
   const subscribe = useCallback(
@@ -169,17 +159,20 @@ function closePanesOf(screen: readonly ScreenPane[] | null, ids: readonly string
 export function TopTabs() {
   const pluginId = experimental_usePluginId();
   initStore(pluginId);
-  restoreNavigation(pluginId);
+  navigation.restore(pluginId);
   const tabs = useTabsState();
+  // Null while Top Tabs is not the sidebar's navigation: the strip is not drawn.
   const bridged = useBridgedNavigation();
   const nav = bridged?.state ?? null;
   const navLive = bridged?.live === true;
+  const splits = bridged?.splits ?? NO_SPLITS;
   const bbNavigate = useBbNavigate();
   const { values } = useSettings();
   const collapseSidebar = values?.collapseSidebar !== false;
   const closeSettingsOnExit = values?.closeSettingsOnExit !== false;
   const labelMode = labelModeOf(values?.tabLabels);
   const pinnedLabels = values?.pinnedLabels === true;
+  const pinnedBadges = values?.pinnedBadges === true;
   const closeOrder = closeOrderOf(values?.recentAfterClose);
   const compact = useMediaQuery(COMPACT_QUERY);
   const trafficLights = useReservesTrafficLights();
@@ -187,13 +180,6 @@ export function TopTabs() {
   const pathname = pathnameOf(path);
   const splitLayout = useSidebarSplitLayout();
   const { threads } = experimental_useSidebarThreads();
-
-  // bb's destinations, read off the navigation rail for as long as the strip
-  // is mounted. See lib/rail.ts.
-  useEffect(
-    () => watchRail((state) => (state === null ? retireNavigation() : publishNavigation(state))),
-    [],
-  );
 
   const destinations = useMemo(() => destinationsOf(nav?.items ?? NO_ITEMS), [nav?.items]);
   const byId = useMemo(() => new Map(destinations.map((item) => [item.id, item])), [destinations]);
@@ -203,21 +189,10 @@ export function TopTabs() {
   // storage but not on screen, so they come back with their plugin.
   const shown = useMemo(() => tabs.open.filter((id) => byId.has(id)), [tabs.open, byId]);
 
-  // Which destination each pane of a split shows. bb says only which thread
-  // a pane holds, so the rest is read off the panes themselves, once bb has
-  // drawn them: after the layout changes, and again on the next frame.
-  const [paneOwners, setPaneOwners] = useState(NO_PANES);
-  const navItems = nav?.items ?? NO_ITEMS;
-  useEffect(() => {
-    const read = () =>
-      setPaneOwners((before) => {
-        const next = splitLayout === null ? NO_PANES : destinationPanes(navItems);
-        return samePanes(before, next) ? before : next;
-      });
-    read();
-    const frame = requestAnimationFrame(read);
-    return () => cancelAnimationFrame(frame);
-  }, [splitLayout, navItems]);
+  // Which destination each pane of a split shows: the split layout says
+  // which thread a pane holds, and bb's split hook which panes each
+  // destination is in (components/NavProvider).
+  const paneOwners = useMemo(() => destinationPanesFrom(splits), [splits]);
 
   // What each pane of a split shows, or null when nothing is split.
   const screen = useMemo(
@@ -231,8 +206,8 @@ export function TopTabs() {
 
   // Callbacks below read the latest of these rather than closing over them,
   // so the controller and window listeners never act on a stale strip.
-  const live = useRef({ active, byId, shown, nav, navLive, bbNavigate, screen, threads, compact, collapseSidebar, inSplit, closeOrder });
-  live.current = { active, byId, shown, nav, navLive, bbNavigate, screen, threads, compact, collapseSidebar, inSplit, closeOrder };
+  const live = useRef({ active, byId, shown, nav, navLive, splits, bbNavigate, screen, threads, compact, collapseSidebar, inSplit, closeOrder });
+  live.current = { active, byId, shown, nav, navLive, splits, bbNavigate, screen, threads, compact, collapseSidebar, inSplit, closeOrder };
 
   // First run: the destinations the sidebar showed become the open tabs.
   // Wait for the list to settle, since plugin panels register as their
@@ -406,7 +381,7 @@ export function TopTabs() {
     if (saved !== undefined && navigateToPath(saved)) return;
     // Settings is the strip's own entry; bb's actions do not know it.
     if (navLive && nav !== null && id !== SETTINGS) {
-      nav.actions.activate(id, { openInSplit: false });
+      nav.actions.activate(id, { target: "current" });
       return;
     }
     const fallback = defaultPathFor(routeTarget(item));
@@ -554,12 +529,18 @@ export function TopTabs() {
 
   /** Whether `id` can occupy a split pane right now. */
   const canBeInPane = useCallback((id: TabId): boolean => {
-    const { byId, navLive } = live.current;
+    const { byId, navLive, splits } = live.current;
     if (id === THREADS) return threadIdFromPath(getState().paths[THREADS]) !== null;
     const item = byId.get(id);
-    // Only plugin panels can sit in a pane, and opening one takes bb's
-    // navigation actions, which only work while the rail is there to read.
-    return item !== undefined && item.action.kind === "open-plugin-panel" && navLive;
+    // Only plugin panels can sit in a pane, and only when bb's split hook
+    // says so (not on a compact viewport, not with splits off). Opening one
+    // takes bb's navigation actions, which the list restored at load lacks.
+    return (
+      item !== undefined &&
+      item.action.kind === "open-plugin-panel" &&
+      navLive &&
+      splits.get(id)?.isAvailable === true
+    );
   }, []);
 
   /** Put `id` in a new pane beside the focused one. */
@@ -570,7 +551,7 @@ export function TopTabs() {
       if (threadId !== null) bbNavigate.toThread(threadId, { split: true });
       return;
     }
-    nav?.actions.activate(id, { openInSplit: true });
+    nav?.actions.activate(id, { target: "split" });
     // bb opens a panel at its root. Once the new pane is in view, take it on
     // to where the tab was left.
     const saved = getState().paths[id];
@@ -649,8 +630,9 @@ export function TopTabs() {
   // Tell top-tabs.css the strip is up, so it makes room for it. A class on
   // <html> rather than `body:has(#bb-top-tabs)`, which restyled the whole page
   // on every change inside the strip.
+  const visible = !compact && bridged !== null;
   useLayoutEffect(() => {
-    if (compact) return;
+    if (!visible) return;
     const root = document.documentElement;
     root.classList.add(ON_CLASS);
     root.classList.toggle(TRAFFIC_LIGHTS_CLASS, trafficLights);
@@ -658,7 +640,7 @@ export function TopTabs() {
       root.classList.remove(ON_CLASS);
       root.classList.remove(TRAFFIC_LIGHTS_CLASS);
     };
-  }, [compact, trafficLights]);
+  }, [visible, trafficLights]);
 
   const stripRef = useRef<HTMLElement>(null);
   // bb's own controls in the strip's row; see useRowInsets.
@@ -692,7 +674,7 @@ export function TopTabs() {
     buttons[target]?.focus();
   };
 
-  if (compact) return null;
+  if (!visible) return null;
 
   const splitActionFor = (id: TabId): SplitAction | null => {
     const partnerLabel = partnerLabelFor(id);
@@ -749,7 +731,10 @@ export function TopTabs() {
     const isPinned = tabs.pinned.includes(id);
     const labelled = showsLabel(id);
     const dragging = drag.state?.id === id;
-    const name = item.shortcut ? `${item.label} (${item.shortcut.label})` : item.label;
+    // Named tabs always show their badge; pinned icons only when asked to.
+    const badge = labelled || (isPinned && pinnedBadges) ? item.badge : null;
+    const named = tabName(item.label, item.badge);
+    const name = item.shortcut ? `${named} (${item.shortcut.label})` : named;
     // Where the tab is inside its destination, shown on hover rather than
     // beside the name: a route remainder is not always readable, and a pin's
     // dot says it has moved without needing one.
@@ -777,7 +762,7 @@ export function TopTabs() {
               type="button"
               className="bb-top-tab-main"
               aria-current={selected === id ? "page" : undefined}
-              aria-label={labelled ? undefined : item.label}
+              aria-label={labelled && badge === null ? undefined : tabName(item.label, badge)}
               aria-keyshortcuts={item.shortcut?.ariaKeyShortcuts}
               disabled={item.isDisabled}
               onPointerDown={(event) => drag.onPointerDown(event, id)}
@@ -798,6 +783,7 @@ export function TopTabs() {
                 {away && <span className="bb-top-tab-moved" aria-hidden="true" />}
               </span>
               {labelled && <span className="bb-top-tab-label">{item.label}</span>}
+              {badge !== null && <TabBadge badge={badge} />}
               {navLive && nav?.isShortcutModifierHeld === true && item.shortcut !== null && (
                 <kbd className="bb-top-tab-shortcut">{item.shortcut.label}</kbd>
               )}

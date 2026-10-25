@@ -1,4 +1,4 @@
-bb puts every destination in a rail beside the threads. Open GitHub and
+bb puts every destination in the sidebar, beside the threads. Open GitHub and
 your thread is gone. Go back and GitHub forgets the pull request you were
 reading. Top Tabs moves the destinations into tabs across the top of the
 window. Keep several open, switch between them, and each one comes back where
@@ -25,15 +25,16 @@ it was on: the pull request inside GitHub, not just GitHub.
 **The sidebar gets out of the way.** It slides away on other tabs, so the
 destination has the whole window, and returns with Threads. Each tab keeps it
 as you left it there, so a panel you like beside the thread list keeps it.
-The strip takes the place of bb's navigation rail, which it hides, and lists
-every destination the rail knows, hidden ones included.
+Top Tabs is one of bb's navigations: the strip lists every destination bb
+knows, hidden ones included, the sidebar keeps the thread list, and New
+thread is a button in the sidebar header.
 
 **Pinned tabs.** Pin the destinations you always want: they sit beside
 Threads as icons and never close by accident. A pin remembers where you
 pinned it. A dot marks one you've moved away from, and closing it with bb's
 Close or the keyboard sends it back there and leaves it pinned. Hover any tab
 to see where inside its panel it is. Labels can be icons-only, or only on the
-tab in view, and pinned tabs can show their names too.
+tab in view, and pinned tabs can show their names and badges too.
 
 **Splits.** Drag a tab down into the page to open it in a split, or choose
 Open in split from its menu or the + menu. The strip marks every tab that's on screen, with a small map of
@@ -45,9 +46,11 @@ back to the last tab you used, as VS Code does.
 
 ## How it works
 
-The strip is an app overlay, mounted once per window, outside every route. It
-reads bb's destinations off the navigation rail, so it needs bb 0.46 or
-later. Tabs are per client.
+The strip is an app overlay, mounted once per window, outside every route.
+It gets bb's destinations from a sidebar navigation Top Tabs registers, which
+draws nothing itself, so it needs bb 0.47.1 or later, and it shows while Top
+Tabs is the navigation chosen under Settings → Appearance → Navigation. Tabs
+are per client.
 
 bb's plugin API cannot reserve room above the app or open and close the
 sidebar. So Top Tabs shifts bb's shell down with CSS, and toggles the sidebar
@@ -55,5 +58,5 @@ by clicking bb's own toggle. Both are keyed on the strip being on screen, and
 both fail soft: if bb changes its markup, the sidebar stops collapsing or an
 element slips under the strip, and nothing else breaks.
 
-On a phone the strip steps aside and the rail returns, inside the sidebar
-drawer.
+On a phone the strip steps aside and the sidebar drawer shows bb's own Top
+list, with every destination.

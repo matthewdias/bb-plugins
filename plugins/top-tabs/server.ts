@@ -42,5 +42,12 @@ export default async function plugin(bb: BbPluginApi) {
         "Pinned tabs show their names as the other tabs do, following Tab labels. When off, they're icons.",
       default: false,
     },
+    pinnedBadges: {
+      type: "boolean",
+      label: "Show badges on pinned tabs",
+      description:
+        "A pinned icon shows its panel's badge, such as a count, as bb's navigation does. Pinned tabs that show their names always show it.",
+      default: false,
+    },
   });
 }

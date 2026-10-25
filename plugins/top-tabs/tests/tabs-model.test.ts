@@ -17,6 +17,7 @@ import {
   cycle,
   groupThreads,
   defaultPathFor,
+  destinationPanesFrom,
   isAppPath,
   isDestinationAction,
   isPinned,
@@ -649,6 +650,20 @@ test("Threads focuses the thread it last showed, else the first thread pane", ()
   assert.equal(threadPaneFor(screen, null)?.paneId, "p1");
   const noThreads = panesOnScreen([pane("p1", 0, null), pane("p2", 0.5, null)], new Map(), "gh/gh");
   assert.equal(threadPaneFor(noThreads, "t1"), null);
+});
+
+test("destinationPanesFrom: the panes bb's split hook says each destination is in", () => {
+  const splits = new Map([
+    ["gh/gh", { isAvailable: true, paneIds: ["p2"] }],
+    ["usage/usage", { isAvailable: true, paneIds: [] }],
+  ]);
+  const panes = destinationPanesFrom(splits);
+  assert.deepEqual([...panes], [["gh/gh", ["p2"]]]);
+  const layout = [pane("p1", 0, "t1"), pane("p2", 0.5, null, true)];
+  assert.deepEqual(
+    panesOnScreen(layout, panes, "gh/gh")?.map((p) => p.tab),
+    [THREADS, "gh/gh"],
+  );
 });
 
 test("a split bb is holding while another page has the view is not on screen", () => {

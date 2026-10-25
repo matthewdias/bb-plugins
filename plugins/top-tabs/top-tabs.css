@@ -57,11 +57,10 @@ html.bb-top-tabs-on [data-sidebar="panel"] {
   height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room));
 }
 
-/* In a browser, bb floats the sidebar toggle over the top-left corner, where
-   the rail used to give it room. Without the rail it would sit on whatever the
-   sidebar or page puts there, so it moves up into the strip's row, as the
-   macOS app's title bar has it, and the strip starts after it (useRowInsets
-   in lib/desktop.ts). */
+/* In a browser, bb floats the sidebar toggle over the top-left corner. Below
+   the strip it would sit on whatever the sidebar or page puts there, so it
+   moves up into the strip's row, as the macOS app's title bar has it, and the
+   strip starts after it (useRowInsets in lib/desktop.ts). */
 html.bb-top-tabs-on [data-testid="app-sidebar-trigger-overlay"] {
   height: var(--bb-top-tabs-height);
 }
@@ -76,45 +75,11 @@ html.bb-top-tabs-on [data-testid="app-desktop-sidebar-trigger"] {
   padding-left: 12px;
 }
 
-/* Likewise the page header, which clears lights and toggle (104px) while the
-   sidebar is collapsed; with the lights gone it needs only the toggle's room,
-   as on the web. */
-html.bb-top-tabs-on [data-testid="app-page-header-content-row"].pl-\[104px\] {
-  padding-left: 32px;
-}
-
-/* bb's navigation rail, while the strip is up. The strip lists the same
-   destinations, so the rail would only repeat them. It stays in the page,
-   hidden: the strip reads bb's navigation off it (lib/rail.ts). */
-html.bb-top-tabs-on [data-testid="app-nav-rail"] {
-  display: none;
-}
-
-/* The rail is a column of the sidebar, not a sibling: bb sizes the sidebar
-   as the rail's width plus the list's, and a collapsed sidebar shrinks to
-   the rail. Without the rail the column would stand empty, so it goes to
-   nothing, the list takes the sidebar's whole width, and a collapsed sidebar
-   is gone, as it was before the rail. */
-html.bb-top-tabs-on [data-sidebar="gap"],
-html.bb-top-tabs-on [data-sidebar="panel"] {
-  --sidebar-rail-width: 0px !important;
-}
-
-html.bb-top-tabs-on [data-sidebar="panel"] {
-  overflow: hidden;
-}
-
-/* The list and the footer are sized in pixels, as the sidebar's width less
-   the rail's. */
-html.bb-top-tabs-on [data-testid="nav-rail-sidebar-body"] > [style*="width"],
-html.bb-top-tabs-on [data-testid="sidebar-footer-row"] [data-sidebar="collapsible-body"] > [style*="width"] {
-  width: 100% !important;
-}
-
-/* The rail's Settings gear sits under the rail, at the left of the footer.
-   The strip has Settings as a tab, so the gear goes with the rail. */
-html.bb-top-tabs-on [data-testid="sidebar-footer-row"] > :first-child {
-  display: none;
+/* Likewise the page header, which clears lights and toggle
+   (`--bb-macos-collapsed-top-left-reserve`) while the sidebar is collapsed;
+   with the lights gone it needs only the toggle's room, as on the web. */
+html.bb-top-tabs-on [data-testid="app-page-header-content-row"] {
+  --bb-macos-collapsed-top-left-reserve: 32px;
 }
 
 /* bb's desktop app on macOS frames the window: a title bar along the top,
@@ -135,18 +100,6 @@ html.bb-top-tabs-on [data-testid="app-window-title-bar"] {
 
 html.bb-top-tabs-on [data-testid="app-window-title-bar"] > * {
   pointer-events: auto;
-}
-
-/* In the frame, bb draws the sidebar and the page as one rounded card, with
-   the rail on the frame to its left. Without the rail, the card keeps the lip
-   the frame gives it on the other sides. */
-html.bb-top-tabs-on [data-framed] [data-sidebar="gap"] {
-  margin-left: var(--bb-window-frame-lip);
-}
-
-html.bb-top-tabs-on [data-framed] [data-sidebar="panel"] {
-  left: var(--bb-window-frame-lip);
-  height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room) - var(--bb-window-frame-lip));
 }
 
 /* Set for a moment while the strip opens or closes the sidebar as part
@@ -400,8 +353,9 @@ svg.bb-top-tab-icon,
   height: 16px;
 }
 
-/* A destination's artwork copied from the rail (components/destinations),
-   which draws it larger. */
+/* A destination's icon, drawn by bb's navigation icon component
+   (components/destinations): one of bb's glyphs, or a plugin's icon or
+   branding. */
 .bb-top-tab-art {
   display: inline-flex;
   flex: none;
@@ -409,24 +363,7 @@ svg.bb-top-tab-icon,
   justify-content: center;
 }
 
-/* A plugin's branding image, masked to the text colour as bb's rail draws it. */
-.bb-top-tab-brand {
-  display: inline-block;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  background-color: currentColor;
-  mask-position: center;
-  mask-repeat: no-repeat;
-  mask-size: contain;
-  -webkit-mask-position: center;
-  -webkit-mask-repeat: no-repeat;
-  -webkit-mask-size: contain;
-}
-
-.bb-top-tab-art > svg,
-.bb-top-tab-art > img,
-.bb-top-tab-art > [data-icon-root] {
+.bb-top-tab-art .bb-top-tab-glyph {
   width: 16px;
   height: 16px;
   margin: 0;
@@ -486,17 +423,48 @@ svg.bb-top-tab-icon,
   margin: 0 6px;
 }
 
-.bb-top-tab-accessory {
-  display: inline-flex;
-  /* Gives up its room long before the label does. */
+/* A destination's badge (components/destinations): a count or a short
+   text in a pill, or a dot, in the tone the panel asked for. It gives up its
+   room long before the label does. */
+.bb-top-tab-badge {
   flex: 0 100 auto;
+  box-sizing: border-box;
   min-width: 0;
-  align-items: center;
   max-width: 4rem;
-  height: 1.25rem;
+  height: 16px;
+  padding: 0 5px;
   overflow: hidden;
-  font-size: 12px;
+  border-radius: 999px;
+  background: var(--muted, var(--state-hover));
   color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bb-top-tab-badge[data-kind="dot"] {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  background: var(--muted-foreground);
+}
+
+.bb-top-tab-badge[data-tone="warning"] {
+  background: color-mix(in srgb, var(--warning, #d97706) 18%, transparent);
+  color: var(--warning, #d97706);
+}
+
+.bb-top-tab-badge[data-tone="critical"] {
+  background: var(--destructive, #dc2626);
+  color: var(--background);
+}
+
+.bb-top-tab-badge[data-kind="dot"][data-tone="warning"] {
+  background: var(--warning, #d97706);
 }
 
 .bb-top-tab-shortcut {
@@ -634,7 +602,7 @@ svg.bb-top-tab-icon,
 
 /* A pinned icon showing its badge keeps it close, as Threads keeps its
    status. */
-.bb-top-tab[data-icon-only]:has(.bb-top-tab-accessory) .bb-top-tab-main {
+.bb-top-tab[data-icon-only]:has(.bb-top-tab-badge) .bb-top-tab-main {
   gap: 4px;
 }
 
@@ -722,6 +690,37 @@ svg.bb-top-tab-icon,
     width: 36px;
     height: 36px;
   }
+}
+
+/* ----------------------------------------------------- sidebar header */
+
+/* New thread, in the sidebar header while Top Tabs is the navigation
+   (components/NavProvider), sized by bb to its own header buttons. */
+.bb-top-tabs-new-thread {
+  all: unset;
+  display: grid;
+  flex: none;
+  place-items: center;
+  border-radius: var(--bui-radius-control, 8px);
+  color: var(--muted-foreground);
+}
+
+@media (hover: hover) {
+  .bb-top-tabs-new-thread:hover {
+    background: var(--state-hover, var(--sidebar-accent));
+    color: var(--foreground);
+  }
+}
+
+.bb-top-tabs-new-thread:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.bb-top-tabs-new-thread svg,
+.bb-top-tabs-new-thread [data-icon-root] {
+  width: 16px;
+  height: 16px;
 }
 
 /* ---------------------------------------------------------------- menus */

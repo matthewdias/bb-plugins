@@ -202,7 +202,7 @@ export interface RouteTarget {
 }
 
 export interface Route {
-  /** The rail's active item id (lib/rail.ts). */
+  /** bb's active navigation item id (lib/navigation-bridge.ts). */
   activeItemId: string | null;
   pathname: string;
 }
@@ -809,6 +809,21 @@ export function panesOnScreen(
     return { ...pane, tab: null };
   });
   return screen.some((pane) => pane.tab === active) ? screen : null;
+}
+
+/**
+ * Which panes show each destination, from what bb's split hook reports per
+ * destination (`paneIds`: the panes it is in), for `panesOnScreen`. A
+ * destination in no pane is left out.
+ */
+export function destinationPanesFrom(
+  splits: ReadonlyMap<string, { paneIds: readonly string[] }>,
+): Map<string, readonly string[]> {
+  const panes = new Map<string, readonly string[]>();
+  for (const [id, split] of splits) {
+    if (split.paneIds.length > 0) panes.set(id, split.paneIds);
+  }
+  return panes;
 }
 
 /** The panes `tab` is on screen in. */
