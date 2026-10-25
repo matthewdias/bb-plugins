@@ -31,10 +31,12 @@ html.bb-top-tabs-on {
 }
 
 /* bb's desktop app on macOS draws traffic lights over the top-left corner,
-   aligned to its 48px chrome row. The strip takes that row's height and
-   leaves the corner to them. */
+   in a title bar whose height the desktop app sets
+   (`--bb-window-title-bar-height`), and frames the page below it. The strip
+   takes the title bar's height, so the page starts where bb starts it, and
+   leaves the corner to the lights. Without that height, bb's 48px chrome row. */
 html.bb-top-tabs-traffic-lights {
-  --bb-top-tabs-height: var(--bb-app-chrome-row-height, 48px);
+  --bb-top-tabs-height: var(--bb-window-title-bar-height, var(--bb-app-chrome-row-height, 48px));
 }
 
 html.bb-top-tabs-on #root {
@@ -100,6 +102,13 @@ html.bb-top-tabs-on [data-testid="app-window-title-bar"] {
 
 html.bb-top-tabs-on [data-testid="app-window-title-bar"] > * {
   pointer-events: auto;
+}
+
+/* In the frame the sidebar panel stops short of the window's bottom edge by
+   the frame's lip, as the page card does, so both cards keep their rounded
+   corners clear of the window's. */
+html.bb-top-tabs-on [data-framed] [data-sidebar="panel"] {
+  height: calc(var(--bb-shell-height, 100dvh) - var(--bb-top-tabs-room) - var(--bb-window-frame-lip, 0px));
 }
 
 /* Set for a moment while the strip opens or closes the sidebar as part
