@@ -75,12 +75,16 @@ navigation showed, so what you used is where you look for it.
 
 - **Narrow** is bb's rail width: icons, with each tab's name, badge and
   place on hover.
-- **Wide** shows names. Threads also shows the thread it will return to and
-  its counts. The open sidebar grows by what the rail gains, so the thread
-  list keeps its width.
+- **Wide** shows names, bb's Settings at the foot included. Threads also
+  shows the thread it will return to and its counts. The open sidebar grows
+  by what the rail gains, so the thread list keeps its width.
 
-The choice is per device, like the tabs. **Tab Nav: Show or hide tab names**
-switches it from the palette.
+**Drag the rail's right edge** to resize it. Pull a narrow rail out and the
+names appear; push a wide one in far enough and they go. Wide, it sizes
+between 140 and 360 pixels. Double-click the edge to go back to 200.
+
+The choice and the width are per device, like the tabs. **Tab Nav: Show or
+hide tab names** switches from the palette.
 
 ### The Threads tab
 
@@ -136,8 +140,12 @@ takes one visit.
 
 A panel can set a badge on its destination, and Tab Nav draws it on the tab
 as bb would: on the narrow rail, a count on the icon's corner (9+ above 9) or
-a dot; in the wide rail, beside the name, with a count up to 99+ or a short
-text. The badge's description is read out with the tab's name.
+a dot; in the wide rail, at the end of the row, with a count up to 99+ or a
+short text. The badge's description is read out with the tab's name.
+
+Some plugins draw their own mark on their navigation button instead, such as
+Radar's count. It sits on the icon's corner on the narrow rail, as on bb's,
+and at the end of the row in the wide one.
 
 ### What a tab costs
 
@@ -289,7 +297,8 @@ the tabs on your desktop.
   `--bb-sidebar-rail-padding`. Wide mode raises it while a class on `<html>`
   says the rail is wide, and widens the open sidebar by the same amount
   (`--sidebar-width`, which bb sets inline) so the thread list keeps its
-  room. If bb changes these, the rail stays narrow and the names hide.
+  room. bb's Settings button under the rail gets its name from CSS. If bb
+  changes these, the rail stays narrow and the names hide.
 - **The sidebar.** `lib/shell.ts` reads the attributes bb's sidebar primitive
   publishes (`data-side`, `data-state`, `data-collapsible`). It toggles the
   sidebar by clicking bb's own toggle, so bb's state stays the only source of
