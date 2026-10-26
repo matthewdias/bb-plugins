@@ -1,7 +1,7 @@
 // Tab Nav's tabs as data: which tabs are open, where each one was left, and
 // what the sidebar should do when the user moves between them.
 //
-// Nothing here touches React, the DOM or the SDK, so every rule the strip
+// Nothing here touches React, the DOM or the SDK, so every rule the rail
 // follows is a function a test can call. A tab is identified by the nav item
 // id bb already uses for the destination (`<pluginId>/<panelId>`,
 // `__bb__/extensions`, ...), plus the one id bb has no item for: Threads.
@@ -28,19 +28,19 @@ export interface ClosedTab {
   index: number;
   /**
    * A pinned tab that was reset rather than closed. It is still open, so
-   * reopening it gives back its location instead of a slot in the strip.
+   * reopening it gives back its location instead of a slot in the rail.
    */
   reset?: true;
 }
 
 export interface TabsState {
   /**
-   * Destination tabs in strip order. Threads is implicit and always first;
+   * Destination tabs in rail order. Threads is implicit and always first;
    * pinned tabs always come next, so `open` lists them first.
    */
   open: readonly string[];
   /**
-   * Tabs that stay in the strip: drawn as icons beside Threads, never closed
+   * Tabs that stay in the rail: drawn just below Threads, never closed
    * by a click or a batch close. Unpin one to close it. Always a subset of
    * `open`.
    */
@@ -59,11 +59,11 @@ export interface TabsState {
    * Whether the user keeps the sidebar open on each tab: what it was the last
    * time they left the tab, or last set it to while there. It is the state to
    * restore on the way back, so collapsing the sidebar on a tab keeps it
-   * collapsed there. A tab is missing until the strip has seen it.
+   * collapsed there. A tab is missing until the rail has seen it.
    */
   sidebar: SidebarMemory;
   /**
-   * Set once the strip has been filled from the sidebar's visible items, the
+   * Set once the rail has been filled from the sidebar's visible items, the
    * first time the plugin runs, so the destinations the user kept in the
    * sidebar are where they look for them.
    */
@@ -93,7 +93,7 @@ export const RECENT_LIMIT = 10;
 export const CLOSED_LIMIT = 10;
 
 /**
- * A path the strip may navigate to: same-origin and absolute. Stored paths
+ * A path the rail may navigate to: same-origin and absolute. Stored paths
  * come back out of localStorage, which anything on the page can write.
  */
 export function isAppPath(value: unknown): value is string {
@@ -226,7 +226,7 @@ function isSettingsPath(pathname: string): boolean {
 
 /**
  * Whether `pathname` is on bb's own page for an action kind. bb reports no
- * active item on these pages, so the strip recognises them by route.
+ * active item on these pages, so the rail recognises them by route.
  */
 /** The route kinds Tab Nav recognises itself. */
 const HOST_KINDS = new Set(["open-extensions", "open-skills"]);
@@ -342,7 +342,7 @@ export function isPinned(state: TabsState, id: TabId): boolean {
 export function pin(state: TabsState, id: TabId): TabsState {
   if (id === THREADS || state.pinned.includes(id)) return state;
   const opened = adopt(state, id);
-  // The pins in strip order, which dragging changes and `pinned` does not.
+  // The pins in rail order, which dragging changes and `pinned` does not.
   const before = opened.open.filter((other) => opened.pinned.includes(other));
   const pinned = [...before, id];
   const others = opened.open.filter((other) => !pinned.includes(other));
@@ -353,7 +353,7 @@ export function pin(state: TabsState, id: TabId): TabsState {
 
 /**
  * Unpin a tab. It becomes the first ordinary tab, right where it was, and
- * the other pins keep the order they have in the strip.
+ * the other pins keep the order they have in the rail.
  */
 export function unpin(state: TabsState, id: TabId): TabsState {
   if (!state.pinned.includes(id)) return state;
@@ -414,7 +414,7 @@ export function recordPath(state: TabsState, id: TabId, path: string): TabsState
   return { ...state, paths: { ...state.paths, [id]: path }, closed };
 }
 
-/** Fill an empty strip once, from the destinations the sidebar showed. */
+/** Fill an empty rail once, from the destinations the sidebar showed. */
 export function seed(state: TabsState, visibleDestinations: readonly string[]): TabsState {
   if (state.seeded) return state;
   let next: TabsState = { ...state, seeded: true };
@@ -436,7 +436,7 @@ function remember(closed: readonly ClosedTab[], entries: readonly ClosedTab[]): 
 }
 
 /**
- * Where closing the tab in view goes: to its right-hand neighbour, as a
+ * Where closing the tab in view goes: to the tab below it, as a
  * browser does, or back to the tab in view before it, as VS Code does.
  */
 export type CloseOrder = "position" | "recent";
@@ -462,7 +462,7 @@ function lastInView(
  * The tab to show after closing `id` while `active` is in view.
  *
  * Closing a background tab changes nothing. Closing the one in view moves to
- * its right-hand neighbour, as a browser does, then its left, then Threads.
+ * the tab below it, as a browser moves to its neighbour, then the one above, then Threads.
  * In recent order it goes back to the tab in view before it instead, and to
  * the neighbour once no tab it remembers is still open.
  */
@@ -507,7 +507,7 @@ export function successorAfterPinClose(
 
 /**
  * Close a pinned tab without unpinning it, as Arc does: it stays in the
- * strip and goes back to its home, the place it was pinned at, or with no
+ * rail and goes back to its home, the place it was pinned at, or with no
  * home forgets where it was left, so it next opens at its start. The
  * location goes on the closed list, so ⌃⇧T can give it back.
  */
@@ -524,10 +524,10 @@ export function resetPinned(state: TabsState, id: TabId): TabsState {
 }
 
 /**
- * What the strip does with bb's Close on a page shown on its own (bb 0.45+).
+ * What the rail does with bb's Close on a page shown on its own (bb 0.45+).
  *
  * bb opens New Thread there. For a destination tab that would leave the tab
- * open behind Threads, so the strip answers it as the close-tab command does:
+ * open behind Threads, so the rail answers it as the close-tab command does:
  * it closes the tab, or resets a pinned one and leaves it, pinned. Null when
  * bb keeps its own behaviour: on Threads, where New Thread is where it should
  * go anyway, and on pages no tab holds.
@@ -560,7 +560,7 @@ export function closeCommandAction(
 export function close(state: TabsState, ids: readonly string[]): TabsState {
   const closing = ids.filter((id) => state.open.includes(id) && !state.pinned.includes(id));
   if (closing.length === 0) return state;
-  // A batch is remembered leftmost first, so reopening it rebuilds the strip
+  // A batch is remembered leftmost first, so reopening it rebuilds the rail
   // left to right and every tab lands straight back in its own slot.
   const entries = closing
     .map((id) => ({ id, path: state.paths[id] ?? null, index: state.open.indexOf(id) }))
@@ -679,7 +679,7 @@ export function moveBefore(state: TabsState, id: string, beforeId: string | null
   return open.every((other, i) => other === state.open[i]) ? state : { ...state, open };
 }
 
-/** The neighbour of `active` in strip order, wrapping at both ends. */
+/** The neighbour of `active` in rail order, wrapping at both ends. */
 export function cycle(order: readonly TabId[], active: TabId | null, direction: 1 | -1): TabId {
   if (order.length === 0) return THREADS;
   const index = active === null ? -1 : order.indexOf(active);

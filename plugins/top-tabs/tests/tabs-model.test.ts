@@ -168,7 +168,7 @@ test("adopting appends once and never adds Threads", () => {
   assert.equal(adopt(once, THREADS), once);
 });
 
-test("seeding fills the strip once", () => {
+test("seeding fills the rail once", () => {
   const seeded = seed(EMPTY_STATE, ["gh/gh", "usage/usage"]);
   assert.deepEqual(seeded.open, ["gh/gh", "usage/usage"]);
   assert.equal(seeded.seeded, true);
@@ -557,7 +557,7 @@ test("each tab keeps its own sidebar", () => {
   assert.equal(step("b", "a", false, toB.sidebar).action, "expand");
 });
 
-test("a tab the strip has not seen collapses the sidebar", () => {
+test("a tab the rail has not seen collapses the sidebar", () => {
   assert.equal(step(THREADS, "a", true).action, "collapse");
   assert.equal(step(undefined, "a", true).action, "collapse");
   assert.equal(step("b", "a", false).action, null);
@@ -731,7 +731,7 @@ test("unpinning puts a tab first among the ordinary tabs", () => {
 
 test("unpinning keeps the other pins in the order they were dragged to", () => {
   let s = pin(pin(pin(state({ open: ["a", "b", "c", "x"] }), "a"), "b"), "c");
-  s = moveBefore(s, "c", "a"); // strip: c a b | x
+  s = moveBefore(s, "c", "a"); // rail: c a b | x
   const unpinned = unpin(s, "a");
   assert.deepEqual(unpinned.open, ["c", "b", "a", "x"]);
   assert.deepEqual(unpinned.pinned, ["c", "b"]);
@@ -739,7 +739,7 @@ test("unpinning keeps the other pins in the order they were dragged to", () => {
 
 test("pinning keeps the existing pins in the order they were dragged to", () => {
   let s = pin(pin(state({ open: ["a", "b", "x"] }), "a"), "b");
-  s = moveBefore(s, "b", "a"); // strip: b a | x
+  s = moveBefore(s, "b", "a"); // rail: b a | x
   const pinned = pin(s, "x");
   assert.deepEqual(pinned.open, ["b", "a", "x"]);
   assert.deepEqual(pinned.pinned, ["b", "a", "x"]);
