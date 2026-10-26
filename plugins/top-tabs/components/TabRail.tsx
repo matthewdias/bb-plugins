@@ -40,7 +40,19 @@ import { publishController } from "../lib/controller.ts";
 import { currentPath, navigateToPath, subscribeLocation } from "../lib/location.ts";
 import type { NavItem } from "../lib/nav.ts";
 import { closePane, interceptPageClose, isSidebarOpen, observeSidebar, toggleSidebar } from "../lib/shell.ts";
-import { getState, initStore, setWide, update, useTabsState, useWide } from "../lib/store.ts";
+import { WIDE_DEFAULT, dragRail } from "../lib/rail-width.ts";
+import {
+  getState,
+  getWideWidth,
+  initStore,
+  isWide,
+  setWide,
+  setWideWidth,
+  update,
+  useTabsState,
+  useWide,
+  useWideWidth,
+} from "../lib/store.ts";
 import {
   THREADS,
   activeTabFor,
@@ -95,6 +107,10 @@ const SEED_SETTLE_MS = 1500;
  * navigation gets bb's own width.
  */
 const WIDE_CLASS = "bb-tab-nav-wide";
+/** Set on <html> while the rail's edge is dragged: bb's sidebar follows without sliding. */
+const RESIZING_CLASS = "bb-tab-nav-resizing";
+/** The wide rail's width, on <html> for top-tabs.css. */
+const WIDTH_PROPERTY = "--bb-tab-nav-wide-width";
 
 const NO_ITEMS: readonly NavItem[] = [];
 
@@ -570,12 +586,48 @@ function TabRail() {
   );
 
   // bb's rail column takes the wide width while the rail shows names.
+  const wideWidth = useWideWidth();
   useLayoutEffect(() => {
     if (!wide) return;
     const root = document.documentElement;
     root.classList.add(WIDE_CLASS);
-    return () => root.classList.remove(WIDE_CLASS);
-  }, [wide]);
+    root.style.setProperty(WIDTH_PROPERTY, `${wideWidth}px`);
+    return () => {
+      root.classList.remove(WIDE_CLASS);
+      root.style.removeProperty(WIDTH_PROPERTY);
+    };
+  }, [wide, wideWidth]);
+
+  const railRef = useRef<HTMLDivElement>(null);
+  /**
+   * Drag the rail's right edge: resize it while wide, show or hide names past
+   * the snap points (lib/rail-width.ts). bb's sidebar follows each move
+   * without its slide.
+   */
+  const onResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const start = { wide: isWide(), width: getWideWidth() };
+    // bb's own width for the rail; used only when the drag starts narrow.
+    const narrowWidth = railRef.current?.getBoundingClientRect().width ?? 48;
+    const root = document.documentElement;
+    root.classList.add(RESIZING_CLASS);
+    const onMove = (move: PointerEvent) => {
+      const next = dragRail(start, narrowWidth, move.clientX - startX);
+      setWideWidth(next.width);
+      setWide(next.wide);
+    };
+    const onUp = () => {
+      root.classList.remove(RESIZING_CLASS);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
 
   // Keep the tab in view visible when the rail scrolls.
   const tabRefs = useRef(new Map<string, HTMLElement>());
@@ -689,7 +741,24 @@ function TabRail() {
   };
 
   return (
-    <div className="bb-tab-nav" data-wide={wide ? "" : undefined} data-dragging={drag.state === null ? undefined : ""}>
+    <div
+      className="bb-tab-nav"
+      ref={railRef}
+      data-wide={wide ? "" : undefined}
+      data-dragging={drag.state === null ? undefined : ""}
+    >
+      <div
+        className="bb-tab-nav-resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize tabs"
+        title={wide ? "Drag to resize, double-click to reset" : "Drag to show names"}
+        onPointerDown={onResizeStart}
+        onDoubleClick={() => {
+          setWideWidth(WIDE_DEFAULT);
+          setWide(true);
+        }}
+      />
       <TabTooltipProvider>
         <div className="bb-tab-nav-list" ref={listRef} onKeyDown={onKeyDown}>
           <ThreadSwitcher

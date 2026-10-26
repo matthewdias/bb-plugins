@@ -45,13 +45,47 @@
 
 html.bb-tab-nav-instant-sidebar [data-sidebar="gap"],
 html.bb-tab-nav-instant-sidebar [data-sidebar="panel"],
-html.bb-tab-nav-instant-sidebar [data-testid="app-page-header-content-row"] {
+html.bb-tab-nav-instant-sidebar [data-testid="app-page-header-content-row"],
+html.bb-tab-nav-resizing [data-sidebar="gap"],
+html.bb-tab-nav-resizing [data-sidebar="panel"],
+html.bb-tab-nav-resizing [data-testid="app-page-header-content-row"] {
   transition: none !important;
+}
+
+/* While the rail's edge is dragged, the whole window resizes with it. */
+html.bb-tab-nav-resizing,
+html.bb-tab-nav-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+@media (min-width: 768px) {
+  /* bb's Settings, under the rail: with names showing, a row like the rest
+     of the rail's, named. bb's own button, its label added by CSS, so its
+     shortcut, its tooltip and its state stay bb's. */
+  html.bb-tab-nav-wide [data-testid="nav-rail-sidebar-body"] + div {
+    justify-content: stretch;
+    padding-inline: 8px;
+  }
+
+  html.bb-tab-nav-wide [data-testid="nav-rail-sidebar-body"] + div > button[aria-label^="Settings"] {
+    justify-content: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 0 8px 0 6px;
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  html.bb-tab-nav-wide [data-testid="nav-rail-sidebar-body"] + div > button[aria-label^="Settings"]::after {
+    content: "Settings";
+  }
 }
 
 /* ----------------------------------------------------------------- rail */
 
 .bb-tab-nav {
+  position: relative;
   /* One measure for the gaps between rows, as bb's Rail spaces its icons. */
   --bb-tab-nav-gap: 6px;
   --bb-tab-nav-row: var(--bb-sidebar-control-size, 28px);
@@ -70,6 +104,46 @@ html.bb-tab-nav-instant-sidebar [data-testid="app-page-header-content-row"] {
   container-name: bb-tab-nav;
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* The rail's right edge: drag to resize it, or to show and hide names. */
+.bb-tab-nav-resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 2;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.bb-tab-nav-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+@media (hover: hover) {
+  .bb-tab-nav-resize:hover::after {
+    background: var(--border-strong, var(--border));
+  }
+}
+
+html.bb-tab-nav-resizing .bb-tab-nav-resize::after {
+  background: var(--ring, var(--border));
+}
+
+@media (pointer: coarse) {
+  .bb-tab-nav-resize {
+    display: none;
+  }
 }
 
 .bb-tab-nav-list {
@@ -315,9 +389,24 @@ html.bb-tab-nav-instant-sidebar [data-testid="app-page-header-content-row"] {
 
 .bb-tab-nav-badge[data-size="list"] {
   flex: 0 100 auto;
+  align-self: center;
   max-width: 4rem;
   margin-left: auto;
+  margin-right: 2px;
   text-overflow: ellipsis;
+}
+
+/* What another plugin adds to a tab's button, such as Radar's count
+   (data-radar-badge), is made for bb's narrow Rail: pinned to the button's
+   top-right corner. With names showing it sits at the row's end instead,
+   centred, as a badge beside a name does. */
+.bb-tab-nav[data-wide] .bb-tab-nav-main > :not(.bb-tab-nav-icon, .bb-tab-nav-label, .bb-tab-nav-badge, .bb-tab-nav-shortcut, .bb-tab-nav-panes, .bb-tab-nav-threads-label, .bb-tab-nav-status) {
+  position: static !important;
+  inset: auto !important;
+  flex: none;
+  align-self: center;
+  margin: 0 2px 0 auto !important;
+  transform: none !important;
 }
 
 .bb-tab-nav-badge[data-kind="dot"] {
