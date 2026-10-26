@@ -399,10 +399,13 @@ html.bb-tab-nav-resizing .bb-tab-nav-resize::after {
 /* What another plugin adds to a tab's button, such as Radar's count
    (data-radar-badge), is made for bb's narrow Rail: pinned to the button's
    top-right corner. With names showing it sits at the row's end instead,
-   centred, as a badge beside a name does. */
+   centred, as a badge beside a name does, even when it was added before the
+   name. */
 .bb-tab-nav[data-wide] .bb-tab-nav-main > :not(.bb-tab-nav-icon, .bb-tab-nav-label, .bb-tab-nav-badge, .bb-tab-nav-shortcut, .bb-tab-nav-panes, .bb-tab-nav-threads-label, .bb-tab-nav-status) {
   position: static !important;
   inset: auto !important;
+  /* Last, whatever order it was added in. */
+  order: 1;
   flex: none;
   align-self: center;
   margin: 0 2px 0 auto !important;
