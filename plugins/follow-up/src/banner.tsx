@@ -47,7 +47,9 @@ import { commitOrder as commitRowOrder, insertRow } from "./reorder.ts";
 import { useFollowUps } from "./use-follow-ups.ts";
 import { HandoffAction, useHandoff } from "./handoff.tsx";
 import { EmptyState } from "./empty-state.tsx";
+import { AskForm } from "./ask-form.tsx";
 import { NextSteps } from "./next-steps.tsx";
+import { setForm, useForm, useFormFetch } from "./use-ask.ts";
 import { useNextStepsFetch, useOffer } from "./use-next-steps.ts";
 import { openWrapUp, useWrapUpState, WrapUpStatus } from "./wrap-up.tsx";
 import { doCandidate } from "../lib/next-steps.ts";
@@ -871,13 +873,18 @@ export function FollowUpBanner() {
   // next thing, as long as there is anything left open to wrap.
   const wrapUpOffered = offer?.goalMet === true && rows.length > 0;
   const nextShown = !running && (offered || candidate !== null || wrapUpOffered);
+  // The form the agent ended its turn with (`ask_form`). Between turns only,
+  // like an offer: it answers the reply above it.
+  useFormFetch(threadId);
+  const form = useForm(threadId);
+  const formShown = !running && form !== null;
   const wrapUp = useWrapUpState(threadId);
   // What the card's own entrance keys off. `hasContent` alone stopped being the
   // answer the moment the card could also be showing nothing: a fully cleared
   // thread has neither list, and the card would have sat at opacity zero. And
   // an offer is worth the card on its own, on a thread that never recorded a
   // follow-up at all.
-  const visible = hasContent || cleared || nextShown || wrapUp.state !== null;
+  const visible = hasContent || cleared || nextShown || formShown || wrapUp.state !== null;
 
   // Which rows became in progress since the last render, so the glyph can
   // announce itself once. Seeded on the first pass rather than compared against
@@ -1137,7 +1144,7 @@ export function FollowUpBanner() {
         // Collapsed the card holds one line, so it should not carry the
         // padding a list needs. Cleared it is not collapsed — there is no list
         // behind it to open — so it takes the roomier pair.
-        collapsed && !cleared && !nextShown && wrapUp.state === null ? "gap-0 py-1" : "gap-1.5 py-2",
+        collapsed && !cleared && !nextShown && !formShown && wrapUp.state === null ? "gap-0 py-1" : "gap-1.5 py-2",
         // The card is the one surface here that materialises beside the
         // cursor: an agent records something mid-turn, realtime fires, and a
         // block of UI arrives above the composer you are typing in. 150ms is
@@ -1154,6 +1161,20 @@ export function FollowUpBanner() {
           onOpen={() => openWrapUp(composer)}
           onForget={wrapUp.forget}
         />
+      )}
+      {formShown && form !== null && (
+        // Its own scroller: a long form must not push the composer off screen.
+        <div className="max-h-[55vh] min-w-0 overflow-y-auto pb-1 pr-0.5">
+          <AskForm
+            threadId={threadId}
+            form={form}
+            onDismiss={() => {
+              // To answer in chat instead. Gone at once; the server confirms.
+              setForm(threadId, null);
+              void rpc.call("ask_clear", { threadId, askedAt: form.askedAt }).catch(() => undefined);
+            }}
+          />
+        </div>
       )}
       {nextShown && (
         <NextSteps
