@@ -411,6 +411,13 @@ html.bb-tab-nav-resizing .bb-tab-nav-resize::after {
   text-overflow: ellipsis;
 }
 
+/* On the narrow rail, what a plugin adds to a tab's row starts at the row's
+   top, as in bb's Rail item, so a mark it positions only sideways still lands
+   on the corner rather than over the icon. */
+.bb-tab-nav:not([data-wide]) .bb-tab-nav-tab > :not(.bb-tab-nav-main, .bb-tab-nav-close, .bb-tab-nav-new-thread) {
+  align-self: flex-start;
+}
+
 /* What another plugin adds to a tab, its button (Radar's count,
    data-radar-badge) or its row (Plugin Updates', data-plugin-updates-count),
    is made for bb's narrow Rail: pinned to the top-right corner. With names
