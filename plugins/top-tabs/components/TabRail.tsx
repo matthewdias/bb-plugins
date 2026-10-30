@@ -997,7 +997,9 @@ function DestinationTab(props: DestinationTabProps) {
             type="button"
             className="bb-tab-nav-main"
             aria-current={props.selected ? "page" : undefined}
-            aria-label={wide && badge === null ? undefined : named}
+            // Always named, as bb's Rail names its buttons: another plugin
+            // may find its tab by it (Radar badges `nav button[aria-label="Radar"]`).
+            aria-label={named}
             aria-keyshortcuts={item.shortcut?.ariaKeyShortcuts}
             aria-busy={item.isLoading || undefined}
             disabled={item.isDisabled}

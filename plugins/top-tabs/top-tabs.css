@@ -80,6 +80,21 @@ html.bb-tab-nav-resizing * {
   html.bb-tab-nav-wide [data-testid="nav-rail-sidebar-body"] + div > button[aria-label^="Settings"]::after {
     content: "Settings";
   }
+
+  /* bb's sidebar toggle, at the wide rail's right edge, where the sidebar
+     it toggles meets the page, rather than where bb puts it for its narrow
+     Rail. In a browser bb floats it over the corner, padded by the rail's
+     padding; in the macOS app it follows back and forward in the title bar,
+     and moves right only as far as the rail's edge is past them. Positioned,
+     not transformed, so Electron's no-drag area moves with it. */
+  html.bb-tab-nav-wide [data-testid="app-sidebar-trigger-overlay"] {
+    padding-left: calc(var(--bb-tab-nav-wide-width) - var(--bb-sidebar-control-size, 28px) - 10px) !important;
+  }
+
+  html.bb-tab-nav-wide [data-testid="app-window-title-bar"] button[aria-label^="Toggle sidebar"] {
+    position: relative;
+    left: max(0px, calc(var(--bb-tab-nav-wide-width) - 10px - var(--bb-window-title-bar-controls-end, 0px)));
+  }
 }
 
 /* ----------------------------------------------------------------- rail */
