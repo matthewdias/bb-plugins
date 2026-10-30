@@ -77,7 +77,8 @@ navigation showed, so what you used is where you look for it.
   place on hover.
 - **Wide** shows names, bb's Settings at the foot included. Threads also
   shows the thread it will return to and its counts. The open sidebar grows
-  by what the rail gains, so the thread list keeps its width.
+  by what the rail gains, so the thread list keeps its width, and bb's
+  sidebar toggle moves to the rail's right edge.
 
 **Drag the rail's right edge** to resize it. Pull a narrow rail out and the
 names appear; push a wide one in far enough and they go. Wide, it sizes
@@ -144,8 +145,9 @@ a dot; in the wide rail, at the end of the row, with a count up to 99+ or a
 short text. The badge's description is read out with the tab's name.
 
 Some plugins draw their own mark on their navigation button instead, such as
-Radar's count. It sits on the icon's corner on the narrow rail, as on bb's,
-and at the end of the row in the wide one.
+Radar's count. They find the button by its name, which every tab carries, as
+bb's own buttons do. The mark sits on the icon's corner on the narrow rail,
+as on bb's, and at the end of the row in the wide one.
 
 ### What a tab costs
 
