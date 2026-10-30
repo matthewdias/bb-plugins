@@ -41,9 +41,10 @@ export function ThreadSwitcher(props: ThreadSwitcherProps) {
       {props.children}
       <HoverCard.Portal>
         <HoverCard.Content
-          className="bb-top-tabs-menu bb-top-tabs-switcher"
+          className="bb-tab-nav-menu bb-tab-nav-switcher"
+          side="right"
           align="start"
-          sideOffset={6}
+          sideOffset={8}
           collisionPadding={8}
           {...scope}
         >
@@ -85,12 +86,12 @@ function SwitcherBody({
   // Opened from the keyboard, the first row takes focus; from a hover it
   // does not, so the card never pulls focus out of what you were doing.
   useEffect(() => {
-    if (focusFirst) list.current?.querySelector<HTMLButtonElement>(".bb-top-tabs-switcher-row")?.focus();
+    if (focusFirst) list.current?.querySelector<HTMLButtonElement>(".bb-tab-nav-switcher-row")?.focus();
   }, [focusFirst]);
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const rows = Array.from(list.current?.querySelectorAll<HTMLButtonElement>(".bb-top-tabs-switcher-row") ?? []);
+    const rows = Array.from(list.current?.querySelectorAll<HTMLButtonElement>(".bb-tab-nav-switcher-row") ?? []);
     const index = rows.indexOf(document.activeElement as HTMLButtonElement);
     event.preventDefault();
     const next = index === -1 ? 0 : (index + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
@@ -106,28 +107,28 @@ function SwitcherBody({
   const empty = sections.every(([key]) => groups[key].length === 0);
 
   return (
-    <div ref={list} className="bb-top-tabs-switcher-body" onKeyDown={onKeyDown}>
-      {empty && <div className="bb-top-tabs-menu-label">Nothing needs you.</div>}
+    <div ref={list} className="bb-tab-nav-switcher-body" onKeyDown={onKeyDown}>
+      {empty && <div className="bb-tab-nav-menu-label">Nothing needs you.</div>}
       {sections.map(([key, title]) =>
         groups[key].length === 0 ? null : (
-          <section key={key} className="bb-top-tabs-switcher-section">
-            <div className="bb-top-tabs-menu-label">
+          <section key={key} className="bb-tab-nav-switcher-section">
+            <div className="bb-tab-nav-menu-label">
               {title}
-              {key !== "recent" && <span className="bb-top-tabs-switcher-count">{groups[key].length}</span>}
+              {key !== "recent" && <span className="bb-tab-nav-switcher-count">{groups[key].length}</span>}
             </div>
             {groups[key].map((thread) => (
               <button
                 key={thread.id}
                 type="button"
-                className="bb-top-tabs-switcher-row"
+                className="bb-tab-nav-switcher-row"
                 data-current={thread.id === currentThreadId ? "" : undefined}
                 aria-current={thread.id === currentThreadId ? "page" : undefined}
                 title={thread.indicatorLabel ?? thread.displayTitle}
                 onClick={() => onOpenThread(thread)}
               >
-                <span className="bb-top-tabs-mark" data-kind={markKind(key, thread)} aria-hidden="true" />
-                <span className="bb-top-tabs-switcher-title">{thread.displayTitle}</span>
-                <span className="bb-top-tabs-switcher-meta">
+                <span className="bb-tab-nav-mark" data-kind={markKind(key, thread)} aria-hidden="true" />
+                <span className="bb-tab-nav-switcher-title">{thread.displayTitle}</span>
+                <span className="bb-tab-nav-switcher-meta">
                   {projectName.get(thread.projectId) ?? ""}
                   {projectName.has(thread.projectId) ? " · " : ""}
                   {ago(thread.latestAttentionAt ?? thread.updatedAt, now)}
