@@ -985,6 +985,9 @@ function DestinationTab(props: DestinationTabProps) {
     <TabMenu {...props.menu}>
       <div
         className="bb-tab-nav-tab"
+        // bb's Rail marks each item this way, and plugins that draw their own
+        // count on bb's Rail find their item by it (Plugin Updates does).
+        data-nav-rail-item={item.id}
         data-active={props.selected ? "" : undefined}
         data-visible={props.onScreen ? "" : undefined}
         data-pinned={pinned ? "" : undefined}

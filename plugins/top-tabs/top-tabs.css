@@ -411,12 +411,13 @@ html.bb-tab-nav-resizing .bb-tab-nav-resize::after {
   text-overflow: ellipsis;
 }
 
-/* What another plugin adds to a tab's button, such as Radar's count
-   (data-radar-badge), is made for bb's narrow Rail: pinned to the button's
-   top-right corner. With names showing it sits at the row's end instead,
-   centred, as a badge beside a name does, even when it was added before the
-   name. */
-.bb-tab-nav[data-wide] .bb-tab-nav-main > :not(.bb-tab-nav-icon, .bb-tab-nav-label, .bb-tab-nav-badge, .bb-tab-nav-shortcut, .bb-tab-nav-panes, .bb-tab-nav-threads-label, .bb-tab-nav-status) {
+/* What another plugin adds to a tab, its button (Radar's count,
+   data-radar-badge) or its row (Plugin Updates', data-plugin-updates-count),
+   is made for bb's narrow Rail: pinned to the top-right corner. With names
+   showing it sits at the row's end instead, centred, as a badge beside a name
+   does, even when it was added before the name, and before the ×. */
+.bb-tab-nav[data-wide] .bb-tab-nav-main > :not(.bb-tab-nav-icon, .bb-tab-nav-label, .bb-tab-nav-badge, .bb-tab-nav-shortcut, .bb-tab-nav-panes, .bb-tab-nav-threads-label, .bb-tab-nav-status),
+.bb-tab-nav[data-wide] .bb-tab-nav-tab > :not(.bb-tab-nav-main, .bb-tab-nav-close, .bb-tab-nav-new-thread) {
   position: static !important;
   inset: auto !important;
   /* Last, whatever order it was added in. */
@@ -485,6 +486,7 @@ html.bb-tab-nav-resizing .bb-tab-nav-resize::after {
 .bb-tab-nav-close {
   all: unset;
   display: grid;
+  order: 2;
   flex: none;
   place-items: center;
   width: 20px;
