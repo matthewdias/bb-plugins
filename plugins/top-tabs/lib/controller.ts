@@ -1,9 +1,9 @@
-// The strip's verbs, for callers outside its React tree.
+// The rail's verbs, for callers outside its React tree.
 //
 // Palette commands run outside any component, and navigating needs the
-// strip's hooks (`activate`, `toCompose`). The strip publishes its verbs here
-// while it is mounted; a command run while it is not — on a compact viewport,
-// where it hides — finds nothing and does nothing.
+// rail's hooks (`activate`, `goHome`). The rail publishes its verbs here
+// while it is on screen; a command run while it is not — another navigation
+// chosen, or a phone — finds nothing and does nothing.
 import type { TabId } from "./tabs-model.ts";
 
 export interface TabsController {
@@ -19,6 +19,7 @@ export interface TabsController {
   togglePin(id: TabId): void;
   /** Open the Threads tab's thread switcher, focused for the keyboard. */
   openSwitcher(): void;
+  newThread(): void;
 }
 
 let controller: TabsController | null = null;

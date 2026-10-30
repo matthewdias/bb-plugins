@@ -14,7 +14,7 @@ is [no longer maintained](#unmaintained).
 | **[Thread Badges](plugins/thread-badges)** | Shows pull-request state, CI attention, listening ports and badges other plugins publish, like Follow Up's progress, on sidebar rows, so you see what needs you without opening a thread. |
 | **[Thread Summary](plugins/thread-summary)** | A card under the thread header with the thread's branch, its pull request and what other plugins publish about it, like Follow Up's progress. The most urgent sit beside the button as chips. |
 | **[Swipe Controls](plugins/swipe-controls)** | Swipe sidebar threads to mark them read, pin or archive them, and swipe the page with two fingers to go back and forward, with haptic ticks in bb's phone app. |
-| **[Top Tabs](plugins/top-tabs)** | Opens destinations as tabs across the top of the window, beside a permanent Threads tab, so you can keep several open and switch without losing your place. |
+| **[Tab Nav](plugins/top-tabs)** | Turns bb's rail into tabs: Threads, your pinned and open destinations, each back where you left it, as icons or with names. Formerly Top Tabs. |
 
 Each is independent. A few soft connections exist and none is required: Thread
 Badges draws Follow Up's progress ring once you turn it on, and a ports plug

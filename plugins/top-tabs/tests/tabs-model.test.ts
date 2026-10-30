@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   CLOSED_LIMIT,
   EMPTY_STATE,
-  SETTINGS,
   THREADS,
   activeTabFor,
   ago,
@@ -17,10 +16,10 @@ import {
   cycle,
   groupThreads,
   defaultPathFor,
+  destinationPanesFrom,
   isAppPath,
   isDestinationAction,
   isPinned,
-  leavesSettings,
   move,
   moveBefore,
   panesOf,
@@ -62,7 +61,6 @@ const targets: RouteTarget[] = [
   { id: "__bb__/skills", kind: "open-skills", pluginId: null, panelId: null },
 ];
 const target = (id: string) => targets.find((t) => t.id === id)!;
-const settingsTarget: RouteTarget = { id: SETTINGS, kind: "open-settings", pluginId: null, panelId: null };
 
 test("bb's reported active item wins", () => {
   assert.equal(
@@ -138,22 +136,29 @@ test("a panel route without an active item finds its panel", () => {
   assert.equal(activeTabFor({ activeItemId: null, pathname: "/plugins/unknown/x" }, targets), null);
 });
 
-test("settings belongs to no tab unless the strip offers one", () => {
+test("settings belongs to no tab: bb draws it at the rail's foot", () => {
   assert.equal(activeTabFor({ activeItemId: null, pathname: "/settings" }, targets), null);
   assert.equal(activeTabFor({ activeItemId: null, pathname: "/settings/appearance" }, targets), null);
   assert.equal(activeTabFor({ activeItemId: null, pathname: "/settingsish" }, targets), THREADS);
-  const withSettings = [...targets, settingsTarget];
-  assert.equal(activeTabFor({ activeItemId: null, pathname: "/settings" }, withSettings), SETTINGS);
-  assert.equal(
-    activeTabFor({ activeItemId: null, pathname: "/settings/plugins/x" }, withSettings),
-    SETTINGS,
-  );
+  assert.equal(pathFits(THREADS, null, "/settings/appearance"), false);
 });
 
-test("the Settings tab remembers which settings page it was on", () => {
-  assert.equal(pathFits(SETTINGS, settingsTarget, "/settings/appearance"), true);
-  assert.equal(pathFits(SETTINGS, settingsTarget, "/projects/p"), false);
-  assert.equal(defaultPathFor(settingsTarget), "/settings");
+test("a Settings tab saved by Top Tabs 0.4 is dropped when state loads", () => {
+  const old = "__top-tabs__/settings";
+  const parsed = parseState({
+    open: ["gh/gh", old],
+    pinned: [old],
+    paths: { [old]: "/settings/appearance", "gh/gh": "/plugins/gh/gh" },
+    homes: { [old]: "/settings" },
+    closed: [{ id: old, path: "/settings", index: 1 }],
+    recent: [old, "gh/gh"],
+  });
+  assert.deepEqual(parsed.open, ["gh/gh"]);
+  assert.deepEqual(parsed.pinned, []);
+  assert.deepEqual(Object.keys(parsed.paths), ["gh/gh"]);
+  assert.deepEqual(parsed.homes, {});
+  assert.deepEqual(parsed.closed, []);
+  assert.equal(parsed.recent.includes(old), false);
 });
 
 test("adopting appends once and never adds Threads", () => {
@@ -163,7 +168,7 @@ test("adopting appends once and never adds Threads", () => {
   assert.equal(adopt(once, THREADS), once);
 });
 
-test("seeding fills the strip once", () => {
+test("seeding fills the rail once", () => {
   const seeded = seed(EMPTY_STATE, ["gh/gh", "usage/usage"]);
   assert.deepEqual(seeded.open, ["gh/gh", "usage/usage"]);
   assert.equal(seeded.seeded, true);
@@ -418,12 +423,10 @@ test("a reset survives a reload", () => {
 
 test("bb's Close on a lone page closes the tab in view", () => {
   assert.equal(pageCloseAction("gh/gh", []), "tab");
-  assert.equal(pageCloseAction(SETTINGS, []), "tab");
 });
 
 test("bb's Close on a pinned tab resets it, as the close-tab command does", () => {
   assert.equal(pageCloseAction("gh/gh", ["gh/gh"]), "pin");
-  assert.equal(pageCloseAction(SETTINGS, [SETTINGS]), "pin");
   assert.equal(pageCloseAction("gh/gh", ["gh/gh"]), closeCommandAction("gh/gh", ["gh/gh"], true));
 });
 
@@ -441,7 +444,6 @@ test("the close-tab command closes a destination tab", () => {
 test("on a pinned tab, the close-tab command resets it instead", () => {
   assert.equal(closeCommandAction("gh/gh", ["gh/gh"], true), "pin");
   assert.equal(closeCommandAction("gh/gh", ["gh/gh"], false), "pin");
-  assert.equal(closeCommandAction(SETTINGS, [SETTINGS], false), "pin");
 });
 
 test("on Threads, the close-tab command closes the thread page instead", () => {
@@ -555,7 +557,7 @@ test("each tab keeps its own sidebar", () => {
   assert.equal(step("b", "a", false, toB.sidebar).action, "expand");
 });
 
-test("a tab the strip has not seen collapses the sidebar", () => {
+test("a tab the rail has not seen collapses the sidebar", () => {
   assert.equal(step(THREADS, "a", true).action, "collapse");
   assert.equal(step(undefined, "a", true).action, "collapse");
   assert.equal(step("b", "a", false).action, null);
@@ -651,6 +653,20 @@ test("Threads focuses the thread it last showed, else the first thread pane", ()
   assert.equal(threadPaneFor(noThreads, "t1"), null);
 });
 
+test("destinationPanesFrom: the panes bb's split hook says each destination is in", () => {
+  const splits = new Map([
+    ["gh/gh", { isAvailable: true, paneIds: ["p2"] }],
+    ["usage/usage", { isAvailable: true, paneIds: [] }],
+  ]);
+  const panes = destinationPanesFrom(splits);
+  assert.deepEqual([...panes], [["gh/gh", ["p2"]]]);
+  const layout = [pane("p1", 0, "t1"), pane("p2", 0.5, null, true)];
+  assert.deepEqual(
+    panesOnScreen(layout, panes, "gh/gh")?.map((p) => p.tab),
+    [THREADS, "gh/gh"],
+  );
+});
+
 test("a split bb is holding while another page has the view is not on screen", () => {
   const layout = [pane("p1", 0, "t1", true), pane("p2", 0.5, null)];
   const destinations = new Map([["gh/gh", ["p2"]]]);
@@ -715,7 +731,7 @@ test("unpinning puts a tab first among the ordinary tabs", () => {
 
 test("unpinning keeps the other pins in the order they were dragged to", () => {
   let s = pin(pin(pin(state({ open: ["a", "b", "c", "x"] }), "a"), "b"), "c");
-  s = moveBefore(s, "c", "a"); // strip: c a b | x
+  s = moveBefore(s, "c", "a"); // rail: c a b | x
   const unpinned = unpin(s, "a");
   assert.deepEqual(unpinned.open, ["c", "b", "a", "x"]);
   assert.deepEqual(unpinned.pinned, ["c", "b"]);
@@ -723,7 +739,7 @@ test("unpinning keeps the other pins in the order they were dragged to", () => {
 
 test("pinning keeps the existing pins in the order they were dragged to", () => {
   let s = pin(pin(state({ open: ["a", "b", "x"] }), "a"), "b");
-  s = moveBefore(s, "b", "a"); // strip: b a | x
+  s = moveBefore(s, "b", "a"); // rail: b a | x
   const pinned = pin(s, "x");
   assert.deepEqual(pinned.open, ["b", "a", "x"]);
   assert.deepEqual(pinned.pinned, ["b", "a", "x"]);
@@ -770,27 +786,10 @@ test("moveBefore places a tab in front of another in its group, or at the group'
   assert.deepEqual(moveBefore(two, "p", null).open, ["a", "p", "b", "c"]);
 });
 
-test("Settings opens the sidebar its sections live in, until told otherwise", () => {
-  assert.equal(step("a", SETTINGS, false).action, "expand");
-  assert.equal(step(undefined, SETTINGS, true).action, null);
-  // Collapsed there by hand, it stays collapsed there.
-  assert.equal(step("a", SETTINGS, true, { [SETTINGS]: false }).action, "collapse");
-});
-
-test("leaving Settings gives the next tab back its own sidebar", () => {
-  assert.deepEqual(step(SETTINGS, "a", true), { action: "collapse", sidebar: { [SETTINGS]: true } });
-  assert.equal(step(SETTINGS, THREADS, true, { [THREADS]: false }).action, "collapse");
-  assert.equal(step(SETTINGS, THREADS, true, { [THREADS]: true }).action, null);
-});
-
-test("leaving Settings by bb's own way out closes its tab; a tab switch does not", () => {
-  assert.equal(leavesSettings(SETTINGS, THREADS, false), true);
-  assert.equal(leavesSettings(SETTINGS, "gh/gh", false), true);
-  assert.equal(leavesSettings(SETTINGS, null, false), true);
-  assert.equal(leavesSettings(SETTINGS, THREADS, true), false);
-  assert.equal(leavesSettings(SETTINGS, SETTINGS, false), false);
-  assert.equal(leavesSettings(THREADS, "gh/gh", false), false);
-  assert.equal(leavesSettings(undefined, THREADS, false), false);
+test("a destination never seen collapses the sidebar to the rail; Threads learns", () => {
+  assert.equal(step(THREADS, "a", true).action, "collapse");
+  assert.equal(step(THREADS, "a", false).action, null);
+  assert.equal(step("a", THREADS, false).action, null);
 });
 
 const thread = (id: string, patch: Partial<ThreadFacts> = {}): ThreadFacts => ({
