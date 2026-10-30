@@ -144,10 +144,13 @@ as bb would: on the narrow rail, a count on the icon's corner (9+ above 9) or
 a dot; in the wide rail, at the end of the row, with a count up to 99+ or a
 short text. The badge's description is read out with the tab's name.
 
-Some plugins draw their own mark on their navigation button instead, such as
-Radar's count. They find the button by its name, which every tab carries, as
-bb's own buttons do. The mark sits on the icon's corner on the narrow rail,
-as on bb's, and at the end of the row in the wide one.
+Some plugins draw their own mark on bb's Rail instead, because bb doesn't
+draw their navigation badges there yet: Radar's new items, Plugin Updates'
+pending updates. They find their item the way bb's Rail marks it, by the
+button's name or the item's `data-nav-rail-item`, and Tab Nav's tabs carry
+both. The mark sits on the corner on the narrow rail, as on bb's, and at the
+end of the row in the wide one. A plugin shows nothing while it has nothing
+to count: Radar's clears once you open its board.
 
 ### What a tab costs
 
