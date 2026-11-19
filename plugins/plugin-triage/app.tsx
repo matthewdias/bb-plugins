@@ -3,7 +3,7 @@
 // and a Triage item in bb's own sidebar carrying the count.
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { PluginsScreenOverlay } from "./ui/PluginsScreenOverlay";
-import { SIDEBAR_PATH, TriageSidebarCount, TriageSidebarHeader, TriageSidebarPanel } from "./ui/TriageSidebar";
+import { SIDEBAR_PATH, useTriageBadge, TriageSidebarHeader, TriageSidebarPanel } from "./ui/TriageSidebar";
 
 export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({
@@ -19,6 +19,6 @@ export default definePluginApp((app) => {
     path: SIDEBAR_PATH,
     component: TriageSidebarPanel,
     headerContent: TriageSidebarHeader,
-    experimental_sidebarAccessory: TriageSidebarCount,
+    experimental_useBadge: useTriageBadge,
   });
 });

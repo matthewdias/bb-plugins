@@ -4,9 +4,9 @@
 // "Back to app" returns to the last page outside that screen, which would be
 // this one, and a redirect would send you straight back in.
 import { useSyncExternalStore } from "react";
-import { experimental_Icon as Icon, useBbNavigate, useSettings, type PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
+import { experimental_Icon as Icon, useBbNavigate, useSettings, type ExperimentalBadge, type PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
-import { countText, countedDecks, waitingCount } from "../lib/count";
+import { countedDecks, waitingCount } from "../lib/count";
 import { subPathForTab, tabFromSubPath } from "../lib/tabs";
 import { BROWSE_HREF } from "../screen/dom";
 import { navigateInApp } from "./navigate";
@@ -20,15 +20,11 @@ export function useWaitingCount(): number | null {
   return deck.status === "ready" ? waitingCount(deck, countedDecks(values)) : null;
 }
 
-/** The sidebar item's trailing count. */
-export function TriageSidebarCount() {
+/** BB draws this live count in its navigation and exposes it to Tab Nav. */
+export function useTriageBadge(): ExperimentalBadge | null {
   const count = useWaitingCount();
   if (count === null || count <= 0) return null;
-  return (
-    <span className="text-[11px] tabular-nums text-muted-foreground" aria-label={`${count} waiting in Triage`}>
-      {countText(count)}
-    </span>
-  );
+  return { count, label: `${count} waiting in Triage` };
 }
 
 /** The item's path, as registered in app.tsx. */

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen } from "@testing-library/react";
+import { act, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetTriageStore, triageStore, type TriageRpc } from "../../ui/triage-store";
 
@@ -20,7 +20,7 @@ vi.mock("../../ui/TriagePage", () => ({
   ),
 }));
 
-const { TriageSidebarCount, TriageSidebarHeader, TriageSidebarPanel } = await import("../../ui/TriageSidebar");
+const { useTriageBadge, TriageSidebarHeader, TriageSidebarPanel } = await import("../../ui/TriageSidebar");
 
 const rpc = {
   call: vi.fn(async (method: string) => {
@@ -40,20 +40,31 @@ afterEach(() => {
 
 describe("the Triage sidebar item", () => {
   it("shows nothing until the decks load, then new plugins and updates", async () => {
-    render(<TriageSidebarCount />);
-    expect(screen.queryByLabelText(/waiting in Triage/)).toBeNull();
+    const { result } = renderHook(useTriageBadge);
+    expect(result.current).toBeNull();
     await act(() => triageStore.load(rpc));
-    expect(screen.getByLabelText("3 waiting in Triage").textContent).toBe("3");
+    expect(result.current).toEqual({ count: 3, label: "3 waiting in Triage" });
   });
 
   it("counts the decks the settings choose, and hides at zero", async () => {
     settings = { countNew: false, countUpdates: false, countCleanup: true };
-    const { rerender } = render(<TriageSidebarCount />);
+    const { result, rerender } = renderHook(useTriageBadge);
     await act(() => triageStore.load(rpc));
-    expect(screen.getByLabelText("3 waiting in Triage")).toBeTruthy();
+    expect(result.current).toEqual({ count: 3, label: "3 waiting in Triage" });
     settings = { countNew: false, countUpdates: false, countCleanup: false };
-    rerender(<TriageSidebarCount />);
-    expect(screen.queryByLabelText(/waiting in Triage/)).toBeNull();
+    rerender();
+    expect(result.current).toBeNull();
+  });
+
+  it("leaves large counts uncapped so bb can format them for a rail or list", async () => {
+    const largeRpc = {
+      call: async (method: string, input: unknown) => method === "deck_new"
+        ? { cards: Array.from({ length: 120 }, (_, i) => ({ key: String(i) })) }
+        : rpc.call(method as never, input as never),
+    } as unknown as TriageRpc;
+    const { result } = renderHook(useTriageBadge);
+    await act(() => triageStore.load(largeRpc));
+    expect(result.current).toEqual({ count: 121, label: "121 waiting in Triage" });
   });
 
   it("shows the Triage page itself, with no heading under bb's title bar, and stays put", () => {
