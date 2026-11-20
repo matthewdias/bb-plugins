@@ -115,10 +115,11 @@ describe("the Updates tab", () => {
   it("names its decisions for updates", () => {
     const { rpc } = rpcFake();
     render(<UpdatesPanel rpc={rpc} updates={state({ cards: [card("alpha")] })} keyboard />);
-    expect(screen.getByRole("button", { name: "Queue the update (→)" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Skip this version (←)" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Remind me in a week (↑)" })).toBeTruthy();
-    expect(screen.getByText(/skip version/).textContent).toMatch(/space details · esc close/);
+    expect(screen.getByRole("button", { name: "Queue update (→)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skip version (←)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Snooze 1 week (↑)" })).toBeTruthy();
+    expect(screen.getByText(/← Skip version · ↑ Snooze 1 week/)).toBeTruthy();
+    expect(screen.getByText(/space details · esc close/)).toBeTruthy();
   });
 });
 

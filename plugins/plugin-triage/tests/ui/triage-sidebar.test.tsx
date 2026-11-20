@@ -27,7 +27,7 @@ const rpc = {
     if (method === "deck_new") return { cards: [{ key: "a" }, { key: "b" }] };
     if (method === "deck_saved") return { cards: [] };
     if (method === "updates_deck") return { cards: [{ key: "u" }], unavailable: [], history: [] };
-    if (method === "cleanup_deck") return { cards: [{ key: "c" }, { key: "d" }, { key: "e" }], history: [] };
+    if (method === "cleanup_deck") return { cards: [{ key: "c", suggested: true }, { key: "d", suggested: true }, { key: "e", suggested: true }], history: [] };
     if (method === "queue_status") return { jobs: [], running: false };
     return {};
   }),
@@ -81,7 +81,7 @@ describe("the Triage sidebar item", () => {
 
   it("takes its tab from the path under the item's page, and switches through bb's panel navigation", () => {
     render(<TriageSidebarPanel subPath="cleanup" />);
-    expect(screen.getByText("Triage page").getAttribute("data-tab")).toBe("cleanup");
+    expect(screen.getByText("Triage page").getAttribute("data-tab")).toBe("installed");
     screen.getByRole("button", { name: "to updates" }).click();
     expect(toPluginPanel).toHaveBeenLastCalledWith("triage", { subPath: "updates" });
     screen.getByRole("button", { name: "to new" }).click();

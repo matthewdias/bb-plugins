@@ -1,17 +1,15 @@
-// The Cleanup tab: installed plugins worth a second look, and what was
-// removed from here lately.
+// The installed inventory, with a filter for disabled plugins.
 import { useEffect, useState } from "react";
 import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CleanupCard as Card, CleanupReason } from "../lib/cleanup-deck";
+import type { Direction } from "../lib/gesture";
 import type { RemoveJob } from "../lib/queue";
 import { describeCost, type RemovalCost } from "../lib/removal-cost";
 import { CardGrid, GridCard } from "./CardGrid";
-import { CardStack } from "./CardStack";
-import { cleanupActions, decideCleanup, undoLastCleanup } from "./cleanup-decisions";
+import { canManage, cleanupActions, decideCleanup, undoLastCleanup } from "./cleanup-decisions";
 import { PluginIcon, ago } from "./EntryCard";
-import type { Layout } from "./layout";
 import { navigateInApp, pluginDetailsPath } from "./navigate";
 import type { CleanupState, TriageRpc } from "./triage-store";
 
@@ -20,6 +18,8 @@ const date = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month:
 /** Why the card is in the deck, in a sentence. */
 export function reasonText(reason: CleanupReason): { title: string; detail: string | null; tone?: "warn" } {
   switch (reason.kind) {
+    case "enabled":
+      return { title: "Enabled", detail: null };
     case "broken":
       return { title: `Not working (${reason.status})`, detail: reason.detail, tone: "warn" };
     case "trial":
@@ -42,25 +42,6 @@ export function reasonText(reason: CleanupReason): { title: string; detail: stri
 
 const costs = new Map<string, Promise<RemovalCost | null>>();
 
-/** What uninstalling the top card's plugin would delete, asked once per plugin. */
-function useCost(rpc: TriageRpc, pluginId: string | null): RemovalCost | null | undefined {
-  const [loaded, setLoaded] = useState<{ pluginId: string; cost: RemovalCost | null } | null>(null);
-  useEffect(() => {
-    if (pluginId === null) return;
-    let request = costs.get(pluginId);
-    if (request === undefined) {
-      request = rpc.call("cleanup_cost", { pluginId }).catch(() => null);
-      costs.set(pluginId, request);
-    }
-    let live = true;
-    void request.then((cost) => live && setLoaded({ pluginId, cost }));
-    return () => {
-      live = false;
-    };
-  }, [pluginId, rpc]);
-  return loaded !== null && loaded.pluginId === pluginId ? loaded.cost : undefined;
-}
-
 /** What uninstalling each of these plugins would delete, asked once per plugin. */
 function useCosts(rpc: TriageRpc, pluginIds: readonly string[]): ReadonlyMap<string, RemovalCost | null> {
   const [loaded, setLoaded] = useState<ReadonlyMap<string, RemovalCost | null>>(new Map());
@@ -73,7 +54,9 @@ function useCosts(rpc: TriageRpc, pluginIds: readonly string[]): ReadonlyMap<str
         request = rpc.call("cleanup_cost", { pluginId }).catch(() => null);
         costs.set(pluginId, request);
       }
-      void request.then((cost) => live && setLoaded((before) => new Map(before).set(pluginId, cost)));
+      void request.then((cost) => {
+        if (live) setLoaded((before) => before.has(pluginId) ? before : new Map(before).set(pluginId, cost));
+      });
     }
     return () => {
       live = false;
@@ -84,7 +67,7 @@ function useCosts(rpc: TriageRpc, pluginIds: readonly string[]): ReadonlyMap<str
   return loaded;
 }
 
-/** The sentence a card shows before it can be queued to uninstall; undefined while asking. */
+/** The sentence a card shows before it is queued to uninstall; undefined while asking. */
 export function costText(cost: RemovalCost | null | undefined): string {
   return cost === undefined
     ? "Checking what uninstalling would delete…"
@@ -100,17 +83,17 @@ export function resetCosts(): void {
 
 function CleanupCardView({
   card,
-  top,
   cost,
   onDetails,
+  onTrial,
 }: {
   card: Card;
-  top: boolean;
   cost?: RemovalCost | null;
   /** Before it leaves for bb's detail pane: a preview closes. */
   onDetails?: () => void;
+  onTrial?: () => void;
 }) {
-  const reason = reasonText(card.reason);
+  const reason = installedStatus(card);
   return (
     <article
       className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-xl"
@@ -125,7 +108,7 @@ function CleanupCardView({
           </p>
         </div>
       </header>
-      <div className="min-h-0 flex-1 space-y-3 overflow-hidden px-4 pt-2">
+      <div className="min-h-0 flex-1 touch-pan-y space-y-3 overflow-y-auto overscroll-contain px-4 py-2" data-scroll="">
         <div
           className={cn(
             "rounded-lg border border-border bg-muted/40 p-3",
@@ -147,27 +130,38 @@ function CleanupCardView({
             ))}
           </div>
         )}
-        {top && (
+        {canManage(card) && (
           <p className="text-xs text-muted-foreground" data-testid="removal-cost">
             {costText(cost)}
           </p>
         )}
       </div>
-      {top && (
-        <footer className="border-t border-border p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full"
-            onClick={() => {
-              onDetails?.();
-              navigateInApp(pluginDetailsPath(card.pluginId, "cleanup"));
-            }}
-          >
-            <Icon name="Info" aria-hidden /> Details
-          </Button>
-        </footer>
-      )}
+      <footer className="flex flex-wrap items-center gap-1 border-t border-border p-2">
+        {onTrial !== undefined && (
+          <div className="min-w-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onTrial}
+              aria-description="Turns this plugin off now and asks again in two weeks."
+            >
+              <Icon name="PowerOff" fallback="Power" aria-hidden /> Try without it
+            </Button>
+            <p className="mt-1 text-xs text-muted-foreground">Turn off now and review in two weeks.</p>
+          </div>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          onClick={() => {
+            onDetails?.();
+            navigateInApp(pluginDetailsPath(card.pluginId, "installed"));
+          }}
+        >
+          <Icon name="Info" aria-hidden /> Details
+        </Button>
+      </footer>
     </article>
   );
 }
@@ -199,90 +193,113 @@ function Recent({ history }: { history: RemoveJob[] }) {
   );
 }
 
-export function CleanupPanel({
+function installedStatus(card: Card): ReturnType<typeof reasonText> {
+  return card.removalPending
+    ? { title: "Queued to uninstall", detail: null }
+    : reasonText(card.reason);
+}
+
+export function InstalledPanel({
   rpc,
-  cleanup,
+  installed,
   keyboard,
-  layout = "deck",
 }: {
   rpc: TriageRpc;
-  cleanup: CleanupState;
+  installed: CleanupState;
   keyboard: boolean;
-  layout?: Layout;
 }) {
-  const top = cleanup.cards[0] ?? null;
+  const [disabledOnly, setDisabledOnly] = useState(false);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
-  const cost = useCost(rpc, layout === "grid" ? null : top?.pluginId ?? null);
-  // The deck says it on the card on top; the grid, on every card, since any
-  // of them can be queued to uninstall. Asking reads bb's settings, locally.
-  const gridCosts = useCosts(rpc, layout === "grid" ? cleanup.cards.map((card) => card.pluginId) : []);
+  const [reviewed, setReviewed] = useState<ReadonlySet<string>>(new Set());
+  const cards = disabledOnly ? installed.cards.filter((card) => !card.enabled) : installed.cards;
+  const gridCosts = useCosts(rpc, cards
+    .filter((card) => canManage(card) && (reviewed.has(card.key) || card.key === previewKey))
+    .map((card) => card.pluginId));
+
+  function review(card: Card) {
+    if (!canManage(card)) return;
+    setReviewed((before) => before.has(card.key) ? before : new Set(before).add(card.key));
+  }
+
+  function decide(card: Card, direction: Direction) {
+    const action = cleanupActions(card)[direction];
+    if (action !== undefined) void decideCleanup(rpc, card, action.action);
+  }
+
+  function filter(disabled: boolean) {
+    setDisabledOnly(disabled);
+    setPreviewKey(null);
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {top !== null && layout === "grid" ? (
-        <CardGrid
-          cards={cleanup.cards}
-          facts={(card) => ({
-            name: card.displayName,
-            published: null,
-            installs: null,
-            category: card.listing?.category ?? null,
-            source: card.listing?.store ?? null,
-          })}
-          sorts={["name"]}
-          noun={["plugin to look at", "plugins to look at"]}
-          onUndo={() => void undoLastCleanup(rpc)}
-          keyboard={keyboard}
-          actions={(card) => cleanupActions(card).labels}
-          onDecide={(card, direction) => void decideCleanup(rpc, card, direction)}
-          previewKey={previewKey}
-          onPreview={setPreviewKey}
-          renderPreview={(card, close) => (
-            <CleanupCardView key={card.key} card={card} top cost={gridCosts.get(card.pluginId)} onDetails={close} />
-          )}
-          render={(card) => {
-            const reason = reasonText(card.reason);
-            const removal = costText(gridCosts.get(card.pluginId));
-            return (
-              <GridCard
-                title={card.displayName}
-                leading={<PluginIcon card={card} compact />}
-                description={card.description ?? ""}
-                note={{ text: reason.detail === null ? reason.title : `${reason.title}: ${reason.detail}`, tone: reason.tone }}
-                footnote={removal}
-                hints={{ left: removal }}
-                byline={card.surfaces.length > 0 ? card.surfaces.join(", ") : <span className="font-mono">{card.source}</span>}
-                actions={cleanupActions(card).labels}
-                onDecide={(direction) => void decideCleanup(rpc, card, direction)}
-                openLabel={`Preview ${card.displayName}`}
-                onOpen={() => setPreviewKey(card.key)}
-              />
-            );
-          }}
-        />
-      ) : top !== null ? (
-        <div className="flex h-[min(520px,calc(100dvh-14rem))] min-h-[26rem] shrink-0 flex-col">
-          <CardStack
-            cards={cleanup.cards}
-            actions={cleanupActions(top).labels}
-            details={false}
-            keyboard={keyboard}
-            onDecide={(card, direction) => void decideCleanup(rpc, card, direction)}
-            onUndo={() => void undoLastCleanup(rpc)}
-            onDetails={() => {}}
-            render={(card, isTop) => <CleanupCardView card={card} top={isTop} cost={isTop ? cost : undefined} />}
+      <div className="mx-auto flex w-full max-w-[80rem] gap-1" role="group" aria-label="Filter installed plugins">
+        {([false, true] as const).map((disabled) => (
+          <Button
+            key={String(disabled)}
+            variant="ghost"
+            className={cn(disabledOnly === disabled && "bg-state-active text-foreground")}
+            size="sm"
+            aria-pressed={disabledOnly === disabled}
+            onClick={() => filter(disabled)}
+          >
+            {disabled ? "Disabled" : "All"}
+          </Button>
+        ))}
+      </div>
+      <CardGrid
+        cards={cards}
+        facts={(card) => ({
+          name: card.displayName,
+          published: null,
+          installs: null,
+          category: card.listing?.category ?? null,
+          source: card.listing?.store ?? null,
+        })}
+        sorts={["name"]}
+        noun={disabledOnly ? ["disabled plugin", "disabled plugins"] : ["installed plugin", "installed plugins"]}
+        onUndo={() => void undoLastCleanup(rpc)}
+        keyboard={keyboard}
+        actions={cleanupActions}
+        onDecide={decide}
+        previewKey={previewKey}
+        onPreview={setPreviewKey}
+        renderPreview={(card, close) => (
+          <CleanupCardView
+            key={card.key}
+            card={card}
+            cost={gridCosts.get(card.pluginId)}
+            onDetails={close}
+            onTrial={card.enabled && canManage(card) ? () => void decideCleanup(rpc, card, "trial") : undefined}
           />
-        </div>
-      ) : (
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-2 pt-10 text-center">
-          <Icon name="CircleCheck" className="size-8 text-muted-foreground" aria-hidden />
-          <p className="text-sm font-medium">Nothing to clean up</p>
-          <p className="text-xs text-muted-foreground">
-            Broken and turned-off plugins show up here, and, once Plugin Triage has watched them for a month, ones you
-            haven't used.
-          </p>
-        </div>
+        )}
+        render={(card) => {
+          const status = installedStatus(card);
+          const removal = canManage(card) && reviewed.has(card.key) ? costText(gridCosts.get(card.pluginId)) : undefined;
+          return (
+            <GridCard
+              title={card.displayName}
+              leading={<PluginIcon card={card} compact />}
+              description={card.description ?? ""}
+              note={{ text: status.detail === null ? status.title : `${status.title} · ${status.detail}`, tone: status.tone }}
+              footnote={removal}
+              hints={canManage(card) ? { left: removal ?? costText(null) } : undefined}
+              byline={card.surfaces.length > 0 ? card.surfaces.join(", ") : <span className="font-mono">{card.source}</span>}
+              actions={cleanupActions(card)}
+              onDecide={(direction) => decide(card, direction)}
+              openLabel={`Preview ${card.displayName}`}
+              onOpen={() => setPreviewKey(card.key)}
+              onReview={() => review(card)}
+            />
+          );
+        }}
+      />
+      {cards.length === 0 && (
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          {disabledOnly ? "No disabled plugins" : "No installed plugins"}
+        </p>
       )}
-      <Recent history={cleanup.history} />
+      <Recent history={installed.history} />
     </div>
   );
 }

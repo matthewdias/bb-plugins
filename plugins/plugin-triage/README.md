@@ -18,9 +18,9 @@ Then open **Plugins** and choose **Triage** in its sidebar.
 
 | | Drag | Key |
 | --- | --- | --- |
-| Queue the install | right | → |
+| Queue install | right | → |
 | Dismiss | left | ← |
-| Save for later | up | ↑ |
+| Save | up | ↑ |
 | Show the overview | | Space or Enter |
 | Leave the overview | | Escape |
 | Undo the last decision | | Z |
@@ -66,7 +66,7 @@ nobody ran doesn't go unnoticed.
 
 ### All at once
 
-The switch at the right of the tab bar lays the tab out as a grid instead,
+The switch at the right of the tab bar lays New, Updates, or Saved out as a grid,
 the way bb's own plugin store does: every card at once, with its icon,
 description and byline. Each card carries its decisions on its footer: the
 deck's ←, ↑ and → as buttons, so any card can be decided without dealing the
@@ -74,28 +74,25 @@ ones before it. Tap a card to preview it: the deck's own card for it, opened in 
 over the grid (the overview, screenshots and **Vet**; an update's change
 list; what uninstalling would delete), with the deck's three decisions
 under it. Deciding there moves the preview on to the next card in the grid,
-so a group can be worked through without closing it. The arrows decide as
-in the deck, Escape closes, and Z still takes back the last decision. The choice holds for every tab and is remembered in
-this browser.
+so a group can be worked through without closing it. Buttons, swipes and arrow keys use the same actions. Swipe from the preview header to leave the body free to scroll. Escape closes the preview, and Z takes back the last decision. The choice is remembered in this browser. Installed always uses the grid.
 
 Above the grid, **Sort** orders the cards by name, and on New and Saved also
 by publish date or install count; choose the same order again to turn it
 round, or **Deck order** to go back to the deck's own. **Group** splits them
 by category or by source, the store a plugin is listed in, with the ones
-that have neither last. Updates and Cleanup group by the listing of the
+that have neither last. Updates and Installed group by the listing of the
 installed plugin in the catalog. Sort and Group are remembered with the
 switch; the deck itself always deals in its own order, so Z can put a card
-back on top. A Cleanup card says what uninstalling it would delete, as the
-deck's top card does.
+back on top. Installed cards show what uninstalling a plugin would delete.
 
 **Saved** deals the plugins you saved, most recent first, as the same cards
 as New, which open, vet and link the same way.
 
 | | Drag | Key |
 | --- | --- | --- |
-| Queue the install | right | → |
-| Forget it, as a dismiss: it comes back only if its listing changes | left | ← |
-| Move it to the back of the deck; it stays saved | up | ↑ |
+| Queue install | right | → |
+| Remove from Saved (it comes back only if its listing changes) | left | ← |
+| Move to back (in deck order) | up | ↑ |
 | Undo | | Z |
 
 **Show incompatible** adds plugins that need a newer bb, with the reason.
@@ -125,9 +122,9 @@ and kept; and when fewer than ten requests are left in the hour, cards offer
 
 | | Drag | Key |
 | --- | --- | --- |
-| Queue the update | right | → |
-| Skip this version (it comes back when a newer one is out) | left | ← |
-| Remind me in a week | up | ↑ |
+| Queue update | right | → |
+| Skip version (a newer version can show up again) | left | ← |
+| Snooze 1 week | up | ↑ |
 | Show the details | | Space or Enter |
 | Leave the details | | Escape |
 | Undo | | Z |
@@ -139,29 +136,31 @@ what the last runs did. Plugins bb couldn't check are listed apart, each
 with a **Retry**; **Check now** asks bb to look again for everything, which
 takes a while.
 
-**Cleanup** deals installed plugins worth a second look: broken ones, ones
-you turned off, and, once Plugin Triage has watched them for a month, ones
-with no activity in that time. Activity is bb's count of a plugin's
-server-side work (agent tools, CLI commands, hooks), sampled hourly; a plugin
-that only draws UI never moves it, so it is never called idle. bb's own
-plugins that ship turned off are left out. Plugin Triage itself, plugins
-installed from a local folder, providers and bb's environment and navigation
-plugins are never dealt.
+**Installed** shows all installed plugins. Select **Disabled** to narrow it
+to plugins that are turned off. Protected plugins, including Plugin Triage,
+local working copies and providers, appear in the grid with a link to their
+details.
 
-| | Plugin that is on | Plugin you turned off | Tried without, two weeks on |
-| --- | --- | --- | --- |
-| → | Keep (asks again in 90 days) | Keep it off (90 days) | Turn it back on |
-| ← | Uninstall | Uninstall | Uninstall |
-| ↑ | Try without it: off now, asks again in two weeks | Turn it back on | Two more weeks without it |
+Cleanup suggestions still flag broken, turned-off or idle plugins. Triage
+uses server-side activity to spot plugins that have been idle for a month.
+Built-in plugins that ship disabled appear in the filter without adding to
+the cleanup count.
 
-Turning a plugin off or on happens at once, and Z turns it back. Uninstalling
-waits in the queue for **Run all**, removals after installs and updates.
+| Direction | Action |
+| --- | --- |
+| ← | Queue uninstall |
+| ↑ | Review later (90 days), or 2 more weeks for a trial that is due |
+| → | Turn on, when disabled |
+
+From an enabled plugin's preview, **Try without it** turns the plugin off immediately and asks again in two weeks. **Review later** only changes the review date. **Turn on** takes effect immediately. Use **Z** to undo the last action in Triage.
+
+Queued uninstalls wait for **Run all** and run after installs and updates.
 Uninstalling is for good: bb deletes the plugin's settings, secrets and
-schedules with it, so the card on top says what that would take, read from bb
+schedules with it, so the card says what that would take, read from bb
 ("Uninstalling deletes its 2 changed settings (Mode and Theme), its secret API
 key and its scheduled work, for good"). Installing it again starts from the
 defaults. Finished removals are listed under **Recent**, failures with why,
-and a plugin that couldn't be removed goes back in the deck.
+and a plugin with a failed removal stays available in Installed.
 
 ## The count
 
@@ -171,7 +170,7 @@ sidebar beside it; **Browse plugins** in its title bar opens the Plugins
 screen. The Triage row in the Plugins screen shows the same number. By default it counts new plugins and updates,
 and anything queued from them. **Count new plugins**, **Count updates** and
 **Count cleanup suggestions** in the plugin's settings choose which decks
-count; Cleanup is off by default. bb puts a new sidebar item in the More menu
+count. Cleanup suggestions are off by default. bb puts a new sidebar item in the More menu
 at first, so pin it with **Customize sidebar**. bb doesn't show sidebar counts
 at phone width.
 

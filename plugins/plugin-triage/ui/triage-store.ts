@@ -57,6 +57,8 @@ let state: DeckState = {
 };
 const listeners = new Set<() => void>();
 let generation = 0;
+let queueRequest = 0;
+let queueApplied = 0;
 
 function set(next: Partial<DeckState>): void {
   state = { ...state, ...next };
@@ -72,23 +74,45 @@ export const triageStore = {
     return state;
   },
 
-  /** Refetch both lists. A newer load wins over an older one still in flight. */
+  /** Refresh the queue as soon as its own request returns. */
+  async loadQueue(rpc: TriageRpc): Promise<void> {
+    const mine = ++queueRequest;
+    try {
+      const queue = await rpc.call("queue_status", {});
+      if (mine <= queueApplied) return;
+      queueApplied = mine;
+      set({ queue });
+    } catch {
+      // Keep showing the last known queue until the next refresh.
+    }
+  },
+
+  removeQueuedJob(key: string): void {
+    // An in-flight response might still include the job we just took off.
+    queueApplied = ++queueRequest;
+    const jobs = state.queue.jobs.filter((job) => job.key !== key);
+    set({ queue: { ...state.queue, jobs } });
+  },
+
+  /** Refetch the decks and queue independently. */
   async load(rpc: TriageRpc): Promise<void> {
     const mine = ++generation;
     if (state.status === "idle" || state.status === "error") set({ status: "loading", error: null });
+    const queue = triageStore.loadQueue(rpc);
     try {
-      const [deck, saved, updates, cleanup, queue] = await Promise.all([
+      const [deck, saved, updates, cleanup] = await Promise.all([
         rpc.call("deck_new", { includeIncompatible: state.includeIncompatible }),
         rpc.call("deck_saved", {}),
         rpc.call("updates_deck", {}),
         rpc.call("cleanup_deck", {}),
-        rpc.call("queue_status", {}),
       ]);
       if (mine !== generation) return;
-      set({ status: "ready", error: null, cards: deck.cards, saved: saved.cards, updates, cleanup, queue });
+      set({ status: "ready", error: null, cards: deck.cards, saved: saved.cards, updates, cleanup });
     } catch (cause) {
       if (mine !== generation) return;
       set({ status: "error", error: cause instanceof Error ? cause.message : String(cause) });
+    } finally {
+      await queue;
     }
   },
 
@@ -112,7 +136,6 @@ export const triageStore = {
     generation++;
     set({
       cards: [card, ...state.cards.filter((other) => other.key !== card.key)],
-      queue: { ...state.queue, jobs: state.queue.jobs.filter((job) => job.key !== card.key) },
     });
   },
 
@@ -122,7 +145,7 @@ export const triageStore = {
     set({ updates: { ...state.updates, cards: state.updates.cards.filter((card) => card.key !== key) } });
   },
 
-  /** Put an update card back on top, as undo does; its queued job is gone. */
+  /** Put an update card back on top, as undo does. */
   putBackUpdate(card: UpdateCard): void {
     generation++;
     set({
@@ -130,21 +153,14 @@ export const triageStore = {
         ...state.updates,
         cards: [card, ...state.updates.cards.filter((other) => other.key !== card.key)],
       },
-      queue: { ...state.queue, jobs: state.queue.jobs.filter((job) => job.key !== card.key) },
     });
   },
 
-  takeCleanup(key: string): void {
-    generation++;
-    set({ cleanup: { ...state.cleanup, cards: state.cleanup.cards.filter((card) => card.key !== key) } });
-  },
-
-  /** Put a Cleanup card back on top, as undo does; its queued removal is gone. */
+  /** Restore an installed card after undo. */
   putBackCleanup(card: CleanupCard): void {
     generation++;
     set({
       cleanup: { ...state.cleanup, cards: [card, ...state.cleanup.cards.filter((other) => other.key !== card.key)] },
-      queue: { ...state.queue, jobs: state.queue.jobs.filter((job) => job.key !== card.key) },
     });
   },
 
@@ -160,7 +176,6 @@ export const triageStore = {
   addSaved(card: NewCard): void {
     set({
       saved: [card, ...state.saved.filter((other) => other.key !== card.key)],
-      queue: { ...state.queue, jobs: state.queue.jobs.filter((job) => job.key !== card.key) },
     });
   },
 };
@@ -168,6 +183,7 @@ export const triageStore = {
 /** Tests only. */
 export function resetTriageStore(): void {
   generation++;
+  queueApplied = ++queueRequest;
   state = { status: "idle", error: null, cards: [], saved: [], updates: NO_UPDATES, cleanup: NO_CLEANUP, queue: NO_QUEUE, includeIncompatible: false };
   for (const listener of listeners) listener();
 }

@@ -8,15 +8,16 @@ import type { rpcContract } from "../lib/contract";
 import type { NewCard } from "../lib/new-deck";
 import { vetPrompt } from "../lib/source";
 import { CardGrid, GridCard } from "./CardGrid";
-import { CardStack, NEW_ACTIONS, type DeckActions } from "./CardStack";
+import { CardStack } from "./CardStack";
+import { NEW_ACTIONS, QUEUE_INSTALL, type DeckActions } from "./card-actions";
 import { decide, planFor, undoLast, type DeckName, type Plan } from "./decisions";
 import { EntryCard, PluginIcon, ago } from "./EntryCard";
 import type { Layout } from "./layout";
 
 export const SAVED_ACTIONS: DeckActions = {
-  right: { label: "Install", name: "Install", icon: "Download", hint: "install" },
-  left: { label: "Forget", name: "Remove from Saved", icon: "X", hint: "forget" },
-  up: { label: "Later", name: "Move to the back", icon: "Clock", hint: "later" },
+  right: QUEUE_INSTALL,
+  left: { label: "Remove from Saved", icon: "BookmarkMinus", fallback: "X" },
+  up: { label: "Move to back", icon: "ListEnd", fallback: "ArrowDown", detail: "Move to the back of the Saved deck." },
 };
 
 const ACTIONS: Record<DeckName, DeckActions> = { new: NEW_ACTIONS, saved: SAVED_ACTIONS };

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CleanupPanel, reasonText, resetCosts } from "../../ui/CleanupPanel";
+import { InstalledPanel, reasonText, resetCosts } from "../../ui/InstalledPanel";
 import { cleanupActions, decideCleanup, resetCleanupDecisions, undoLastCleanup } from "../../ui/cleanup-decisions";
 import { resetTriageStore, triageStore, type TriageRpc } from "../../ui/triage-store";
 import type { CleanupCard } from "../../lib/cleanup-deck";
@@ -24,6 +24,9 @@ function card(pluginId: string, overrides: Partial<CleanupCard> = {}): CleanupCa
     source: "x",
     surfaces: [],
     reason: { kind: "broken", status: "error", detail: "boom" },
+    suggested: true,
+    protected: false,
+    removalPending: false,
     ...overrides,
   };
 }
@@ -54,25 +57,58 @@ afterEach(() => {
   resetTriageStore();
 });
 
-describe("the Cleanup tab", () => {
-  it("offers keep, uninstall and try-without for a plugin that is on", () => {
+describe("the Installed tab", () => {
+  it("shows all installed plugins and filters by enabled status", async () => {
     const { rpc } = rpcFake();
-    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [card("broken")], history: [] }} keyboard />);
-    expect(screen.getByRole("button", { name: "Keep it (→)" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Uninstall (←)" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Try without it for two weeks (↑)" })).toBeTruthy();
-    expect(screen.getByText("Not working (error)")).toBeTruthy();
+    const enabled = card("enabled", { reason: { kind: "enabled" }, suggested: false });
+    const disabled = card("disabled", { enabled: false, reason: { kind: "disabled", since: null } });
+    const protectedPlugin = card("built-in", { enabled: false, protected: true, suggested: false });
+    const queued = card("queued", { removalPending: true, suggested: false });
+    render(<InstalledPanel rpc={rpc} installed={{ cards: [enabled, disabled, protectedPlugin, queued], history: [] }} keyboard />);
+
+    expect(screen.getByRole("button", { name: "All", pressed: true })).toBeTruthy();
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
+    expect(within(screen.getByRole("listitem", { name: "queued" })).getByText("Queued to uninstall")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Disabled" }));
+    expect(screen.getByText("2 disabled plugins")).toBeTruthy();
+    expect(screen.queryByRole("listitem", { name: "enabled" })).toBeNull();
+    const builtIn = screen.getByRole("listitem", { name: "built-in" });
+    expect(within(builtIn).queryByRole("button", { name: "Queue uninstall" })).toBeNull();
+    expect(within(screen.getByRole("listitem", { name: "disabled" })).getByRole("button", { name: "Turn on" })).toBeTruthy();
+    fireEvent.click(within(builtIn).getByRole("button", { name: "Preview built-in" }));
+    expect(within(screen.getByRole("dialog")).queryByRole("toolbar")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
+    fireEvent.mouseEnter(screen.getByRole("listitem", { name: "disabled" }));
+    await screen.findByText(/Uninstalling deletes/);
   });
 
-  it("offers keep-off and turn-on for a plugin that is off", () => {
-    const { actions, labels } = cleanupActions(card("off", { enabled: false, reason: { kind: "disabled", since: null } }));
-    expect(actions).toEqual({ right: "keep", left: "remove", up: "enable" });
-    expect(labels.up.name).toBe("Turn it back on");
+  it("puts the immediate turn-off action in the preview and leaves up for review", async () => {
+    const { rpc, call } = rpcFake();
+    render(<InstalledPanel rpc={rpc} installed={{ cards: [card("broken")], history: [] }} keyboard />);
+    expect(screen.getByRole("button", { name: "Review later" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try without it" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Preview broken" }));
+    const preview = screen.getByRole("dialog");
+    expect(within(preview).getByText("Turn off now and review in two weeks.")).toBeTruthy();
+    fireEvent.click(within(preview).getByRole("button", { name: "Try without it" }));
+    expect(call).toHaveBeenCalledWith("cleanup_decide", expect.objectContaining({ action: "trial" }));
+    await within(preview).findByTestId("removal-cost");
   });
 
-  it("asks whether a plugin tried without was missed", () => {
+  it("sets aside on up and re-enables on right when a plugin is off", () => {
+    const actions = cleanupActions(card("off", { enabled: false, reason: { kind: "disabled", since: null } }));
+    expect(actions.up).toMatchObject({ action: "keep", label: "Review later" });
+    expect(actions.right).toMatchObject({ action: "enable", label: "Turn on" });
+    expect(actions.left).toMatchObject({ action: "remove", label: "Queue uninstall" });
+  });
+
+  it("extends a due trial on up and still re-enables on right", () => {
     const trial = card("tried", { enabled: false, reason: { kind: "trial", since: Date.now() } });
-    expect(cleanupActions(trial).actions).toEqual({ right: "enable", left: "remove", up: "trial" });
+    expect(cleanupActions(trial).up).toMatchObject({ action: "extend", label: "2 more weeks" });
+    expect(cleanupActions(trial).right).toMatchObject({ action: "enable", label: "Turn on" });
     expect(reasonText(trial.reason).title).toBe("Did you miss it?");
   });
 
@@ -80,9 +116,10 @@ describe("the Cleanup tab", () => {
     expect(reasonText({ kind: "disabled", since: null }).detail).toBe("Since before Plugin Triage was watching.");
   });
 
-  it("says what uninstalling the top card would delete, before it is queued", async () => {
+  it("shows what uninstalling a card would delete when reviewed", async () => {
     const { rpc, call } = rpcFake();
-    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [card("notes")], history: [] }} keyboard />);
+    render(<InstalledPanel rpc={rpc} installed={{ cards: [card("notes")], history: [] }} keyboard />);
+    fireEvent.mouseEnter(screen.getByRole("listitem", { name: "notes" }));
     expect(await screen.findByText(
       "Uninstalling deletes its 2 changed settings (Mode and Theme), its secret API key and its scheduled work, for good.",
     )).toBeTruthy();
@@ -92,7 +129,8 @@ describe("the Cleanup tab", () => {
   it("still warns when bb couldn't say what would be lost", async () => {
     cost = new Error("nope");
     const { rpc } = rpcFake();
-    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [card("notes")], history: [] }} keyboard />);
+    render(<InstalledPanel rpc={rpc} installed={{ cards: [card("notes")], history: [] }} keyboard />);
+    fireEvent.mouseEnter(screen.getByRole("listitem", { name: "notes" }));
     expect(await screen.findByText("Uninstalling deletes its settings, secrets and schedules, for good.")).toBeTruthy();
   });
 
@@ -102,7 +140,7 @@ describe("the Cleanup tab", () => {
       { id: "1", kind: "remove", pluginId: "a", displayName: "Alpha", state: "done", finishedAt: Date.now(), error: null },
       { id: "2", kind: "remove", pluginId: "b", displayName: "Beta", state: "failed", finishedAt: Date.now(), error: "in use" },
     ] as RemoveJob[];
-    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [], history }} keyboard />);
+    render(<InstalledPanel rpc={rpc} installed={{ cards: [], history }} keyboard />);
     expect(screen.getByText("Removed")).toBeTruthy();
     expect(screen.getByText("Couldn't remove: in use")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Restore/ })).toBeNull();
@@ -112,9 +150,9 @@ describe("the Cleanup tab", () => {
     const { rpc, call } = rpcFake();
     const off = card("off", { enabled: false, reason: { kind: "disabled", since: null } });
     triageStore.putBackCleanup(off);
-    await decideCleanup(rpc, off, "up");
+    await decideCleanup(rpc, off, "enable");
     expect(call).toHaveBeenCalledWith("cleanup_decide", { pluginId: "off", displayName: "off", action: "enable" });
-    expect(triageStore.getSnapshot().cleanup.cards).toEqual([]);
+    expect(triageStore.getSnapshot().cleanup.cards).toHaveLength(1);
     await undoLastCleanup(rpc);
     expect(call).toHaveBeenCalledWith("cleanup_undo", { pluginId: "off", action: "enable", restore: null });
     expect(triageStore.getSnapshot().cleanup.cards.map((c) => c.pluginId)).toEqual(["off"]);

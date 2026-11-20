@@ -35,7 +35,10 @@ export async function decideUpdate(rpc: TriageRpc, card: UpdateCard, direction: 
       from: { version: card.from.version, display: card.from.display },
       to: { version: card.to.version, display: card.to.display },
     })
-    .then(({ previous }) => ({ previous }))
+    .then(({ previous }) => {
+      if (action === "queue") void triageStore.loadQueue(rpc);
+      return { previous };
+    })
     .catch((cause: unknown) => {
       made.splice(made.indexOf(entry), 1);
       triageStore.putBackUpdate(card);
@@ -63,6 +66,7 @@ async function undoEntry(rpc: TriageRpc, entry: Made): Promise<void> {
     }
     made.splice(made.indexOf(entry), 1);
     haptic("impact-light");
+    triageStore.removeQueuedJob(entry.card.key);
     triageStore.putBackUpdate(entry.card);
     // The server announced the undo, and the refresh that announcement
     // started was dropped by the put-back above, which guards against older

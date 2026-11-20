@@ -5,7 +5,7 @@ describe("Triage tabs in the address", () => {
   it("reads the tab from the Plugins screen's query, New by default", () => {
     expect(tabFromSearch("?view=triage")).toBe("new");
     expect(tabFromSearch("?view=triage&tab=updates")).toBe("updates");
-    expect(tabFromSearch("?view=triage&tab=cleanup")).toBe("cleanup");
+    expect(tabFromSearch("?view=triage&tab=cleanup")).toBe("installed");
     expect(tabFromSearch("?tab=saved&view=triage")).toBe("saved");
     expect(tabFromSearch("?view=triage&tab=nope")).toBe("new");
   });
@@ -19,7 +19,8 @@ describe("Triage tabs in the address", () => {
 
   it("reads and writes the sidebar item's sub-path", () => {
     expect(tabFromSubPath("")).toBe("new");
-    expect(tabFromSubPath("cleanup")).toBe("cleanup");
+    expect(tabFromSubPath("installed")).toBe("installed");
+    expect(tabFromSubPath("cleanup")).toBe("installed");
     expect(tabFromSubPath("updates/")).toBe("updates");
     expect(tabFromSubPath("whatever")).toBe("new");
     expect(subPathForTab("new")).toBe("");
@@ -31,6 +32,6 @@ describe("detail links from a tab", () => {
   it("open bb's detail pane beside the same tab", async () => {
     const { pluginDetailsPath } = await import("../ui/navigate");
     expect(pluginDetailsPath("notes")).toBe("/plugins/notes?view=triage");
-    expect(pluginDetailsPath("notes", "cleanup")).toBe("/plugins/notes?view=triage&tab=cleanup");
+    expect(pluginDetailsPath("notes", "installed")).toBe("/plugins/notes?view=triage&tab=installed");
   });
 });

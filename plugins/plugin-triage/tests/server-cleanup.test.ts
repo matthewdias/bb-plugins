@@ -74,7 +74,7 @@ async function host(options: { remove?: (id: string) => unknown } = {}) {
   const service = harness.runService("queue");
   const rpc = async <T,>(method: string, input: unknown = {}) => (await harness.callRpc(method, input)) as T;
   const deck = () => rpc<{ cards: CleanupCard[]; history: RemoveJob[] }>("cleanup_deck");
-  const cards = async () => (await deck()).cards.map((c) => [c.pluginId, c.reason.kind]);
+  const cards = async () => (await deck()).cards.filter((c) => c.suggested).map((c) => [c.pluginId, c.reason.kind]);
   const decide = (pluginId: string, action: string) => rpc<{ previous: unknown }>("cleanup_decide", { pluginId, displayName: pluginId, action });
   const advance = async (ms: number) => {
     await vi.advanceTimersByTimeAsync(ms);
@@ -95,12 +95,19 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("the Cleanup deck over RPC", () => {
-  it("deals the broken and the turned-off, never itself", async () => {
-    const { cards, service } = await host();
+  it("lists all installed plugins and flags only cleanup suggestions", async () => {
+    const { cards, deck, decide, service } = await host();
     expect(await cards()).toEqual([
       ["broken", "broken"],
       ["off", "disabled"],
     ]);
+    expect((await deck()).cards.map(({ pluginId, enabled, protected: readOnly }) => [pluginId, enabled, readOnly])).toEqual([
+      ["broken", true, false],
+      ["fine", true, false],
+      ["off", false, false],
+      [SELF, false, true],
+    ]);
+    await expect(decide(SELF, "remove")).rejects.toThrow("Manage this plugin from its details.");
     service.controller.abort();
   });
 
@@ -110,7 +117,7 @@ describe("the Cleanup deck over RPC", () => {
       results: [{ entryId: "off", pluginId: "off", marketplaceDisplayName: "BB Community", category: "Utilities", installed: true }],
     }));
     const listing = Object.fromEntries((await deck()).cards.map((card) => [card.pluginId, card.listing]));
-    expect(listing).toEqual({ broken: null, off: { category: "Utilities", store: "BB Community" } });
+    expect(listing).toEqual({ broken: null, fine: null, [SELF]: null, off: { category: "Utilities", store: "BB Community" } });
     service.controller.abort();
   });
 
@@ -147,6 +154,24 @@ describe("the Cleanup deck over RPC", () => {
     service.controller.abort();
   });
 
+  it("extends a due trial and undoes the extension without re-enabling the plugin", async () => {
+    const { harness, rpc, decide, cards, find, service } = await host();
+    await decide("broken", "trial");
+    vi.setSystemTime(NOW + TRIAL_MS);
+    expect(await cards()).toContainEqual(["broken", "trial"]);
+
+    const { previous } = await decide("broken", "extend");
+    expect(await cards()).not.toContainEqual(["broken", "trial"]);
+    expect(harness.sdk.callsTo("plugins.disable")).toHaveLength(1);
+    expect(find("broken").enabled).toBe(false);
+
+    expect(await rpc("cleanup_undo", { pluginId: "broken", action: "extend", restore: previous })).toMatchObject({ undone: true });
+    expect(await cards()).toContainEqual(["broken", "trial"]);
+    expect(find("broken").enabled).toBe(false);
+    expect(harness.sdk.callsTo("plugins.enable")).toHaveLength(0);
+    service.controller.abort();
+  });
+
   it("undoes trying without, turning the plugin back on", async () => {
     const { rpc, decide, cards, find, service } = await host();
     const { previous } = await decide("broken", "trial");
@@ -164,6 +189,7 @@ describe("the Cleanup deck over RPC", () => {
     await rpc("update_decide", { pluginId: "fine", displayName: "fine", action: "queue", from: label("1"), to: label("2") });
     await decide("off", "remove");
     expect(await cards()).toEqual([["broken", "broken"]]);
+    expect((await deck()).cards.find((card) => card.pluginId === "off")).toMatchObject({ removalPending: true });
     expect(harness.sdk.callsTo("plugins.remove")).toHaveLength(0);
     await run();
     expect(harness.sdk.callsTo("plugins.remove")).toEqual([[{ pluginId: "off" }]]);

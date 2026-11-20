@@ -35,11 +35,10 @@ only touched other plugins in a shared repository says so. Drag right to queue i
 version, up to be reminded in a week. Queued updates run with the installs
 when you press Run all.
 
-**Cleanup.** A third deck deals the plugins you turned off, the broken ones,
-and, after a month of watching, the ones you don't use. Keep a plugin, try a
-fortnight without it, or queue it to uninstall. The card says what
-uninstalling deletes for good (changed settings, secrets, scheduled work), and
-Recent lists what was removed.
+**Installed.** Browse every installed plugin or use the **Disabled** filter
+to see the ones turned off. Manage eligible plugins in the grid or open their
+details. Uninstalls go through the queue, with the settings, secrets and
+schedules they delete shown on the card. Recent lists what was removed.
 
 **Saved for later.** The plugins you swiped up wait in a Saved deck of their
 own: drag right to install, left to forget, up to send one to the back.

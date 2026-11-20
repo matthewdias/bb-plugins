@@ -1,50 +1,25 @@
-// Turning a swipe on the Cleanup deck into a decision, and taking it back.
-//
-// What each direction does depends on the card: an enabled plugin can be
-// kept, tried without, or uninstalled; a disabled one kept off, turned back
-// on, or uninstalled; one put aside to try without, turned back on, given two
-// more weeks, or uninstalled. Uninstalling waits in the queue for Run all;
-// turning a plugin off or on happens at once, and undo turns it back.
+// Managing an installed plugin, and taking it back.
 import { toast } from "sonner";
-import type { DeckActions } from "./CardStack";
 import type { Direction } from "../lib/gesture";
-import type { CleanupCard, CleanupDecision } from "../lib/cleanup-deck";
+import type { CleanupAction, CleanupCard, CleanupDecision } from "../lib/cleanup-deck";
+import type { DeckAction } from "./card-actions";
 import { haptic } from "./haptics";
 import { triageStore, type TriageRpc } from "./triage-store";
 
-export type CleanupAction = "keep" | "trial" | "enable" | "remove";
+export function canManage(card: CleanupCard): boolean {
+  return !card.protected && !card.removalPending;
+}
 
-const REMOVE = { label: "Uninstall", name: "Uninstall", icon: "Trash2", hint: "uninstall" };
-
-/** What → ← ↑ do for this card. */
-export function cleanupActions(card: CleanupCard): { actions: Record<Direction, CleanupAction>; labels: DeckActions } {
-  if (card.reason.kind === "trial") {
-    return {
-      actions: { right: "enable", left: "remove", up: "trial" },
-      labels: {
-        right: { label: "Turn on", name: "Turn it back on", icon: "Check", hint: "turn on" },
-        left: REMOVE,
-        up: { label: "Not yet", name: "Two more weeks without it", icon: "Clock", hint: "two more weeks" },
-      },
-    };
-  }
-  if (!card.enabled) {
-    return {
-      actions: { right: "keep", left: "remove", up: "enable" },
-      labels: {
-        right: { label: "Keep off", name: "Keep it off", icon: "Check", hint: "keep off" },
-        left: REMOVE,
-        up: { label: "Turn on", name: "Turn it back on", icon: "RotateCcw", hint: "turn on" },
-      },
-    };
-  }
+export function cleanupActions(card: CleanupCard): Partial<Record<Direction, DeckAction & { action: CleanupAction }>> {
+  if (!canManage(card)) return {};
   return {
-    actions: { right: "keep", left: "remove", up: "trial" },
-    labels: {
-      right: { label: "Keep", name: "Keep it", icon: "Check", hint: "keep" },
-      left: REMOVE,
-      up: { label: "Try without", name: "Try without it for two weeks", icon: "Clock", hint: "try without" },
-    },
+    left: { action: "remove", label: "Queue uninstall", icon: "Trash2" },
+    up: card.reason.kind === "trial"
+      ? { action: "extend", label: "2 more weeks", icon: "Clock" }
+      : card.suggested
+        ? { action: "keep", label: "Review later", icon: "Clock", detail: "Review again in 90 days." }
+        : undefined,
+    right: card.enabled ? undefined : { action: "enable", label: "Turn on", icon: "Power", fallback: "Check" },
   };
 }
 
@@ -61,15 +36,15 @@ function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-export async function decideCleanup(rpc: TriageRpc, card: CleanupCard, direction: Direction): Promise<void> {
-  const action = cleanupActions(card).actions[direction];
-  triageStore.takeCleanup(card.key);
+export async function decideCleanup(rpc: TriageRpc, card: CleanupCard, action: CleanupAction): Promise<void> {
   const settled = rpc
     .call("cleanup_decide", { pluginId: card.pluginId, displayName: card.displayName, action })
-    .then(({ previous }) => ({ previous }))
+    .then(({ previous }) => {
+      void triageStore.load(rpc);
+      return { previous };
+    })
     .catch((cause: unknown) => {
       made.splice(made.indexOf(entry), 1);
-      triageStore.putBackCleanup(card);
       haptic("error");
       toast.error(`Couldn't change ${card.displayName}: ${message(cause)}`);
       return null;
@@ -94,6 +69,7 @@ async function undoEntry(rpc: TriageRpc, entry: Made): Promise<void> {
     }
     made.splice(made.indexOf(entry), 1);
     haptic("impact-light");
+    if (entry.action === "remove") triageStore.removeQueuedJob(entry.card.key);
     triageStore.putBackCleanup(entry.card);
     void triageStore.load(rpc);
   } catch (cause) {

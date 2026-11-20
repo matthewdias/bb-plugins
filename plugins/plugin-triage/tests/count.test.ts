@@ -4,7 +4,7 @@ import { countText, countedDecks, waitingCount, type CountInput } from "../lib/c
 const deck = (over: Partial<CountInput> = {}): CountInput => ({
   cards: [1, 2],
   updates: { cards: [1] },
-  cleanup: { cards: [1, 2, 3] },
+  cleanup: { cards: [{ suggested: true }, { suggested: true }, { suggested: true }, { suggested: false }] },
   queue: { jobs: [{ kind: "install" }, { kind: "update" }, { kind: "remove" }] },
   ...over,
 });

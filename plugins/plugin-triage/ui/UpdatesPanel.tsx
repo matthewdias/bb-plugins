@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 import type { Changes } from "../lib/changes";
 import type { UpdateCard as Card } from "../lib/updates-deck";
 import { CardGrid, GridCard } from "./CardGrid";
-import { CardStack, type DeckActions } from "./CardStack";
+import { CardStack } from "./CardStack";
+import type { DeckActions } from "./card-actions";
 import { PluginIcon, ago } from "./EntryCard";
 import { haptic } from "./haptics";
 import type { Layout } from "./layout";
@@ -18,9 +19,9 @@ import { UpdateCard } from "./UpdateCard";
 import { decideUpdate, undoLastUpdate } from "./update-decisions";
 
 export const UPDATE_ACTIONS: DeckActions = {
-  right: { label: "Update", name: "Queue the update", icon: "Download", hint: "queue" },
-  left: { label: "Skip", name: "Skip this version", icon: "X", hint: "skip version" },
-  up: { label: "Later", name: "Remind me in a week", icon: "Clock", hint: "later" },
+  right: { label: "Queue update", icon: "ListPlus", fallback: "Plus" },
+  left: { label: "Skip version", icon: "X" },
+  up: { label: "Snooze 1 week", icon: "Clock" },
 };
 
 /** How long a card sits on top before its changes are fetched: skimming is free. */

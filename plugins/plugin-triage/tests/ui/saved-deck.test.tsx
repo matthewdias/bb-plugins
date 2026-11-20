@@ -34,10 +34,10 @@ describe("the Saved tab", () => {
   it("deals saved plugins as a deck, with its own decisions", () => {
     setup();
     expect(screen.getByTestId("top-card")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Install (→)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Queue install (→)" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove from Saved (←)" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Move to the back (↑)" })).toBeTruthy();
-    expect(screen.getByText(/forget · ↑ later · → install · space details/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Move to back (↑)" })).toBeTruthy();
+    expect(screen.getByText(/Remove from Saved · ↑ Move to back · → Queue install/)).toBeTruthy();
   });
 
   it("opens a card's details from a tap, as the New deck does", () => {
@@ -58,7 +58,7 @@ describe("the Saved tab", () => {
     triageStore.addSaved(beta);
     triageStore.addSaved(alpha);
     setup(triageStore.getSnapshot().saved);
-    fireEvent.click(screen.getByRole("button", { name: "Move to the back (↑)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move to back (↑)" }));
     await waitFor(() => expect(triageStore.getSnapshot().saved.map((card) => card.entryId)).toEqual(["beta", "alpha"]));
     expect(call.mock.calls.map(([method]) => method)).not.toContain("decide");
     expect(call).toHaveBeenCalledWith("later", { key: alpha.key });

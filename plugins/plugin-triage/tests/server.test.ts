@@ -156,6 +156,40 @@ describe("the New deck over RPC", () => {
 });
 
 describe("installing", () => {
+  it("starts on the first click while the runner is going idle", async () => {
+    const { bb, harness, decide, jobs, rpc, advance, service } = await host();
+    service.controller.abort();
+    await service.done;
+    await decide("alpha", "install");
+
+    let resumeIdleRead!: () => void;
+    const idleRead = new Promise<void>((resolve) => { resumeIdleRead = resolve; });
+    const get = bb.storage.kv.get.bind(bb.storage.kv);
+    let reads = 0;
+    let beforeStart = true;
+    const spy = vi.spyOn(bb.storage.kv, "get").mockImplementation(async (key) => {
+      const snapshot = await get(key);
+      // The old runner read again after its locked scan, leaving a window
+      // where it could see held jobs and miss Start's wake-up.
+      if (key === "jobs" && beforeStart && ++reads === 3) await idleRead;
+      return snapshot;
+    });
+    const restarted = harness.runService("queue");
+    try {
+      await advance(0);
+      beforeStart = false;
+      expect(await rpc("queue_start", {})).toEqual({ started: 1 });
+      resumeIdleRead();
+      await advance(0);
+      expect((await jobs())[0]).toMatchObject({ state: "done", pluginId: "alpha" });
+    } finally {
+      resumeIdleRead();
+      restarted.controller.abort();
+      await restarted.done;
+      spy.mockRestore();
+    }
+  });
+
   it("holds a queued install until the queue runs, then installs in the background", async () => {
     const { harness, decide, jobs, advance, run, service } = await host();
     const { job } = await decide("alpha", "install");

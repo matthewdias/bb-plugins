@@ -30,7 +30,7 @@ const DECK_OF_JOB: Record<Job["kind"], keyof CountedDecks> = { install: "new", u
 export interface CountInput {
   cards: readonly unknown[];
   updates: { cards: readonly unknown[] };
-  cleanup: { cards: readonly unknown[] };
+  cleanup: { cards: readonly { suggested: boolean }[] };
   queue: { jobs: readonly Pick<Job, "kind">[] };
 }
 
@@ -38,7 +38,7 @@ export function waitingCount(deck: CountInput, decks: CountedDecks): number {
   let count = 0;
   if (decks.new) count += deck.cards.length;
   if (decks.updates) count += deck.updates.cards.length;
-  if (decks.cleanup) count += deck.cleanup.cards.length;
+  if (decks.cleanup) count += deck.cleanup.cards.filter((card) => card.suggested).length;
   // Queued items count too: a queue nobody ran is still waiting on you.
   for (const job of deck.queue.jobs) if (decks[DECK_OF_JOB[job.kind]]) count += 1;
   return count;

@@ -6,7 +6,7 @@ import type { Decision, NewCard } from "./new-deck.ts";
 import type { Job, RemoveJob, UpdateJob } from "./queue.ts";
 import type { Unavailable, UpdateCard, UpdateDecision } from "./updates-deck.ts";
 import type { Changes } from "./changes.ts";
-import type { CleanupCard, CleanupDecision } from "./cleanup-deck.ts";
+import { CLEANUP_ACTIONS, type CleanupCard, type CleanupDecision } from "./cleanup-deck.ts";
 import type { RemovalCost } from "./removal-cost.ts";
 import type { SourceSummary } from "./source.ts";
 
@@ -130,14 +130,14 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       pluginId: z.string().min(1),
       displayName: z.string().min(1),
-      action: z.enum(["keep", "trial", "enable", "remove"]),
+      action: z.enum(CLEANUP_ACTIONS),
     }),
     output: z.custom<{ previous: CleanupDecision | null }>(() => true),
   },
   cleanup_undo: {
     input: z.object({
       pluginId: z.string().min(1),
-      action: z.enum(["keep", "trial", "enable", "remove"]),
+      action: z.enum(CLEANUP_ACTIONS),
       restore: z
         .discriminatedUnion("action", [
           z.object({ action: z.literal("keep"), at: z.number(), until: z.number() }),

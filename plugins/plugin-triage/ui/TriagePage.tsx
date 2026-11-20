@@ -1,5 +1,5 @@
 // The Triage page, drawn inside bb's Plugins screen: the New deck, Updates,
-// Cleanup, and the plugins saved for later, each dealt as a deck or, at the
+// Installed, and the plugins saved for later, each dealt as a deck or, at the
 // flip of a switch, laid out all at once as bb's plugin store lays them out.
 import { useEffect, useSyncExternalStore } from "react";
 import { useRpc, experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
@@ -8,13 +8,13 @@ import { cn } from "@/lib/utils";
 import type { rpcContract } from "../lib/contract";
 import { TABS, type Tab } from "../lib/tabs";
 import { EntryDeck } from "./EntryDeck";
-import { CleanupPanel } from "./CleanupPanel";
+import { InstalledPanel } from "./InstalledPanel";
 import { setLayout, useLayout, type Layout } from "./layout";
 import { QueueBar } from "./QueueBar";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { triageStore } from "./triage-store";
 
-const TAB_LABELS: Record<Tab, string> = { new: "New", updates: "Updates", cleanup: "Cleanup", saved: "Saved" };
+const TAB_LABELS: Record<Tab, string> = { new: "New", updates: "Updates", installed: "Installed", saved: "Saved" };
 
 const LAYOUTS: { id: Layout; label: string; icon: string }[] = [
   { id: "deck", label: "One card at a time", icon: "Layers" },
@@ -58,7 +58,7 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
     void triageStore.load(rpc);
   }, [rpc]);
 
-  const queued = deck.status === "ready" && deck.queue.jobs.length > 0;
+  const queued = deck.queue.jobs.length > 0;
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       <header className="flex items-center gap-3 border-b border-border px-4 py-3 sm:gap-4 sm:px-6 sm:py-4">
@@ -83,7 +83,7 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
                   {
                     new: deck.cards.length,
                     updates: deck.updates.cards.length,
-                    cleanup: deck.cleanup.cards.length,
+                    installed: deck.cleanup.cards.length,
                     saved: deck.saved.length,
                   }[id]
                 }
@@ -105,9 +105,11 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
             <span className="sm:hidden">Incompatible</span>
           </Button>
         )}
-        <div className={cn("shrink-0", tab !== "new" && "ml-auto")}>
-          <LayoutSwitch layout={layout} />
-        </div>
+        {tab !== "installed" && (
+          <div className={cn("shrink-0", tab !== "new" && "ml-auto")}>
+            <LayoutSwitch layout={layout} />
+          </div>
+        )}
       </header>
 
       {/* The queue floats over the bottom of the page rather than sitting
@@ -142,8 +144,8 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
         {deck.status === "ready" && tab === "updates" && (
           <UpdatesPanel rpc={rpc} updates={deck.updates} keyboard={tab === "updates"} layout={layout} />
         )}
-        {deck.status === "ready" && tab === "cleanup" && (
-          <CleanupPanel rpc={rpc} cleanup={deck.cleanup} keyboard={tab === "cleanup"} layout={layout} />
+        {deck.status === "ready" && tab === "installed" && (
+          <InstalledPanel rpc={rpc} installed={deck.cleanup} keyboard />
         )}
         {deck.status === "ready" && tab === "saved" && (
           <EntryDeck
@@ -156,13 +158,11 @@ export function TriagePage({ tab, onTab, heading = true }: { tab: Tab; onTab: (t
           />
         )}
       </div>
-      {deck.status === "ready" && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
-          <div className="pointer-events-auto">
-            <QueueBar rpc={rpc} queue={deck.queue} />
-          </div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+        <div className="pointer-events-auto">
+          <QueueBar rpc={rpc} queue={deck.queue} />
         </div>
-      )}
+      </div>
     </div>
   );
 }

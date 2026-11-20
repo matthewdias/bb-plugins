@@ -4,7 +4,7 @@
 // it is the path under the item's page. New is the default and stays out of
 // the address, so a plain link to Triage opens on New.
 
-export const TABS = ["new", "updates", "cleanup", "saved"] as const;
+export const TABS = ["new", "updates", "installed", "saved"] as const;
 export type Tab = (typeof TABS)[number];
 
 export const DEFAULT_TAB: Tab = "new";
@@ -14,6 +14,7 @@ const isTab = (value: string): value is Tab => (TABS as readonly string[]).inclu
 /** The tab a query string names; New when it names none, or one that doesn't exist. */
 export function tabFromSearch(search: string): Tab {
   const value = new URLSearchParams(search).get("tab");
+  if (value === "cleanup") return "installed";
   return value !== null && isTab(value) ? value : DEFAULT_TAB;
 }
 
@@ -29,6 +30,7 @@ export function searchForTab(search: string, tab: Tab): string {
 /** The tab the sidebar item's sub-path names: `updates`, or `updates/` from a typed URL. */
 export function tabFromSubPath(subPath: string): Tab {
   const value = subPath.split("/")[0] ?? "";
+  if (value === "cleanup") return "installed";
   return isTab(value) ? value : DEFAULT_TAB;
 }
 

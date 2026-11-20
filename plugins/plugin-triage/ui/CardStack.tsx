@@ -6,37 +6,13 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { armed, keyCommand, leaning, progress, release, type Direction } from "../lib/gesture";
+import { keyCommand, type Direction } from "../lib/gesture";
+import { CardActionButton, CardActionHint, DIRECTIONS, NEW_ACTIONS, SwipeStamp, type DeckActions } from "./card-actions";
 import { haptic } from "./haptics";
+import { useCardSwipe } from "./use-card-swipe";
 
 /** How long a decided card takes to leave. */
 const FLY_MS = 220;
-
-/** Where each direction's stamp sits on the card, and its colour. */
-const STAMPS: Record<Direction, string> = {
-  right: "left-4 top-4 -rotate-12 border-emerald-500 text-emerald-500",
-  left: "right-4 top-4 rotate-12 border-red-500 text-red-500",
-  up: "bottom-24 left-1/2 -translate-x-1/2 border-sky-500 text-sky-500",
-};
-
-export interface DeckAction {
-  /** The stamp on the card as it leans this way. */
-  label: string;
-  /** The button's accessible name, before its key. */
-  name: string;
-  icon: string;
-  /** The word in the key hint. */
-  hint: string;
-}
-
-/** What each direction does, deck by deck. */
-export type DeckActions = Record<Direction, DeckAction>;
-
-export const NEW_ACTIONS: DeckActions = {
-  right: { label: "Install", name: "Install", icon: "Download", hint: "install" },
-  left: { label: "Dismiss", name: "Dismiss", icon: "X", hint: "dismiss" },
-  up: { label: "Save", name: "Save for later", icon: "Clock", hint: "save" },
-};
 
 function reducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -47,24 +23,6 @@ export function typingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
-
-interface Drag {
-  pointerId: number;
-  startX: number;
-  startY: number;
-  dx: number;
-  dy: number;
-  lastX: number;
-  lastT: number;
-  velocity: number;
-  /** Past the slop: the card follows the pointer and the press is no tap. */
-  moving: boolean;
-  /** Began on a scrolling body, where up means scroll, not save. */
-  fromScroll: boolean;
-}
-
-/** How far a press travels before it is a drag rather than a tap. */
-const SLOP = 6;
 
 export interface CardStackProps<T extends { key: string }> {
   cards: readonly T[];
@@ -97,11 +55,8 @@ export function CardStack<T extends { key: string }>({
 }: CardStackProps<T>) {
   const top = cards[0] ?? null;
   const next = cards[1] ?? null;
-  const [drag, setDrag] = useState<Drag | null>(null);
   const [flying, setFlying] = useState<{ key: string; direction: Direction } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** The direction the current drag would decide, for the tick on arming. */
-  const arming = useRef<Direction | null>(null);
 
   useEffect(() => () => {
     if (timer.current !== null) clearTimeout(timer.current);
@@ -110,8 +65,6 @@ export function CardStack<T extends { key: string }>({
   const fly = useCallback(
     (direction: Direction) => {
       if (top === null || flying !== null) return;
-      setDrag(null);
-      arming.current = null;
       // A firmer thud for the install, the decision that changes something.
       haptic(direction === "right" ? "impact-medium" : "impact-light");
       if (reducedMotion()) {
@@ -166,86 +119,15 @@ export function CardStack<T extends { key: string }>({
     return () => window.removeEventListener("keydown", onEscape, { capture: true });
   }, [keyboard, onDetails, scrollable]);
 
-  function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || flying !== null) return;
-    const target = event.target as HTMLElement;
-    // Controls keep their clicks. A [data-tap] control (the screenshot) is a
-    // tap until the press moves, and a drag after that.
-    if (target.closest("a, input, textarea, select") || (target.closest("button") && !target.closest("[data-tap]"))) return;
-    arming.current = null;
-    setDrag({
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      dx: 0,
-      dy: 0,
-      lastX: event.clientX,
-      lastT: event.timeStamp,
-      velocity: 0,
-      moving: false,
-      fromScroll: target.closest("[data-scroll]") !== null,
-    });
-  }
-
-  function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (drag === null || event.pointerId !== drag.pointerId) return;
-    const dx = event.clientX - drag.startX;
-    const dy = event.clientY - drag.startY;
-    let moving = drag.moving;
-    if (!moving) {
-      if (Math.hypot(dx, dy) < SLOP) return;
-      // A press that sets off up or down the details is a scroll. Let it go:
-      // the browser pans (touch-action allows it) and cancels the pointer.
-      if (drag.fromScroll && Math.abs(dy) > Math.abs(dx)) {
-        setDrag(null);
-        return;
-      }
-      // Capturing only now leaves a plain tap to reach the control under it.
-      event.currentTarget.setPointerCapture(event.pointerId);
-      moving = true;
-    }
-    const dt = Math.max(1, event.timeStamp - drag.lastT);
-    const effectiveDy = drag.fromScroll ? 0 : dy;
-    // A tick as the card crosses into deciding, and again if it swings over
-    // to another decision; letting it fall back is silent.
-    const now = armed(dx, effectiveDy);
-    if (now !== arming.current) {
-      if (now !== null) haptic("selection");
-      arming.current = now;
-    }
-    setDrag({
-      ...drag,
-      dx,
-      dy: effectiveDy,
-      lastX: event.clientX,
-      lastT: event.timeStamp,
-      velocity: Math.abs(event.clientX - drag.lastX) / dt,
-      moving,
-    });
-  }
-
-  function onPointerUp(event: React.PointerEvent<HTMLDivElement>) {
-    if (drag === null || event.pointerId !== drag.pointerId) return;
-    const decided = release(drag.dx, drag.dy, drag.velocity);
-    if (decided === null) setDrag(null);
-    else fly(decided);
-  }
-
-  let transform = "";
-  let transition = "transform 180ms ease-out";
-  let lean: Direction | null = null;
-  let amount = 0;
+  const swipe = useCardSwipe(actions, top !== null && flying === null, fly);
+  let transform = swipe.transform;
+  let transition = swipe.moving ? "none" : "transform 180ms ease-out";
+  const lean = flying?.direction ?? swipe.direction;
+  const amount = flying === null ? swipe.amount : 1;
   if (flying !== null) {
     const off = { right: "translate(140%, 0) rotate(18deg)", left: "translate(-140%, 0) rotate(-18deg)", up: "translate(0, -140%)" };
     transform = off[flying.direction];
     transition = `transform ${FLY_MS}ms ease-in, opacity ${FLY_MS}ms ease-in`;
-    lean = flying.direction;
-    amount = 1;
-  } else if (drag !== null && drag.moving) {
-    transform = `translate(${drag.dx}px, ${drag.dy}px) rotate(${drag.dx / 18}deg)`;
-    transition = "none";
-    lean = leaning(drag.dx, drag.dy);
-    amount = progress(drag.dx, drag.dy);
   }
 
   return (
@@ -263,7 +145,7 @@ export function CardStack<T extends { key: string }>({
             key={next.key}
             className="absolute inset-0 origin-bottom transition-transform duration-200"
             // Peeks out under the top card, so the stack reads as a deck.
-            style={{ transform: (drag !== null && drag.moving) || flying !== null ? "translateY(4px) scale(0.98)" : "translateY(12px) scale(0.94)" }}
+            style={{ transform: swipe.moving || flying !== null ? "translateY(4px) scale(0.98)" : "translateY(12px) scale(0.94)" }}
             aria-hidden
           >
             {render(next, false)}
@@ -277,85 +159,48 @@ export function CardStack<T extends { key: string }>({
               // touch-none holds every touch for the drag, which also stops the
               // browser scrolling the open details; pan-y gives it vertical back.
               scrollable ? "touch-pan-y" : "touch-none",
-              drag?.moving ? "cursor-grabbing" : "cursor-grab",
+              swipe.moving ? "cursor-grabbing" : "cursor-grab",
             )}
             style={{ transform, transition, opacity: flying !== null ? 0 : 1 }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={() => setDrag(null)}
+            {...swipe.handlers}
             data-testid="top-card"
           >
             {render(top, true)}
-            {lean !== null && (
-              <span
-                className={cn(
-                  "pointer-events-none absolute rounded-md border-2 bg-card/80 px-3 py-1 text-lg font-bold uppercase tracking-wide",
-                  STAMPS[lean],
-                )}
-                style={{ opacity: amount }}
-              >
-                {actions[lean].label}
-              </span>
-            )}
+            {lean !== null && <SwipeStamp direction={lean} amount={amount} label={actions[lean].label} />}
           </div>
         )}
       </div>
 
-      {/* Three columns, so dismiss, save and install sit dead centre under
-          the card and undo, smaller, hangs off to their left. */}
-      <div
-        className="grid w-full max-w-md shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 pt-2"
-        role="toolbar"
-        aria-label="Decide"
-      >
+      <div className="flex w-full max-w-md shrink-0 flex-wrap items-center justify-center gap-1.5 pt-2" role="toolbar" aria-label="Decide">
+        {DIRECTIONS.map((direction) => (
+          <CardActionButton
+            key={direction}
+            direction={direction}
+            action={actions[direction]}
+            shortcut
+            disabled={top === null || flying !== null}
+            onClick={() => {
+              swipe.reset();
+              fly(direction);
+            }}
+          />
+        ))}
         <Button
-          variant="outline"
-          size="round"
-          className="size-10 justify-self-end text-muted-foreground"
+          variant="ghost"
+          size="icon"
+          className="size-8 text-muted-foreground"
           onClick={onUndo}
           aria-label="Undo (Z)"
+          title="Undo (Z)"
         >
           <Icon name="RotateCcw" aria-hidden />
         </Button>
-        <div className="flex items-center gap-4">
-          <Button
-            variant="outline"
-            size="round"
-            className="size-14 text-red-500"
-            onClick={() => fly("left")}
-            disabled={top === null}
-            aria-label={`${actions.left.name} (←)`}
-          >
-            <Icon name={actions.left.icon} className="size-6" aria-hidden />
-          </Button>
-          <Button
-            variant="outline"
-            size="round"
-            className="text-sky-500"
-            onClick={() => fly("up")}
-            disabled={top === null}
-            aria-label={`${actions.up.name} (↑)`}
-          >
-            <Icon name={actions.up.icon} aria-hidden />
-          </Button>
-          <Button
-            variant="outline"
-            size="round"
-            className="size-14 text-emerald-500"
-            onClick={() => fly("right")}
-            disabled={top === null}
-            aria-label={`${actions.right.name} (→)`}
-          >
-            <Icon name={actions.right.icon} className="size-6" aria-hidden />
-          </Button>
-        </div>
       </div>
-      {/* Keys mean nothing on a touchscreen. */}
-      <p className="hidden shrink-0 text-xs text-muted-foreground [@media(hover:hover)_and_(pointer:fine)]:block">
-        ← {actions.left.hint} · ↑ {actions.up.hint} · → {actions.right.hint}
-        {details && " · space details · esc close"} · Z undo
-      </p>
+      <CardActionHint actions={actions}>
+        <span className="hidden [@media(hover:hover)_and_(pointer:fine)]:inline">
+          {details && " · space details · esc close"} · Z undo
+        </span>
+      </CardActionHint>
     </div>
   );
 }

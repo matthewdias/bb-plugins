@@ -4,7 +4,7 @@
 // order, which undo relies on to put a card back on top.
 import type { CatalogEntry } from "./new-deck.ts";
 
-/** "deal" is the deck's own order: newest first on New, by reason on Cleanup. */
+/** "deal" is the deck's own order: newest first on New, alphabetical on Installed. */
 export type SortKey = "deal" | "name" | "published" | "installs";
 export type SortDirection = "asc" | "desc";
 export type Grouping = "none" | "category" | "source";

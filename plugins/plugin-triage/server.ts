@@ -49,7 +49,8 @@ import { gitHubLogin } from "./lib/github-auth.ts";
 import {
   KEEP_MS,
   TRIAL_MS,
-  buildCleanupDeck,
+  buildInstalledDeck,
+  isProtected,
   cleanupKey,
   type CleanupDecision,
   type CleanupDecisions,
@@ -66,7 +67,7 @@ const DECISIONS = "decisions";
 const UPDATE_DECISIONS = "updateDecisions";
 const CLEANUP_DECISIONS = "cleanupDecisions";
 const OBSERVATIONS = "usage";
-/** Finished removals the Cleanup tab lists. */
+/** Finished removals the Installed tab lists. */
 const REMOVALS_SHOWN = 20;
 /** Finished updates the Updates tab lists. */
 const HISTORY_SHOWN = 20;
@@ -226,6 +227,23 @@ export default async function plugin(bb: BbPluginApi) {
   let wake: (() => void) | null = null;
   const poke = () => wake?.();
 
+  // Arm the wake-up while still holding the queue lock, so Run all cannot
+  // release jobs between the idle check and registering the wake-up.
+  function waitForWork(at: number | null, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", done);
+        wake = null;
+        resolve();
+      };
+      const timer = at === null ? undefined : setTimeout(done, Math.max(0, at - Date.now()));
+      wake = done;
+      signal.addEventListener("abort", done, { once: true });
+    });
+  }
+
   type Outcome =
     | { ok: true; pluginId: string; result?: "updated" | "current"; to?: { version: string; display: string } }
     | { ok: false; error: string };
@@ -329,30 +347,20 @@ export default async function plugin(bb: BbPluginApi) {
     async start(signal) {
       await locked(async () => kv.set(JOBS, recover(await readJobs())));
       while (!signal.aborted) {
-        const job = await locked(async () => {
+        const { job, idle } = await locked(async () => {
           const jobs = await readJobs();
           // This plugin's own update reloads it, so it waits for the rest.
-          const next = nextRunnable(jobs, Date.now(), bb.pluginId);
-          if (next !== null) await kv.set(JOBS, markRunning(jobs, next.id, Date.now()));
-          return next;
+          const job = nextRunnable(jobs, Date.now(), bb.pluginId);
+          if (job === null) return { job, idle: waitForWork(nextWakeAt(jobs), signal) };
+          await kv.set(JOBS, markRunning(jobs, job.id, Date.now()));
+          return { job, idle: null };
         });
         if (job !== null) {
           changed("job");
           await runJob(job, signal);
-          continue;
+        } else {
+          await idle;
         }
-        const at = nextWakeAt(await readJobs());
-        await new Promise<void>((resolve) => {
-          const done = () => {
-            clearTimeout(timer);
-            signal.removeEventListener("abort", done);
-            wake = null;
-            resolve();
-          };
-          const timer = at === null ? undefined : setTimeout(done, Math.max(0, at - Date.now()));
-          wake = done;
-          signal.addEventListener("abort", done, { once: true });
-        });
       }
     },
   });
@@ -648,7 +656,7 @@ export default async function plugin(bb: BbPluginApi) {
         listings(),
       ]);
       return {
-        cards: buildCleanupDeck({
+        cards: buildInstalledDeck({
           plugins: list.plugins as Installed[],
           observations: observations ?? {},
           decisions,
@@ -664,15 +672,27 @@ export default async function plugin(bb: BbPluginApi) {
     },
 
     cleanup_decide: async ({ pluginId, displayName, action }) => {
-      // Turning a plugin off or on is instant and its own undo, so it is done
-      // now; removal waits in the queue for Run all.
-      if (action === "trial") await bb.sdk.plugins.disable({ pluginId });
-      if (action === "enable") await bb.sdk.plugins.enable({ pluginId });
+      const { plugins } = await bb.sdk.plugins.list();
+      const plugin = plugins.find((entry) => entry.id === pluginId);
+      if (plugin === undefined) throw new Error("This plugin is no longer installed.");
+      if (isProtected(plugin as Installed, bb.pluginId)) throw new Error("Manage this plugin from its details.");
+      // Extending a review does not change the plugin's enabled state.
+      if (action === "trial") {
+        if (!plugin.enabled) throw new Error("This plugin is already turned off.");
+        await bb.sdk.plugins.disable({ pluginId });
+      }
+      if (action === "enable") {
+        if (plugin.enabled) throw new Error("This plugin is already turned on.");
+        await bb.sdk.plugins.enable({ pluginId });
+      }
       const previous = await locked(async () => {
         const decisions = await readCleanupDecisions();
         const previous = decisions[pluginId] ?? null;
         const now = Date.now();
-        if (action === "trial") decisions[pluginId] = { action: "trial", at: now, until: now + TRIAL_MS };
+        if (action === "extend") {
+          if (plugin.enabled || previous?.action !== "trial") throw new Error("This plugin no longer has a trial to extend.");
+          decisions[pluginId] = { ...previous, until: now + TRIAL_MS };
+        } else if (action === "trial") decisions[pluginId] = { action: "trial", at: now, until: now + TRIAL_MS };
         else if (action === "keep" || action === "enable") decisions[pluginId] = { action: "keep", at: now, until: now + KEEP_MS };
         else {
           const job: RemoveJob = {

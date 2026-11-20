@@ -7,7 +7,7 @@ describe("the Triage tab in the Plugins screen's address", () => {
   it("opens on the tab the address names", () => {
     window.history.replaceState({}, "", "/plugins?view=triage&tab=cleanup");
     const { result } = renderHook(() => useScreenTab());
-    expect(result.current[0]).toBe("cleanup");
+    expect(result.current[0]).toBe("installed");
   });
 
   it("pushes a history entry per switch, and Back walks them", async () => {
@@ -40,6 +40,6 @@ describe("the Triage tab in the Plugins screen's address", () => {
     // bb closing a detail pane: a pushState with no popstate.
     window.history.pushState({}, "", "/plugins?view=triage");
     rerender();
-    expect(result.current[0]).toBe("cleanup");
+    expect(result.current[0]).toBe("installed");
   });
 });

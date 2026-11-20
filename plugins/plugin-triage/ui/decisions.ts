@@ -86,6 +86,7 @@ async function send(rpc: TriageRpc, card: NewCard, action: Sent): Promise<{ prev
     action,
     ...(confirmedSource === undefined ? {} : { confirmedSource }),
   });
+  if (action === "install") void triageStore.loadQueue(rpc);
   return { previous };
 }
 
@@ -151,6 +152,7 @@ async function undoEntry(rpc: TriageRpc, entry: Made): Promise<void> {
     }
     made.splice(made.indexOf(entry), 1);
     haptic("impact-light");
+    if (entry.action === "install") triageStore.removeQueuedJob(entry.card.key);
     triageStore.take(entry.card.key);
     if (sent.previous?.action === "save") triageStore.addSaved(entry.card);
     else triageStore.putBack(entry.card);

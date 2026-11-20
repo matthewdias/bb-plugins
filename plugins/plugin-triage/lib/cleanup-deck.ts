@@ -1,6 +1,4 @@
-// The Cleanup deck: installed plugins worth a second look, broken ones first,
-// then ones put aside to try without, then ones you turned off (not bb's own,
-// which ship off), then ones with no activity in a month. Pure, so the server and the tests build the same deck.
+// Installed plugins and the subset that Triage still counts as cleanup suggestions.
 import type { Listing } from "./arrange.ts";
 import { liveJob, type Job } from "./queue.ts";
 import type { Observations } from "./usage.ts";
@@ -33,6 +31,9 @@ export interface Installed {
   schedules?: unknown[];
 }
 
+export const CLEANUP_ACTIONS = ["keep", "trial", "extend", "enable", "remove"] as const;
+export type CleanupAction = (typeof CLEANUP_ACTIONS)[number];
+
 export type CleanupDecision =
   | { action: "keep"; at: number; until: number }
   | { action: "trial"; at: number; until: number };
@@ -46,6 +47,7 @@ export type CleanupReason =
   | { kind: "trial"; since: number }
   /** Disabled; `since` null when it already was when Triage started watching. */
   | { kind: "disabled"; since: number | null }
+  | { kind: "enabled" }
   | { kind: "idle"; lastActiveAt: number | null; watchedSince: number };
 
 export interface CleanupCard {
@@ -60,6 +62,9 @@ export interface CleanupCard {
   /** What it adds: agent tools, skills, a CLI command… */
   surfaces: string[];
   reason: CleanupReason;
+  suggested: boolean;
+  protected: boolean;
+  removalPending: boolean;
   /** Its store listing, for the grid's groups; the server adds it from the catalog. */
   listing?: Listing | null;
 }
@@ -69,7 +74,7 @@ const BROKEN = new Set(["error", "incompatible", "missing", "degraded"]);
 export const cleanupKey = (pluginId: string) => `remove:${pluginId}`;
 
 /**
- * Never dealt: this plugin; anything installed from a local folder, which is
+ * Read-only in Triage: this plugin; anything installed from a local folder, which is
  * someone's working copy; providers, which threads run on; and the plugins
  * bb's own sidebar and environments are made of.
  */
@@ -126,42 +131,44 @@ export interface CleanupDeckInput {
   selfId: string;
 }
 
-const ORDER: Record<CleanupReason["kind"], number> = { broken: 0, trial: 1, disabled: 2, idle: 3 };
+function suggestion(plugin: Installed, input: CleanupDeckInput): CleanupReason | null {
+  const decision = input.decisions[plugin.id];
+  const seen = input.observations[plugin.id];
+  if (decision?.action === "trial" && !plugin.enabled) {
+    return input.now < decision.until ? null : { kind: "trial", since: decision.at };
+  }
+  if (decision?.action === "keep" && input.now < decision.until) return null;
+  if (plugin.enabled && BROKEN.has(plugin.status)) {
+    return { kind: "broken", status: plugin.status, detail: plugin.statusDetail };
+  }
+  if (!plugin.enabled) return isBuiltIn(plugin) ? null : disabledReason(seen);
+  if (
+    seen !== undefined &&
+    hasUsageSignal(plugin) &&
+    input.now - seen.firstSeenAt >= IDLE_MS &&
+    (seen.lastActiveAt === null || input.now - seen.lastActiveAt >= IDLE_MS)
+  ) {
+    return { kind: "idle", lastActiveAt: seen.lastActiveAt, watchedSince: seen.firstSeenAt };
+  }
+  return null;
+}
 
-export function buildCleanupDeck(input: CleanupDeckInput): CleanupCard[] {
-  const cards: CleanupCard[] = [];
-  for (const plugin of input.plugins) {
-    if (isProtected(plugin, input.selfId)) continue;
+function disabledReason(seen: Observations[string] | undefined): CleanupReason {
+  return { kind: "disabled", since: seen === undefined || seen.disabledBeforeWatching ? null : seen.disabledSince };
+}
+
+export function buildInstalledDeck(input: CleanupDeckInput): CleanupCard[] {
+  return input.plugins.map((plugin): CleanupCard => {
     const key = cleanupKey(plugin.id);
-    if (liveJob(input.jobs, key) !== null) continue;
-    const decision = input.decisions[plugin.id];
-    const seen = input.observations[plugin.id];
-
-    let reason: CleanupReason | null = null;
-    if (decision?.action === "trial" && !plugin.enabled) {
-      // Put aside to try without: quiet until the time is up.
-      if (input.now < decision.until) continue;
-      reason = { kind: "trial", since: decision.at };
-    } else if (decision?.action === "keep" && input.now < decision.until) {
-      continue;
-    } else if (plugin.enabled && BROKEN.has(plugin.status)) {
-      reason = { kind: "broken", status: plugin.status, detail: plugin.statusDetail };
-    } else if (!plugin.enabled) {
-      // bb ships some of its own plugins turned off; off, they cost nothing,
-      // and dealing them would only bring them back every ninety days.
-      if (isBuiltIn(plugin)) continue;
-      reason = { kind: "disabled", since: seen === undefined || seen.disabledBeforeWatching ? null : seen.disabledSince };
-    } else if (
-      seen !== undefined &&
-      hasUsageSignal(plugin) &&
-      input.now - seen.firstSeenAt >= IDLE_MS &&
-      (seen.lastActiveAt === null || input.now - seen.lastActiveAt >= IDLE_MS)
-    ) {
-      reason = { kind: "idle", lastActiveAt: seen.lastActiveAt, watchedSince: seen.firstSeenAt };
-    }
-    if (reason === null) continue;
-
-    cards.push({
+    const protectedPlugin = isProtected(plugin, input.selfId);
+    const removalPending = liveJob(input.jobs, key) !== null;
+    const suggested = protectedPlugin || removalPending ? null : suggestion(plugin, input);
+    const reason = suggested ?? (
+      !plugin.enabled ? disabledReason(input.observations[plugin.id])
+      : BROKEN.has(plugin.status) ? { kind: "broken", status: plugin.status, detail: plugin.statusDetail }
+      : { kind: "enabled" }
+    );
+    return {
       key,
       pluginId: plugin.id,
       displayName: plugin.name ?? plugin.id,
@@ -172,8 +179,9 @@ export function buildCleanupDeck(input: CleanupDeckInput): CleanupCard[] {
       source: plugin.sourceDisplay ?? plugin.source,
       surfaces: surfaces(plugin),
       reason,
-    });
-  }
-  cards.sort((a, b) => ORDER[a.reason.kind] - ORDER[b.reason.kind] || a.displayName.localeCompare(b.displayName));
-  return cards;
+      suggested: suggested !== null,
+      protected: protectedPlugin,
+      removalPending,
+    };
+  }).sort((a, b) => a.displayName.localeCompare(b.displayName));
 }

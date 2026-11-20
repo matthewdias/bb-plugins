@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IDLE_MS, KEEP_MS, TRIAL_MS, buildCleanupDeck, hasUsageSignal, isProtected, type Installed } from "../lib/cleanup-deck";
+import { IDLE_MS, KEEP_MS, TRIAL_MS, buildInstalledDeck, hasUsageSignal, isProtected, type Installed } from "../lib/cleanup-deck";
 import type { Job } from "../lib/queue";
 
 const NOW = 10_000_000_000;
@@ -31,23 +31,23 @@ const watched = (since: number, lastActiveAt: number | null = null, extra = {}) 
   ...extra,
 });
 
-function deck(plugins: Installed[], extra: Partial<Parameters<typeof buildCleanupDeck>[0]> = {}) {
-  return buildCleanupDeck({ plugins, observations: {}, decisions: {}, jobs: [], now: NOW, selfId: SELF, ...extra });
+function deck(plugins: Installed[], extra: Partial<Parameters<typeof buildInstalledDeck>[0]> = {}) {
+  return buildInstalledDeck({ plugins, observations: {}, decisions: {}, jobs: [], now: NOW, selfId: SELF, ...extra }).filter((card) => card.suggested);
 }
 
-describe("the Cleanup deck", () => {
-  it("deals broken, then turned-off, then idle plugins", () => {
+describe("cleanup suggestions", () => {
+  it("flags broken, turned-off, and idle plugins", () => {
     const cards = deck(
       [plugin("idle"), plugin("off", { enabled: false }), plugin("broken", { status: "error", statusDetail: "boom" }), plugin("fine")],
       { observations: { idle: watched(NOW - IDLE_MS - 1), off: watched(NOW - 1000, null, { disabledSince: NOW - 500 }), fine: watched(NOW - IDLE_MS - 1, NOW - 1000) } },
     );
     expect(cards.map((c) => [c.pluginId, c.reason.kind])).toEqual([
       ["broken", "broken"],
-      ["off", "disabled"],
       ["idle", "idle"],
+      ["off", "disabled"],
     ]);
     expect(cards[0]!.reason).toEqual({ kind: "broken", status: "error", detail: "boom" });
-    expect(cards[1]!.reason).toEqual({ kind: "disabled", since: NOW - 500 });
+    expect(cards.find((card) => card.pluginId === "off")!.reason).toEqual({ kind: "disabled", since: NOW - 500 });
   });
 
   it("says when a plugin was already off before watching began", () => {

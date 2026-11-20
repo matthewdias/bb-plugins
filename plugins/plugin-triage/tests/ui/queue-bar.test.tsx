@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useSyncExternalStore } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueueBar, queueSummary } from "../../ui/QueueBar";
-import { resetTriageStore, type TriageRpc } from "../../ui/triage-store";
+import { decide, resetDecisions } from "../../ui/decisions";
+import { resetTriageStore, triageStore, type TriageRpc } from "../../ui/triage-store";
+import { toCard } from "../../lib/new-deck";
 import type { Job } from "../../lib/queue";
+import { entry } from "../fixtures";
 
 vi.mock("@get-bb/plugin-sdk/app", () => ({ experimental_Icon: () => null }));
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }));
@@ -28,7 +32,15 @@ function rpcFake(unqueue: unknown = { removed: true, reason: null }) {
   return { rpc: { call } as unknown as TriageRpc, call };
 }
 
-afterEach(() => resetTriageStore());
+function LiveQueueBar({ rpc }: { rpc: TriageRpc }) {
+  const { queue } = useSyncExternalStore(triageStore.subscribe, triageStore.getSnapshot);
+  return <QueueBar rpc={rpc} queue={queue} />;
+}
+
+afterEach(() => {
+  resetDecisions();
+  resetTriageStore();
+});
 
 describe("the queue bar", () => {
   it("is not there when nothing is queued", () => {
@@ -43,6 +55,48 @@ describe("the queue bar", () => {
     expect(screen.getByText("2 to install, 1 to update")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Run all" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("queue_start", {}));
+  });
+
+  it("shows new jobs while the decks load and updates after one click without a realtime event", async () => {
+    let finishCatalog!: (result: { cards: [] }) => void;
+    const catalog = new Promise<{ cards: [] }>((resolve) => { finishCatalog = resolve; });
+    let finishStart!: (result: { started: number }) => void;
+    const start = new Promise<{ started: number }>((resolve) => { finishStart = resolve; });
+    const { rpc, call } = rpcFake();
+    const fallback = call.getMockImplementation()!;
+    const alpha = install("alpha");
+    let queue: { jobs: Job[]; running: boolean } = { jobs: [], running: false };
+    call.mockImplementation(async (method, input) => {
+      if (method === "deck_new") return catalog;
+      if (method === "entry_plan") return { confirmedSource: null };
+      if (method === "decide") {
+        queue = { jobs: [alpha], running: false };
+        return { job: alpha, previous: null };
+      }
+      if (method === "queue_start") return start;
+      if (method === "queue_status") return queue;
+      return fallback(method, input);
+    });
+    render(<LiveQueueBar rpc={rpc} />);
+    let loading: Promise<void>;
+    act(() => {
+      loading = triageStore.load(rpc);
+    });
+    await act(() => decide(rpc, toCard(entry({ entryId: "alpha" })), "right"));
+    expect(await screen.findByText("1 to install")).toBeTruthy();
+    expect(triageStore.getSnapshot().status).toBe("loading");
+
+    fireEvent.click(screen.getByRole("button", { name: "Run all" }));
+    expect(screen.getByText("Starting…")).toBeTruthy();
+    queue = { jobs: [{ ...alpha, state: "running", held: false }], running: true };
+    finishStart({ started: 1 });
+    expect(await screen.findByText("Installing alpha…")).toBeTruthy();
+    expect(call.mock.calls.filter(([method]) => method === "queue_start")).toHaveLength(1);
+    await act(async () => {
+      finishCatalog({ cards: [] });
+      await loading;
+    });
+    expect(screen.getByText("Installing alpha…")).toBeTruthy();
   });
 
   it("shows progress, not the button, while the queue runs", () => {

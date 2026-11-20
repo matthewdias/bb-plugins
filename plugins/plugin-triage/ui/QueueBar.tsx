@@ -37,12 +37,14 @@ export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) 
   const [clearing, setClearing] = useState(false);
   if (queue.jobs.length === 0) return null;
   const current = queue.jobs.find((job) => job.state === "running");
+  const busy = starting || queue.running;
 
   async function start() {
     setStarting(true);
     try {
       const { started } = await rpc.call("queue_start", {});
       if (started > 0) haptic("impact-medium");
+      await triageStore.loadQueue(rpc);
     } catch (cause) {
       toast.error(`Couldn't start: ${message(cause)}`);
     } finally {
@@ -92,26 +94,26 @@ export function QueueBar({ rpc, queue }: { rpc: TriageRpc; queue: QueueState }) 
           aria-expanded={open}
         >
           <p className="text-sm font-medium">
-            {queue.running
+            {busy
               ? current
                 ? `${DOING[current.kind]} ${current.displayName}…`
                 : "Starting…"
               : queueSummary(queue.jobs)}
           </p>
           <p className="truncate text-xs text-muted-foreground">
-            {queue.running
+            {busy
               ? `${queue.jobs.length} to go · keeps going if you close bb`
               : open
                 ? "Hide the list"
                 : `${queue.jobs.map((job) => job.displayName).join(", ")} · review`}
           </p>
         </button>
-        {!queue.running && (
+        {!busy && (
           <>
-            <Button variant="ghost" size="sm" onClick={() => void clear()} disabled={clearing || starting}>
+            <Button variant="ghost" size="sm" onClick={() => void clear()} disabled={clearing}>
               Clear
             </Button>
-            <Button size="sm" onClick={() => void start()} disabled={starting || clearing}>
+            <Button size="sm" onClick={() => void start()} disabled={clearing}>
               Run all
             </Button>
           </>

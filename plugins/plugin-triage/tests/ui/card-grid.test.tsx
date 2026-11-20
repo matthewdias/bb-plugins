@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EntryDeck } from "../../ui/EntryDeck";
 import { UpdatesPanel, resetChangesCache } from "../../ui/UpdatesPanel";
-import { CleanupPanel, resetCosts } from "../../ui/CleanupPanel";
+import { InstalledPanel, resetCosts } from "../../ui/InstalledPanel";
 import { resetDecisions } from "../../ui/decisions";
 import { resetUpdateDecisions } from "../../ui/update-decisions";
 import { resetCleanupDecisions } from "../../ui/cleanup-decisions";
@@ -78,15 +78,15 @@ describe("the New deck as a grid", () => {
 
   it("decides on any card, not only the first", async () => {
     setup();
-    fireEvent.click(within(cardOf("beta")).getByRole("button", { name: "Save for later" }));
+    fireEvent.click(within(cardOf("beta")).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("decide", expect.objectContaining({ key: beta.key, action: "save" })));
     expect(triageStore.getSnapshot().cards.map((card) => card.key)).toEqual([alpha.key]);
     expect(triageStore.getSnapshot().saved.map((card) => card.key)).toEqual([beta.key]);
   });
 
-  it("names the install on its button, as the store's card does", () => {
+  it("uses icon-only buttons with accessible names", () => {
     setup();
-    expect(within(cardOf("alpha")).getByRole("button", { name: "Install" }).textContent).toBe("Install");
+    expect(within(cardOf("alpha")).getByRole("button", { name: "Queue install" }).textContent).toBe("");
     expect(within(cardOf("alpha")).getByRole("button", { name: "Dismiss" }).textContent).toBe("");
   });
 
@@ -96,6 +96,8 @@ describe("the New deck as a grid", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preview alpha" }));
     const preview = screen.getByRole("dialog", { name: "Preview of alpha" });
     expect(within(preview).getByText("The long story.")).toBeTruthy();
+    expect(within(preview).getByText("← Dismiss · ↑ Save · → Queue install")).toBeTruthy();
+    expect(within(preview).getByRole("button", { name: "Queue install (→)" }).textContent).toBe("");
     expect(within(preview).getByRole("button", { name: "Vet with an agent" })).toBeTruthy();
     expect(window.location.pathname).toBe("/");
   });
@@ -127,7 +129,7 @@ describe("the grid's preview", () => {
   it("decides from its buttons and moves on to the next card in the grid", async () => {
     setup();
     fireEvent.click(screen.getByRole("button", { name: "Preview beta" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Install (→)" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Queue install (→)" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("decide", expect.objectContaining({ key: beta.key, action: "install" })));
     expect(screen.getByRole("dialog", { name: "Preview of gamma" })).toBeTruthy();
   });
@@ -182,14 +184,14 @@ describe("the grid's preview", () => {
     expect(call).not.toHaveBeenCalledWith("update_changes", expect.objectContaining({ pluginId: "one" }));
   });
 
-  it("previews a Cleanup card with what uninstalling deletes, and closes as Details leaves", async () => {
-    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [cleanup("broken")], history: [] }} keyboard layout="grid" />);
+  it("previews an installed plugin with what uninstalling deletes, and closes as Details leaves", async () => {
+    render(<InstalledPanel rpc={rpc} installed={{ cards: [cleanup("broken")], history: [] }} keyboard />);
     fireEvent.click(screen.getByRole("button", { name: "Preview broken" }));
     const preview = screen.getByRole("dialog");
     await waitFor(() => expect(within(preview).getByTestId("removal-cost").textContent).toBe("Uninstalling deletes its changed setting (Mode), for good."));
     fireEvent.click(within(preview).getByRole("button", { name: /Details/ }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(window.location.pathname + window.location.search).toBe("/plugins/broken?view=triage&tab=cleanup");
+    expect(window.location.pathname + window.location.search).toBe("/plugins/broken?view=triage&tab=installed");
   });
 });
 
@@ -284,7 +286,7 @@ describe("Updates as a grid", () => {
       // No change list is shown, so none is fetched.
       await act(() => vi.advanceTimersByTimeAsync(2000));
       expect(call).not.toHaveBeenCalledWith("update_changes", expect.anything());
-      fireEvent.click(within(cardOf("two")).getByRole("button", { name: "Queue the update" }));
+      fireEvent.click(within(cardOf("two")).getByRole("button", { name: "Queue update" }));
       await act(() => vi.advanceTimersByTimeAsync(0));
       expect(call).toHaveBeenCalledWith("update_decide", expect.objectContaining({ pluginId: "two", action: "queue" }));
     } finally {
@@ -305,29 +307,50 @@ function cleanup(pluginId: string, overrides: Partial<CleanupCard> = {}): Cleanu
     source: "x",
     surfaces: [],
     reason: { kind: "broken", status: "error", detail: "boom" },
+    suggested: true,
+    protected: false,
+    removalPending: false,
     ...overrides,
   };
 }
 
-describe("Cleanup as a grid", () => {
+describe("Installed as a grid", () => {
   it("gives each card its own decisions and says why it is there", async () => {
     const off = cleanup("off", { enabled: false, reason: { kind: "disabled", since: null } });
-    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [cleanup("broken"), off], history: [] }} keyboard layout="grid" />);
-    expect(within(cardOf("broken")).getByText("Not working (error): boom")).toBeTruthy();
-    expect(within(cardOf("broken")).getByRole("button", { name: "Try without it for two weeks" })).toBeTruthy();
-    fireEvent.click(within(cardOf("off")).getByRole("button", { name: "Turn it back on" }));
+    render(<InstalledPanel rpc={rpc} installed={{ cards: [cleanup("broken"), off], history: [] }} keyboard />);
+    expect(within(cardOf("broken")).getByText("Not working (error) · boom")).toBeTruthy();
+    expect(within(cardOf("broken")).getByRole("button", { name: "Review later" })).toBeTruthy();
+    fireEvent.click(within(cardOf("off")).getByRole("button", { name: "Turn on" }));
     await waitFor(() => expect(call).toHaveBeenCalledWith("cleanup_decide", expect.objectContaining({ pluginId: "off", action: "enable" })));
   });
 
-  it("says on every card what uninstalling would delete, before it can be queued", async () => {
-    const kept = cleanup("kept");
-    render(<CleanupPanel rpc={rpc} cleanup={{ cards: [cleanup("broken"), kept], history: [] }} keyboard layout="grid" />);
+  it("uses the same actions for a preview swipe and arrow keys", async () => {
+    const off = cleanup("off", { enabled: false, reason: { kind: "disabled", since: null } });
+    render(<InstalledPanel rpc={rpc} installed={{ cards: [off], history: [] }} keyboard />);
+    fireEvent.click(screen.getByRole("button", { name: "Preview off" }));
+    const preview = screen.getByTestId("preview-card");
+    preview.setPointerCapture = () => {};
+    const header = within(preview).getByRole("heading", { name: "off" });
+    fireEvent.pointerDown(header, { pointerId: 1, button: 0, clientX: 100, clientY: 220 });
+    fireEvent.pointerMove(preview, { pointerId: 1, clientX: 100, clientY: 65 });
+    expect(within(preview).getByText("Review later")).toBeTruthy();
+    fireEvent.pointerUp(preview, { pointerId: 1, clientX: 100, clientY: 65 });
+    await waitFor(() => expect(call).toHaveBeenCalledWith("cleanup_decide", expect.objectContaining({ action: "keep" })));
+    expect(call).not.toHaveBeenCalledWith("cleanup_decide", expect.objectContaining({ action: "enable" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview off" }));
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(call).toHaveBeenCalledWith("cleanup_decide", expect.objectContaining({ action: "enable" })));
+  });
+
+  it("loads removal details only for the cards you review", async () => {
+    render(<InstalledPanel rpc={rpc} installed={{ cards: [cleanup("broken"), cleanup("kept")], history: [] }} keyboard />);
+    expect(call).not.toHaveBeenCalledWith("cleanup_cost", expect.anything());
+    fireEvent.mouseEnter(cardOf("kept"));
     const sentence = "Uninstalling deletes its changed setting (Mode), for good.";
     await waitFor(() => expect(within(cardOf("kept")).getByText(sentence)).toBeTruthy());
-    expect(within(cardOf("broken")).getByText(sentence)).toBeTruthy();
-    expect(within(cardOf("kept")).getByRole("button", { name: "Uninstall" }).getAttribute("title")).toBe(`Uninstall: ${sentence}`);
+    expect(within(cardOf("kept")).getByRole("button", { name: "Queue uninstall" }).getAttribute("title")).toBe(`Queue uninstall: ${sentence}`);
     expect(call.mock.calls.filter(([method]) => method === "cleanup_cost").map(([, input]) => input)).toEqual([
-      { pluginId: "broken" },
       { pluginId: "kept" },
     ]);
   });
