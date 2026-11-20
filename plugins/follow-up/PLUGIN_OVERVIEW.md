@@ -58,10 +58,11 @@ goal is met.
 The Follow Up page, from its own item in bb's sidebar, lists every thread
 that needs you, one card per thread, and lets you answer it there: a
 question's options, an approval (a command, a file change, a permission, a
-tool or a plan, shown whole), the agent's next steps, Wrap up, a retry, a
-reply. A pull
+tool or a plan, shown whole), a checklist
+that stopped to wait, the agent's next steps, Wrap up, a retry, a reply. A
+pull
 request one of your threads opened can be merged, sent back to its thread to
-fix or rebase, or given a review thread. Every message the page sends for you
+fix or rebase, given a review thread, or opened in bb's own diff view. Every message the page sends for you
 is shown first, exactly as it will go. Beside the cards are the threads still
 working, with what each is doing, and every open follow-up by project,
 archived threads included. A thread's workers fold into its card,
@@ -94,6 +95,9 @@ and done counts for up to 500 threads, every requested thread comes back
 including ones with nothing recorded, and repeated ids are deduped in
 first-seen order. Read `protocolVersion` before the counts. Everything else in
 the RPC surface is this plugin talking to its own frontend and may change shape.
+
+With Thread Pages installed, a session's page can call `follow-up.list` to
+show that session's own open follow-ups. It only reads.
 
 ## Requirements
 

@@ -28,6 +28,8 @@ import {
   pendingAsk,
   PENDING_STALE_MS,
   prAction,
+  prMovesAlone,
+  prRecheckMs,
   prFixMessage,
   prOwners,
   prRebaseMessage,
@@ -629,6 +631,16 @@ test("cardFor: the lead order is stopped, wrap-up, next, page, pull request", ()
   assert.equal(cardFor(inputs({ ...all, offer: null, reply: null }))?.lead, "pr");
 });
 
+test("cardFor: a checklist that stopped is your turn, ahead of an offer", () => {
+  const checklist = { id: "cl_1", name: "Ship issue", status: "paused" as const, done: 1, total: 3, next: "Plan", note: null, noteCut: false, error: null };
+  const offer = { steps: ["Go"], goalMet: true, offeredAt: "x" };
+  const read = thread({ lastReadAt: 99, latestAttentionAt: 10 });
+  const card = must(cardFor(inputs({ checklist, offer, openFollowUps: 2, thread: read })));
+  assert.deepEqual([card.tier, card.lead, card.checklist], ["turn", "checklist", checklist]);
+  assert.equal(must(cardFor(inputs({ checklist, thread: thread({ status: "error" }) }))).lead, "stopped");
+  assert.equal(must(cardFor(inputs({ checklist: null, offer }))).checklist, null);
+});
+
 // --- ranking and counting --------------------------------------------------------
 
 const card = (threadId: string, tier: Card["tier"], since: number): Card => ({
@@ -667,6 +679,23 @@ test("cardFor: a review thread shows only for the pull request it was started fo
   const started = { prNumber: 44, threadId: "thr_review" };
   assert.equal(cardFor(inputs({ pr: pr("ready_to_merge"), review: started }))?.reviewThreadId, "thr_review");
   assert.equal(cardFor(inputs({ pr: pr("ready_to_merge", { number: 45 }), review: started }))?.reviewThreadId, null);
+});
+
+test("prMovesAlone: only running checks and a merge queue end without anyone touching the pull request", () => {
+  assert.equal(prMovesAlone(pr("checks_pending")), true);
+  assert.equal(prMovesAlone(pr("queued")), true);
+  for (const still of ["draft", "blocked", "none", "closed", "ready_to_merge", "review_requested", "changes_requested", "checks_failed", "conflicts", "merged"]) {
+    assert.equal(prMovesAlone(pr(still)), false, still);
+  }
+  assert.equal(prMovesAlone(null), false);
+});
+
+test("prRecheckMs: often at first, then now and then, then not at all", () => {
+  assert.equal(prRecheckMs(0), 30_000);
+  assert.equal(prRecheckMs(10 * 60_000 - 1), 30_000);
+  assert.equal(prRecheckMs(10 * 60_000), 2 * 60_000);
+  assert.equal(prRecheckMs(2 * 60 * 60_000 - 1), 2 * 60_000);
+  assert.equal(prRecheckMs(2 * 60 * 60_000), null);
 });
 
 test("prAction: maps bb's attention roll-up to what the card offers", () => {

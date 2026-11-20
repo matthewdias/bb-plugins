@@ -174,9 +174,10 @@ which of three tiers it sits in:
   nothing. An approval is answered on the card too, with the choices bb's own
   approval card offers and in its words (below). A plugin form opens the
   thread.
-- **Your turn**: the turn ended with something for you, newest first. The
-  agent's next steps work the way the Next row's do: press to send, ⌥-click to
-  edit first, or keep one for later. Wrap up is the same sheet as in the
+- **Your turn**: the turn ended with something for you, newest first. A
+  checklist that stopped to wait gets a card (below). The agent's next steps work the
+  way the Next row's do: press to send, ⌥-click to edit first, or keep one
+  for later. Wrap up is the same sheet as in the
   composer. A reply ending on the thread's Thread Page link opens the page. A
   failed thread has *Retry*, bb's own. A pull request one of your threads
   opened shows its checks and offers what it needs (below).
@@ -201,6 +202,17 @@ grant holding anything the card can't list. Any character that draws nothing
 or reorders the text around it is shown as its code, like ⟦U+202E⟧, and the
 card warns, so a command can't look like something other than what runs.
 Approvals are click only: no key or swipe answers one.
+
+With [Agent Checklists](https://github.com/patleeman/bb-plugins) installed,
+a thread whose checklist has stopped to wait for a person gets a card: the
+checklist's name, how many steps are done, the next one, and the agent's
+latest note. The card does what that plugin's own controls do. *Continue*
+approves the continuation it is waiting on. *Resume* restarts one that the
+agent paused or that ran out of continuations. On a paused one, *Reply and
+resume* sends your reply to the thread first. Checklists are read in the
+background, for idle threads that did something in the last week, so the
+page never waits on another plugin; the checklist is read again before
+anything is done, and a card that has moved on says so.
 
 A thread's workers, the child threads it spawned (at any depth), fold into
 its card as a **Workers** list, so an orchestrator and the six workers it ran
@@ -240,13 +252,20 @@ and haptics as Plugin Triage's deck; a swipe never answers anything.
 
 A pull request gets a card when bb's roll-up of its checks, review and
 mergeability says it wants you: ready to merge, review requested, changes
-requested, checks failed, conflicts, or merged. Only pull requests on a
+requested, checks failed, conflicts, or merged. A draft gets none, and
+neither does one whose checks are still running or that sits in a merge
+queue. Only pull requests on a
 worktree count, since a shared checkout's branch belongs to no one thread, and
 the card goes to the thread that opened the worktree, so a review thread or a
 hand-off started there later never takes it. It shows once that thread is idle,
 since a working agent is still pushing. They're looked up in the background, four at a time, cached for five
 minutes and looked up again when a turn ends, so the page never waits on
-GitHub.
+GitHub. A turn usually ends just after a push, with the checks still running,
+and bb has no event for a pull request changing. So one that is waiting on
+its checks or a merge queue is looked at again by itself: every half minute
+for ten minutes, then every two minutes for two hours. Its card shows it
+within about a minute of the checks finishing (bb itself takes up to half of
+that to notice), whether or not anything else happens.
 
 - *Merge* uses the project's merge method. The first merge in a project asks
   which method it uses, and every later merge there uses the same one. The
@@ -259,6 +278,16 @@ GitHub.
   send a message to the thread that opened the pull request. A box shows the
   message first, prefilled with the failing checks or the base branch, and
   what's in the box when you press send is exactly what goes.
+- *Open the changes* takes you to the pull request's thread with bb's own
+  diff view showing them: a card is for a quick answer, and reading a change
+  is not one. bb gives a plugin no way to select its diff tab, so Follow Up
+  points the thread's panel at it the way bb itself remembers a panel: the
+  entry bb keeps in the browser for that thread, which bb reads as the thread
+  comes on screen. On a narrow screen, where the panel is a drawer that
+  starts shut, it then presses bb's own panel button for you. Both lean on
+  how bb 0.45 works rather than on anything bb promises, so an entry or a
+  button that does not look as expected is left alone, and the thread opens
+  on whichever tab it had.
 - *Start a review thread* opens a new thread in the same worktree with a
   review prompt naming the pull request, also shown in a box first. It is a
   child of the author's thread: it reports back there, sits in the author's
@@ -429,8 +458,9 @@ is still in Done.
 
 ## For other plugins
 
-Two things here are contracts rather than internal calls: a live value for a
-plugin drawing progress, and a batch call for one that only needs to ask.
+Three things here are contracts rather than internal calls: a live value for a
+plugin drawing progress, a batch call for one that only needs to ask, and a
+capability for Thread Pages.
 
 ### The progress complication
 
@@ -485,6 +515,24 @@ The shape follows Ribbon's `getGroupingCatalogV1`, which is the closest thing bb
 has to a convention for one plugin reading another. Validate it on arrival: this
 plugin is optional, and a consumer that treats a missing or unrecognised answer
 as "draw nothing" keeps working when it is not installed.
+
+### The Thread Pages capability
+
+With [Thread Pages](https://github.com/unifedev/bb-thread-pages) installed, a
+session's page can call `follow-up.list` to show that session's open
+follow-ups:
+
+```ts
+{ followUps: [{ id, text, reason, file, detail, createdAt, inProgress }],
+  open: 2, done: 5 }
+```
+
+It is a read and takes no parameters. The session is whichever one Thread
+Pages says is calling, so a page cannot read another thread's list, and the
+home page, which has no session, is refused with the reason `no_session`.
+Follow Up contributes nothing that records, closes, files or answers
+anything: Thread Pages runs a contributed call with no dialog, from any
+page.
 
 ## Development
 
