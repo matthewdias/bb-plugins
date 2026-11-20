@@ -23,7 +23,6 @@
 // A thread that is working and asks nothing is not a card. It is in the "In
 // motion" lane, which says what it is doing rather than what it wants.
 import { z } from "zod";
-import { formSchema, isSpent, type Form } from "./ask.ts";
 import { checklistSchema, type ChecklistSummary } from "./checklist.ts";
 import { hasUnseen, reveal } from "./unseen.ts";
 import { mainActionFor, type FollowUp, type Reason, REASONS } from "./followups.ts";
@@ -834,8 +833,6 @@ export const LEADS = [
   "approval",
   "form",
   "stopped",
-  /** A form the agent asked with (`ask_form`), waiting between turns. */
-  "ask",
   /** An Agent Checklists checklist that has stopped to wait for a person. */
   "checklist",
   "wrap-up",
@@ -897,8 +894,6 @@ export const baseCardSchema = z.object({
    */
   attentionAt: z.number(),
   asks: z.array(pendingAskSchema),
-  /** The form the agent ended its turn with, while anything on it is unanswered. */
-  form: formSchema.nullable(),
   /** The thread's checklist, while it waits on a person. See lib/checklist.ts. */
   checklist: checklistSchema.nullable(),
   offer: offerSchema.nullable(),
@@ -947,8 +942,6 @@ export interface ThreadInputs {
   asks: PendingAsk[];
   /** Null when there is none, or offers are switched off. */
   offer: { steps: string[]; goalMet: boolean; offeredAt: string } | null;
-  /** The agent's `ask_form`, if one is waiting. Absent means none. */
-  form?: Form | null;
   /** The thread's checklist, if it is waiting on a person. Absent means none. */
   checklist?: ChecklistSummary | null;
   openFollowUps: number;
@@ -1020,15 +1013,11 @@ export function cardFor(input: ThreadInputs): Card | null {
     : null;
   const wrapsUp =
     input.wrapUp?.held != null || (offer?.goalMet === true && input.openFollowUps > 0);
-  const form = input.form != null && !isSpent(input.form) ? input.form : null;
   const checklist = input.checklist ?? null;
 
   let lead: Lead | null;
   if (blocked) lead = oldest(input.asks).kind;
   else if (thread.status === "error") lead = "stopped";
-  // A form is the agent saying outright what it needs, so it leads what the
-  // thread merely offers.
-  else if (form !== null) lead = "ask";
   // A checklist that stopped is a run that will not move until someone says so.
   else if (checklist !== null) lead = "checklist";
   else if (wrapsUp) lead = "wrap-up";
@@ -1054,7 +1043,6 @@ export function cardFor(input: ThreadInputs): Card | null {
     since: blocked ? oldest(input.asks).createdAt : thread.latestAttentionAt,
     attentionAt: thread.latestAttentionAt,
     asks: [...input.asks].sort((a, b) => a.createdAt - b.createdAt),
-    form,
     checklist,
     offer,
     openFollowUps: input.openFollowUps,
@@ -1170,7 +1158,6 @@ export function combineFamilies(cards: readonly Card[], threads: readonly Thread
       since,
       attentionAt: root.latestAttentionAt,
       asks: [],
-      form: null,
       checklist: null,
       offer: null,
       openFollowUps: 0,

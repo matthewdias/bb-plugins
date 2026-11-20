@@ -22,17 +22,10 @@ Record a follow-up yourself: *Record as follow-up* in the menu beside the send
 button, or the *Follow-ups: record the draft* command, files what you typed
 and clears the draft. It works on phones too, from a long-press on Send.
 
-An agent that would end its turn with a list of questions, or a list of
-things to decide one by one, shows them as a form instead: choices with its
-recommendation picked, lists to tick, a ranking, answers to type, and items
-each with their own choices and a draft to edit. Answering sends one
-message, which the form shows in full first.
-
-Eight agent tools — `record_follow_up`, `list_follow_ups`, `complete_follow_up`,
-`prioritize_follow_up`, `amend_follow_up`, `file_follow_ups`,
-`offer_next_steps`, and `ask_form`. Agents record as they work, close the rows
-they finish, including rows you wrote yourself, offer what they would do
-next, and ask with a form.
+Seven agent tools — `record_follow_up`, `list_follow_ups`, `complete_follow_up`,
+`prioritize_follow_up`, `amend_follow_up`, `file_follow_ups`, and
+`offer_next_steps`. Agents record as they work, close the rows they finish,
+including rows you wrote yourself, and offer what they would do next.
 
 A `bb follow-up` command covering the same ground from a terminal: `add`,
 `show`, `move`, `amend`, `done`, `reopen`, `clear-done`, `describe`, `dismiss`,
@@ -65,7 +58,7 @@ goal is met.
 The Follow Up page, from its own item in bb's sidebar, lists every thread
 that needs you, one card per thread, and lets you answer it there: a
 question's options, an approval (a command, a file change, a permission, a
-tool or a plan, shown whole), a form the agent asked with, a checklist
+tool or a plan, shown whole), a checklist
 that stopped to wait, the agent's next steps, Wrap up, a retry, a reply. A
 pull
 request one of your threads opened can be merged, sent back to its thread to

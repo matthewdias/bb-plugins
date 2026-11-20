@@ -1,7 +1,7 @@
 // Characters that draw nothing, and what to do about text that holds one.
 //
-// Pure, and on its own so both the page's approvals (page.ts) and the agent's
-// forms (ask.ts) can use it without importing each other.
+// Pure, and on its own so the page's approvals (page.ts) and the checklist
+// card (checklist.ts) can share it.
 
 /**
  * Characters that draw nothing, or change how what is around them draws: the

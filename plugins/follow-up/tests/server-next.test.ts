@@ -240,7 +240,7 @@ test("next: the standing rule follows its own switch, beside the capture rule", 
   await harness.setSettings({ offerNextSteps: false });
   assert.doesNotMatch(instructions() ?? "", /Next steps:/);
   assert.match(instructions() ?? "", /^Follow-ups: /);
-  await harness.setSettings({ captureRule: false, askForms: false });
+  await harness.setSettings({ captureRule: false });
   assert.equal(instructions(), null);
   await harness.setSettings({ offerNextSteps: true });
   assert.match(instructions() ?? "", /^Next steps: /);

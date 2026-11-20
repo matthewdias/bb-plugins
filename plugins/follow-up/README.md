@@ -93,31 +93,6 @@ marked in the list while you do. That cut is made from the row's own words
 rather than written separately, so it can never say something the row does
 not.
 
-**Forms.** An agent that would end its turn with a list of questions, or a
-list of things for you to decide one by one, shows them as a form instead.
-The form sits above the composer between turns, and on the Follow Up page as
-a card. It is built from fixed parts that Follow Up draws: text, code or a
-diff, a table and a link for context; a choice, a list to tick from, a
-ranking and a typed answer to ask with; and items, each with its own choices
-and, where there is text to edit first, a draft. What the agent recommends is
-picked in advance for a question and marked on an item, with *Take the
-recommendations* to accept an item list in one press.
-
-Answering sends one message, as you. It is composed by Follow Up from the
-form's own labels and what you typed, and the form shows it in full above
-*Send* before it goes: nothing travels behind a choice. The agent also gets
-the same answers keyed by each part, so it need not parse prose. The
-questions are answered together. Items can be decided a few at a time, and
-the rest stay on the form.
-
-A form waits as long as you take, unlike a question the agent stops on, and
-it goes when you answer it, when the agent asks again, or when you type a
-message of your own instead. In the thread, the × drops it unanswered.
-
-A form's text is drawn by Follow Up itself rather than as general Markdown:
-paragraphs, lists, bold, italics, code and links. There are no images and no
-HTML, whatever the text holds, and a link is followed only when you press it.
-
 **File to….** Some follow-ups belong in your tracker or backlog, not in this
 thread. Filing one moves it to Done saying where it went — "→ Jira ENG ·
 ENG-1482", a URL opening through bb — and, like dismissal, its text is not
@@ -199,9 +174,8 @@ which of three tiers it sits in:
   nothing. An approval is answered on the card too, with the choices bb's own
   approval card offers and in its words (below). A plugin form opens the
   thread.
-- **Your turn**: the turn ended with something for you, newest first. A form
-  the agent asked with (above) is filled in on the card. A checklist that
-  stopped to wait gets a card too (below). The agent's next steps work the
+- **Your turn**: the turn ended with something for you, newest first. A
+  checklist that stopped to wait gets a card (below). The agent's next steps work the
   way the Next row's do: press to send, ⌥-click to edit first, or keep one
   for later. Wrap up is the same sheet as in the
   composer. A reply ending on the thread's Thread Page link opens the page. A
@@ -270,7 +244,7 @@ nobody comes back to.
 first, then your turn, in the page's order. Open it with the *Focus* button in
 the page's header, and leave with *All of them*, Escape, or Back. It stays
 live: a card answered anywhere leaves, and a new ask joins. Number keys pick a
-question's option, a form's choice or a next step, and Enter sends it. J or → skips, K or ←
+question's option or a next step, and Enter sends it. J or → skips, K or ←
 goes back, S or ↑ puts a card away (*Not now*), Z undoes a skip or a put-away,
 and Esc leaves. Approvals, merges and wrap-ups have no key: they're click
 only. On a phone, swipe left to skip and up to put away, with the same feel
@@ -392,7 +366,6 @@ and can ask the agent to fill in a missing file anchor or detail.
 | --- | --- |
 | Remind agents to record follow-ups | on |
 | Let agents offer next steps | on |
-| Let agents ask with a form | on |
 | Let agents file follow-ups without asking | off |
 | List follow-ups in the `@` menu | on |
 | Mentioning a follow-up claims it | on |
@@ -420,7 +393,7 @@ the plugin adds nothing to it.
 
 ## For agents
 
-Eight tools:
+Seven tools:
 
 | | |
 | --- | --- |
@@ -430,7 +403,6 @@ Eight tools:
 | `prioritize_follow_up` | move a row to the front |
 | `amend_follow_up` | add detail to a row without rewording it |
 | `offer_next_steps` | offer what it would do next here, as buttons under its reply |
-| `ask_form` | end a turn with several questions, or items to decide, as a form |
 | `file_follow_ups` | file rows to a destination you set up, when you ask it to |
 
 An agent filing — through `file_follow_ups`, or by running `bb follow-up file`
@@ -439,14 +411,6 @@ going and all of what each one sends, unless you turn on *Let agents file
 follow-ups without asking*. Run from a terminal outside any thread, the
 command is you, and does not ask: filing writes outside bb, and an agent steered by something it read
 could otherwise open issues nobody asked for.
-
-`ask_form` takes a `title` and up to 40 `parts`, each one of `text`, `code`,
-`table`, `link`, `choice`, `pick`, `rank`, `answer` or `item`. A part that
-asks has an `id`, and the answers come back keyed by it. A label is the
-answer that comes back, and the only thing that does, so a form is refused,
-with the reason, if a label, prompt, title or draft holds a character that
-does not show on screen, if two parts share an id, or if a recommendation
-names an option that is not there.
 
 `record_follow_up` takes `text` (a title naming the specific thing, ≤50 chars), `reason`
 (`out-of-scope`, `blocked`, `deferred`, `risk`, or `cleanup`), an optional

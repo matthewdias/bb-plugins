@@ -33,7 +33,6 @@ import { WrapUp } from "../wrap-up.tsx";
 import { setRows } from "../store.ts";
 import { isChangeSignal } from "../use-follow-ups.ts";
 import { StillOpen } from "./rows.tsx";
-import { AskForm } from "../ask-form.tsx";
 import { ApprovalForm } from "./approvals.tsx";
 import { ChecklistCard } from "./checklist.tsx";
 import { NoDeckKeys, useDeckKeys } from "./deck-keys.tsx";
@@ -56,7 +55,6 @@ const LEAD: Record<Card["lead"], { label: string; icon: IconName }> = {
   approval: { label: "Approval", icon: "SecurityCheck" },
   form: { label: "Form", icon: "ListTodo" },
   stopped: { label: "Stopped", icon: "AlertTriangle" },
-  ask: { label: "Asks", icon: "MessageSquare" },
   checklist: { label: "Checklist", icon: "ListTodo" },
   "wrap-up": { label: "Wrap up", icon: "Archive" },
   next: { label: "Next", icon: "ArrowRight" },
@@ -101,7 +99,6 @@ export function wantsLabel(card: { lead: Card["lead"]; pr: Card["pr"] }): string
     approval: "needs approval",
     form: "waits on a form",
     stopped: "stopped",
-    ask: "asks with a form",
     checklist: "checklist is waiting",
     "wrap-up": "ready to wrap up",
     next: "offers next steps",
@@ -262,9 +259,6 @@ function CardBody({ card, rpc }: { card: Card; rpc: Rpc }) {
       break;
     case "stopped":
       main = <Stopped card={card} rpc={rpc} />;
-      break;
-    case "ask":
-      main = card.form === null ? null : <AskForm threadId={card.threadId} form={card.form} />;
       break;
     case "checklist":
       main = <ChecklistCard card={card} />;

@@ -325,7 +325,6 @@ const STRIP_LABEL: Record<Card["lead"], string> = {
   approval: "needs approval",
   form: "waits on a form",
   stopped: "stopped",
-  ask: "asks with a form",
   checklist: "checklist is waiting",
   "wrap-up": "ready to wrap up",
   next: "offers next steps",
